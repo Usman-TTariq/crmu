@@ -1,0 +1,303 @@
+// Field configurations per tab, ported from the prototype's SCHEMAS.
+// Keys are snake_case DB columns. Computed fields either derive from the row
+// (client) or are enriched server-side by the fetch actions.
+
+import {
+  LEAD_SOURCES, PROCESSORS, MSP_PROVIDERS, LEASING_COS, ONB_BRANDS,
+  ONB_FINAL, CS_STATUS, YN, CLOSER_STAGES, FULFILLMENT_STAGES, OPS_STATUS,
+  QA_DECISIONS, SQL_STATUS, FUNDING_STATUS, DEPTS, ROLES, type TabKey,
+} from "@/lib/constants";
+
+const ROLE_KEYS = ROLES.map((r) => r.key);
+import { num, isBlank } from "@/lib/format";
+import type { Rec } from "@/lib/types";
+
+export interface OptsCtx {
+  leadgenAgents: string[];
+  qaAgents: string[];
+  closers: string[];
+  opsVerifiers: string[];
+  onboarders: string[];
+  csAgents: string[];
+  assigners: string[];
+}
+
+export interface FieldDef {
+  k: string;
+  label: string;
+  type: "text" | "date" | "num" | "select" | "computed" | "thread" | "files";
+  opts?: string[] | ((ctx: OptsCtx) => string[]);
+  readOnly?: boolean;
+  mono?: boolean;
+  long?: boolean;
+  hideTable?: boolean;
+  isPill?: boolean;
+  fmt?: "money" | "pct" | "num";
+  managerOnly?: boolean;
+  compute?: (r: Rec) => unknown;
+}
+
+// SLA fatal check, ported from onbFatal (real dates)
+export const mspIsFatal = (r: Rec): boolean => {
+  if (r.final_status === "Approved" || r.final_status === "Archived") return false;
+  const now = Date.now();
+  const day = 86400000;
+  const d = (s: unknown) => new Date(String(s).slice(0, 10)).getTime();
+  const gap = (a: unknown, b: unknown) =>
+    isBlank(a) || isBlank(b) ? null : Math.round((d(b) - d(a)) / day);
+
+  if (r.a1_result === "No") {
+    if (isBlank(r.a2_result)) {
+      if (!isBlank(r.a1_date) && (now - d(r.a1_date)) / day > 1) return true;
+    } else {
+      const g = gap(r.a1_date, r.a2_date);
+      if (g !== null && g > 1) return true;
+    }
+  }
+  if (r.a2_result === "No") {
+    if (isBlank(r.a3_result)) {
+      if (!isBlank(r.a2_date) && (now - d(r.a2_date)) / day > 1) return true;
+    } else {
+      const g = gap(r.a2_date, r.a3_date);
+      if (g !== null && g > 1) return true;
+    }
+  }
+  return false;
+};
+
+export const SCHEMAS: Record<string, FieldDef[]> = {
+  leadgen: [
+    { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "date_created", label: "Date Created", type: "date" },
+    { k: "lead_gen_agent", label: "Lead Gen Agent", type: "select", opts: (c) => c.leadgenAgents },
+    { k: "lead_source", label: "Lead Source", type: "select", opts: LEAD_SOURCES },
+    { k: "business_name", label: "Business Name", type: "text" },
+    { k: "owner_name", label: "Owner Name", type: "text" },
+    { k: "phone", label: "Phone", type: "text", mono: true },
+    { k: "email", label: "Email", type: "text" },
+    { k: "business_address", label: "Business Address", type: "text" },
+    { k: "city", label: "City", type: "text" },
+    { k: "zip_code", label: "Zip Code", type: "text" },
+    { k: "state", label: "State", type: "text" },
+    { k: "current_processor", label: "Current Processor", type: "select", opts: PROCESSORS },
+    { k: "current_device", label: "Current Device", type: "text" },
+    { k: "current_rate", label: "Current Rate %", type: "text" },
+    { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money" },
+    { k: "qa_outcome", label: "QA Outcome", type: "computed", isPill: true, compute: (r) => r.qa_outcome ?? "Not in QA" },
+    { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+  ],
+  qa: [
+    { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "qa_date", label: "Date", type: "date" },
+    { k: "lead_gen_agent", label: "Lead Gen Agent", type: "text", readOnly: true },
+    { k: "business_name", label: "Business Name", type: "text" },
+    { k: "owner_name", label: "Owner Name", type: "text" },
+    { k: "phone", label: "Phone", type: "text", mono: true },
+    { k: "state", label: "State", type: "text" },
+    { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money" },
+    { k: "us_business", label: "US Business?", type: "select", opts: YN },
+    { k: "owner_reached", label: "Owner Reached?", type: "select", opts: YN },
+    { k: "interested", label: "Interested?", type: "select", opts: YN },
+    { k: "physical_loc", label: "Physical Loc?", type: "select", opts: YN },
+    { k: "not_restricted", label: "Not Restricted?", type: "select", opts: YN },
+    { k: "vol_over_5k", label: "Vol > $5k?", type: "computed", isPill: true, compute: (r) => (num(r.monthly_volume) > 5000 ? "Yes" : "No") },
+    { k: "qa_agent", label: "QA Agent", type: "select", opts: (c) => c.qaAgents },
+    { k: "qa_decision", label: "QA Decision", type: "select", opts: QA_DECISIONS },
+    { k: "qa_notes", label: "QA Notes", type: "text", long: true, hideTable: true },
+  ],
+  sqlassign: [
+    { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "qa_date", label: "QA Date", type: "date", readOnly: true },
+    { k: "business_name", label: "Business Name", type: "text", readOnly: true },
+    { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
+    { k: "phone", label: "Phone", type: "text", mono: true, readOnly: true },
+    { k: "state", label: "State", type: "text", readOnly: true },
+    { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
+    { k: "closer_open_load", label: "Closer Open Load", type: "computed", fmt: "num", compute: (r) => r.closer_open_load ?? 0 },
+    { k: "assigned_closer", label: "Assigned Closer", type: "select", opts: (c) => c.closers },
+    { k: "assignment_date", label: "Assignment Date", type: "date" },
+    { k: "assigned_by", label: "Assigned By", type: "select", opts: (c) => c.assigners },
+    { k: "sql_status", label: "SQL Status", type: "select", opts: SQL_STATUS },
+    { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+  ],
+  closer: [
+    { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "business_name", label: "Business Name", type: "text", readOnly: true },
+    { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
+    { k: "phone", label: "Phone", type: "text", mono: true, readOnly: true },
+    { k: "state", label: "State", type: "text", readOnly: true },
+    { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
+    { k: "assigned_date", label: "Assigned Date", type: "date" },
+    { k: "closer", label: "Closer", type: "text", readOnly: true },
+    { k: "stage", label: "Stage", type: "select", opts: CLOSER_STAGES },
+    { k: "lost_reason", label: "Lost Reason", type: "text", long: true, hideTable: true },
+    { k: "connected_date", label: "Connected Date", type: "date" },
+    { k: "docs_pending_date", label: "Docs Pending Date", type: "date" },
+    { k: "docs_recd_date", label: "Docs Recd Date", type: "date" },
+    { k: "closed_date", label: "Closed Date", type: "date" },
+    { k: "attachments", label: "Documents", type: "files" },
+    { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+  ],
+  ops: [
+    { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "closed_date", label: "Closed Date", type: "date", readOnly: true },
+    { k: "business_name", label: "Business Name", type: "text", readOnly: true },
+    { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
+    { k: "phone", label: "Phone", type: "text", mono: true, readOnly: true },
+    { k: "closer", label: "Closer", type: "text", readOnly: true },
+    { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
+    { k: "brand", label: "Brand", type: "select", opts: ONB_BRANDS },
+    { k: "dl_recd", label: "DL Recd?", type: "select", opts: YN },
+    { k: "voided_check", label: "Voided Check?", type: "select", opts: YN },
+    { k: "bank_stmt", label: "Bank Stmt?", type: "select", opts: YN },
+    { k: "owner_name_verified", label: "Owner Name Verified?", type: "select", opts: YN },
+    { k: "owner_phone_verified", label: "Owner Phone Verified?", type: "select", opts: YN },
+    { k: "business_verified", label: "Business Verified?", type: "select", opts: YN },
+    { k: "ops_status", label: "Approval / Disapproval", type: "select", opts: OPS_STATUS },
+    { k: "reasoning", label: "Reasoning", type: "text", long: true },
+    { k: "ops_agent", label: "OPS QA Agent", type: "select", opts: (c) => c.opsVerifiers },
+    { k: "ops_date", label: "OPS Date", type: "date" },
+    { k: "accuracy_review", label: "Accuracy Check", type: "select", opts: ["Pass", "Fail"], isPill: true, managerOnly: true },
+    { k: "attachments", label: "Documents", type: "files" },
+    { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+  ],
+  msp: [
+    { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "business_name", label: "Business Name", type: "text", readOnly: true },
+    { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
+    { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
+    { k: "ops_approved_date", label: "OPS Approved Date", type: "date", readOnly: true },
+    { k: "onboarding_sp", label: "Onboarding SP (owner)", type: "select", opts: (c) => c.onboarders },
+    { k: "sla_status", label: "SLA Status", type: "computed", isPill: true, compute: (r) => (mspIsFatal(r) ? "Fatal Error" : "On Track") },
+    { k: "a1_date", label: "1st Submission Date", type: "date" },
+    { k: "a1_provider", label: "1st MSP", type: "select", opts: MSP_PROVIDERS },
+    { k: "a1_result", label: "Attempt 1 Result", type: "select", opts: YN, isPill: true },
+    { k: "a1_reason", label: "1st Reason", type: "text", hideTable: true },
+    { k: "a2_date", label: "2nd Submission Date", type: "date" },
+    { k: "a2_provider", label: "2nd MSP", type: "select", opts: MSP_PROVIDERS },
+    { k: "a2_result", label: "Attempt 2 Result", type: "select", opts: YN, isPill: true },
+    { k: "a2_reason", label: "2nd Reason", type: "text", hideTable: true },
+    { k: "a3_date", label: "3rd Submission Date", type: "date" },
+    { k: "a3_provider", label: "3rd MSP", type: "select", opts: MSP_PROVIDERS },
+    { k: "a3_result", label: "Attempt 3 Result", type: "select", opts: YN, isPill: true },
+    { k: "a3_reason", label: "3rd Reason", type: "text", hideTable: true },
+    { k: "final_reasoning", label: "Final Reasoning", type: "text", long: true, hideTable: true },
+    { k: "approved_date", label: "Approved Date", type: "date" },
+    { k: "final_status", label: "Final Status", type: "select", opts: ONB_FINAL, isPill: true },
+    { k: "equip_order_date", label: "Equipment Order Date", type: "date" },
+    { k: "device", label: "Device", type: "text" },
+    { k: "tracking_number", label: "Equipment Tracking #", type: "text", mono: true },
+    { k: "delivery_date", label: "Equipment Delivery Date", type: "date" },
+    { k: "shipping_cost", label: "Equipment/Shipping Cost", type: "num", fmt: "money" },
+    { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+  ],
+  fulfillment: [
+    { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "funded_date", label: "Approved Date", type: "date", readOnly: true },
+    { k: "business_name", label: "Business Name", type: "text", readOnly: true },
+    { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
+    { k: "fulfillment_stage", label: "Fulfillment Stage", type: "select", opts: FULFILLMENT_STAGES },
+    { k: "hardware", label: "Hardware", type: "text" },
+    { k: "serial", label: "Serial #", type: "text", mono: true },
+    { k: "live_date", label: "Live Date", type: "date" },
+    { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+  ],
+  leasing: [
+    { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "business_name", label: "Business Name", type: "text", readOnly: true },
+    { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
+    { k: "leasing_company", label: "Leasing Company", type: "select", opts: LEASING_COS },
+    { k: "order_activation", label: "Order/Activation", type: "date" },
+    { k: "monthly_lease", label: "Monthly Lease ($)", type: "num", fmt: "money" },
+    { k: "approved_funding", label: "Approved Funding ($)", type: "num", fmt: "money" },
+    { k: "shipping_cost", label: "Equipment/Shipping Cost", type: "num", fmt: "money" },
+    { k: "funding_status", label: "Funding Status", type: "select", opts: FUNDING_STATUS },
+    { k: "funding_date", label: "Funding Date", type: "date" },
+    { k: "invoice_no", label: "Invoice No.", type: "text", mono: true },
+    { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+  ],
+  retention: [
+    { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "business_name", label: "Business Name", type: "text", readOnly: true },
+    { k: "team", label: "Team", type: "text" },
+    { k: "agent_name", label: "Agent Name", type: "select", opts: (c) => c.csAgents },
+    { k: "status", label: "Status", type: "select", opts: CS_STATUS },
+    { k: "substitute", label: "Substitute Agent", type: "select", opts: (c) => c.csAgents },
+    { k: "handover_notes", label: "Handover Notes (work to be done)", type: "text", long: true, hideTable: true },
+    { k: "comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
+  ],
+  teamsetup: [
+    { k: "full_name", label: "Name", type: "text" },
+    { k: "title", label: "Title", type: "text" },
+    { k: "dept", label: "Dept", type: "select", opts: DEPTS },
+    { k: "team", label: "Team", type: "text" },
+    { k: "role_key", label: "Access Role", type: "select", opts: ROLE_KEYS, hideTable: true },
+    { k: "target", label: "Target", type: "text" },
+    { k: "open_opps", label: "Open Opps", type: "computed", fmt: "num", compute: (r) => r.open_opps ?? 0 },
+    { k: "closed_month", label: "Closed (Mo)", type: "computed", fmt: "num", compute: (r) => r.closed_month ?? 0 },
+    { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+  ],
+};
+
+// Editable DB columns per tab (whitelist used by the save actions)
+export const EDITABLE_COLUMNS: Record<string, string[]> = {
+  leadgen: [
+    "date_created", "lead_gen_agent", "lead_source", "business_name", "owner_name",
+    "phone", "email", "business_address", "city", "zip_code", "state",
+    "current_processor", "current_device", "current_rate", "monthly_volume", "notes",
+  ],
+  qa: [
+    "qa_date", "business_name", "owner_name", "phone", "state", "monthly_volume",
+    "us_business", "owner_reached", "interested", "physical_loc", "not_restricted",
+    "qa_agent", "qa_decision", "qa_notes",
+  ],
+  sqlassign: ["assigned_closer", "assignment_date", "assigned_by", "sql_status", "notes"],
+  closer: [
+    "assigned_date", "stage", "lost_reason", "connected_date", "docs_pending_date",
+    "docs_recd_date", "closed_date", "notes",
+  ],
+  ops: [
+    "brand", "dl_recd", "voided_check", "bank_stmt", "owner_name_verified",
+    "owner_phone_verified", "business_verified", "ops_status", "reasoning",
+    "ops_agent", "ops_date", "accuracy_review", "notes",
+  ],
+  msp: [
+    "onboarding_sp", "a1_date", "a1_provider", "a1_result", "a1_reason",
+    "a2_date", "a2_provider", "a2_result", "a2_reason",
+    "a3_date", "a3_provider", "a3_result", "a3_reason",
+    "final_reasoning", "approved_date", "final_status",
+    "equip_order_date", "device", "tracking_number", "delivery_date",
+    "shipping_cost", "notes",
+  ],
+  fulfillment: ["fulfillment_stage", "hardware", "serial", "live_date", "notes"],
+  leasing: [
+    "leasing_company", "order_activation", "monthly_lease", "approved_funding",
+    "shipping_cost", "funding_status", "funding_date", "invoice_no", "notes",
+  ],
+  retention: ["team", "agent_name", "status", "substitute", "handover_notes"],
+  teamsetup: ["full_name", "title", "dept", "team", "target", "role_key", "notes"],
+};
+
+export const TAB_TABLE: Record<string, string> = {
+  leadgen: "leads",
+  qa: "qa_records",
+  sqlassign: "sql_assignments",
+  closer: "closer_deals",
+  ops: "ops_verifications",
+  msp: "msp_onboarding",
+  fulfillment: "fulfillment",
+  leasing: "leasing",
+  retention: "retention",
+  teamsetup: "profiles",
+};
+
+export const DATE_FIELD: Partial<Record<TabKey, string>> = {
+  leadgen: "date_created",
+  qa: "qa_date",
+  sqlassign: "assignment_date",
+  closer: "assigned_date",
+  ops: "ops_date",
+  msp: "ops_approved_date",
+  fulfillment: "funded_date",
+  leasing: "order_activation",
+};

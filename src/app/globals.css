@@ -1,26 +1,143 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --ink: #1b1517;
+  --ink-soft: #332b2e;
+  --ink-faint: #544a4d;
+  --bg: #f7f4f3;
+  --surface: #ffffff;
+  --line: #eae2e3;
+  --line-soft: #f3eeef;
+  --red: #c4132f;
+  --red-deep: #8c0f22;
+  --red-soft: #fcebee;
+  --accent-on-dark: #ff5568;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--ink);
+  font-family: var(--font-montserrat), -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.crm-row:hover { background: #fcebeecc !important; }
+.crm-nav { transition: background 0.12s ease; }
+.crm-nav:hover { background: rgba(255, 255, 255, 0.12); }
+.crm-card {
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+  box-shadow: 0 10px 28px rgba(46, 4, 10, 0.28);
+}
+.crm-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 40px rgba(46, 4, 10, 0.38);
+}
+.jny { transition: transform 0.12s ease, box-shadow 0.12s ease; }
+.jny:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(196, 19, 47, 0.18);
+}
+.btnp { transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease; }
+.btnp:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 9px 22px rgba(196, 19, 47, 0.36);
+  filter: brightness(1.04);
+}
+.shine { position: relative; overflow: hidden; }
+.shine::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -130%;
+  width: 70%;
+  height: 100%;
+  background: linear-gradient(115deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+  animation: sheen 2.8s ease-in-out infinite;
+}
+@keyframes sheen {
+  0% { left: -130%; }
+  55% { left: 140%; }
+  100% { left: 140%; }
+}
+.badge-loop { animation: badgefloat 2.4s ease-in-out infinite; }
+@keyframes badgefloat {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.1); }
+}
+.bar-fill { transition: width 0.7s cubic-bezier(0.4, 0, 0.2, 1); }
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--red) !important;
+  box-shadow: 0 0 0 3px #c4132f33;
+}
+button:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+
+.crm-drawer { animation: slidein 0.22s ease; }
+.crm-overlay { animation: fadein 0.18s ease; }
+.crm-toast { animation: risein 0.25s ease; }
+.fade-up { animation: fadeup 0.35s ease both; }
+@keyframes slidein {
+  from { transform: translateX(28px); opacity: 0.4; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes fadein {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes risein {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes fadeup {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #8c0f22;
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a61528;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+  background: #ffe3e7;
+  border: 3px solid rgba(0, 0, 0, 0.25);
+  background-clip: padding-box;
+}
+.side-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.75);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+* { scrollbar-color: #8c0f22 transparent; }
+html { scrollbar-color: #ffe3e7 rgba(0, 0, 0, 0.25); }
+.side-scroll { scrollbar-color: rgba(255, 255, 255, 0.75) transparent; }
+
+.kpi-glow { animation: kpiglow 1.15s ease-in-out infinite; }
+@keyframes kpiglow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(178, 59, 59, 0.5); }
+  50% { box-shadow: 0 0 0 9px rgba(178, 59, 59, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crm-drawer, .crm-overlay, .crm-toast, .kpi-glow, .fade-up, .bar-fill, .crm-card {
+    animation: none;
+    transition: none;
+  }
+  .shine::after { animation: none; }
+  .badge-loop { animation: none; }
 }

@@ -1,0 +1,327 @@
+"use client";
+
+import React, { useCallback, useEffect, useState } from "react";
+import { KeyRound } from "lucide-react";
+import { C, TONES, NEUTRAL_CHIP } from "@/lib/theme";
+import { num } from "@/lib/format";
+import { SCHEMAS } from "@/lib/schemas";
+import { TABS, USER_ADMIN_ROLES } from "@/lib/constants";
+import type { Rec } from "@/lib/types";
+import { useApp } from "@/components/app-context";
+import DataTable from "@/components/DataTable";
+import Drawer from "@/components/Drawer";
+import { Panel, LBRow, type Badge } from "@/components/dash";
+import { fetchRows, saveRecord, deleteRecord } from "@/actions/data";
+import { fetchBoards, type BoardCloserRow, type BoardLeadRow, type BoardTeamRow } from "@/actions/dashboard";
+import { createUserForProfile } from "@/actions/admin";
+
+function closerBadges(rows: BoardCloserRow[]): (r: BoardCloserRow) => Badge | null {
+  const maxW = Math.max(0, ...rows.map((r) => r.w));
+  const bestRate = Math.max(0, ...rows.filter((r) => r.w + r.l > 0).map((r) => r.rate));
+  const fastVals = rows.filter((r) => r.avgd !== null && r.w > 0).map((r) => r.avgd as number);
+  const fast = fastVals.length ? Math.min(...fastVals) : null;
+  const maxVol = Math.max(0, ...rows.map((r) => num(r.vol)));
+  return (r) => {
+    if (maxW > 0 && r.w === maxW) return { e: "\u{1F3C6}", t: "Top Closer" };
+    if (bestRate > 0 && r.w + r.l > 0 && r.rate === bestRate) return { e: "\u{1F3AF}", t: "Sharpshooter" };
+    if (fast !== null && r.avgd === fast && r.w > 0) return { e: "\u26A1", t: "Fastest Close" };
+    if (maxVol > 0 && num(r.vol) === maxVol) return { e: "\u{1F4B0}", t: "Volume Leader" };
+    return null;
+  };
+}
+
+function leadBadges(rows: BoardLeadRow[]): (r: BoardLeadRow) => Badge | null {
+  const maxL = Math.max(0, ...rows.map((r) => r.leads));
+  const bestRate = Math.max(0, ...rows.filter((r) => r.q + r.rej > 0).map((r) => r.rate));
+  return (r) => {
+    if (maxL > 0 && r.leads === maxL) return { e: "\u{1F3C6}", t: "Top Generator" };
+    if (bestRate > 0 && r.q + r.rej > 0 && r.rate === bestRate) return { e: "\u{1F3AF}", t: "Quality Leader" };
+    return null;
+  };
+}
+
+export default function TeamSetupPage() {
+  const app = useApp();
+  const tabDef = TABS.find((t) => t.k === "teamsetup")!;
+  const fields = SCHEMAS.teamsetup;
+  const isAdmin = USER_ADMIN_ROLES.includes(app.role.key);
+  // roster writes are admin-only, matching the profiles RLS policies
+  const canEdit = app.editTabs.includes("teamsetup") && isAdmin;
+
+  const [rows, setRows] = useState<Rec[]>([]);
+  const [boards, setBoards] = useState<{ closers: BoardCloserRow[]; leadgen: BoardLeadRow[]; teams: BoardTeamRow[] } | null>(null);
+  const [drawer, setDrawer] = useState<{ record: Rec; isNew: boolean } | null>(null);
+
+  // user creation form
+  const [selProfile, setSelProfile] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const pushToasts = app.pushToasts;
+
+  const load = useCallback(() => {
+    return Promise.all([fetchRows({ tab: "teamsetup", tf: app.tf }), fetchBoards({ tf: app.tf })]).then(([r, b]) => {
+      if (r.error) pushToasts([r.error]);
+      setRows(r.rows);
+      setBoards(b);
+    });
+  }, [app.tf, pushToasts]);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([fetchRows({ tab: "teamsetup", tf: app.tf }), fetchBoards({ tf: app.tf })]).then(([r, b]) => {
+      if (!alive) return;
+      if (r.error) pushToasts([r.error]);
+      setRows(r.rows);
+      setBoards(b);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [app.tf, pushToasts]);
+
+  const openAdd = useCallback(() => {
+    setDrawer({
+      record: { id: "", full_name: "", title: "", dept: "SALES", team: "", role_key: "lg_agent", target: "", notes: "" },
+      isNew: true,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!canEdit) return;
+    return app.onAdd(openAdd);
+  }, [app, canEdit, openAdd]);
+
+  if (!app.viewTabs.includes("teamsetup")) {
+    return <div style={{ padding: 40, color: "#fff", fontWeight: 600 }}>This tab is not visible to your role.</div>;
+  }
+
+  const onSave = async (draft: Rec, isNew: boolean) => {
+    const res = await saveRecord({ tab: "teamsetup", id: isNew ? null : String(draft.id), values: draft });
+    if (res.error) {
+      app.pushToasts([res.error]);
+      return;
+    }
+    app.pushToasts([isNew ? "Team member added." : "Team member updated."]);
+    setDrawer(null);
+    load();
+  };
+
+  const onDelete = async (rec: Rec) => {
+    const res = await deleteRecord({ tab: "teamsetup", id: String(rec.id) });
+    if (res.error) {
+      app.pushToasts([res.error]);
+      return;
+    }
+    setDrawer(null);
+    load();
+  };
+
+  const createLogin = async () => {
+    if (!selProfile || !email || !password) {
+      app.pushToasts(["Pick a person and fill email + password."]);
+      return;
+    }
+    setCreating(true);
+    const res = await createUserForProfile({ profileId: selProfile, email, password });
+    setCreating(false);
+    if (res.error) {
+      app.pushToasts([res.error]);
+      return;
+    }
+    app.pushToasts(["Login created."]);
+    setSelProfile("");
+    setEmail("");
+    setPassword("");
+    load();
+  };
+
+  const q = app.query.trim().toLowerCase();
+  const filtered = q
+    ? rows.filter((r) =>
+        Object.values(r).some((v) => v != null && typeof v !== "object" && String(v).toLowerCase().includes(q))
+      )
+    : rows;
+
+  const noLogin = rows.filter((r) => !r.user_id);
+  const tb = boards?.teams || [];
+  const lb = boards?.leadgen || [];
+  const cb = boards?.closers || [];
+  const anyTeam = tb.some((r) => r.leads || r.sqls || r.won || r.lost);
+  const cbBadge = closerBadges(cb);
+  const lbBadge = leadBadges(lb);
+
+  const inputStyle: React.CSSProperties = {
+    border: `1px solid ${C.line}`,
+    borderRadius: 10,
+    padding: "9px 12px",
+    fontSize: 13.5,
+    color: C.ink,
+    background: C.surface,
+    outline: "none",
+    fontFamily: "inherit",
+  };
+
+  return (
+    <div style={{ padding: 20 }}>
+      <div style={{ marginBottom: 14 }}>
+        <Panel title={"Team Leaderboard · " + app.tf} color={C.blueDeep}>
+          {anyTeam ? (
+            tb.map((r, i) => {
+              const rate = r.won + r.lost ? Math.round((r.won / (r.won + r.lost)) * 100) : 0;
+              return (
+                <LBRow
+                  key={r.team}
+                  i={i}
+                  isLast={i === tb.length - 1}
+                  name={r.team}
+                  badge={i === 0 && r.won > 0 ? { e: "\u{1F3C6}", t: "Top Team" } : null}
+                  rateText={rate + "% win"}
+                  chips={[
+                    { t: r.leads + " leads", tone: NEUTRAL_CHIP },
+                    { t: r.sqls + " SQLs", tone: TONES.info },
+                    { t: r.won + " won", tone: TONES.good },
+                    { t: r.lost + " lost", tone: TONES.bad },
+                  ]}
+                />
+              );
+            })
+          ) : (
+            <div style={{ fontSize: 13, color: C.inkFaint }}>No team activity in this timeframe.</div>
+          )}
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.inkFaint, marginTop: 8 }}>
+            Ranked by deals won, then SQLs. Each figure is credited to the pod whose agent generated the lead.
+          </div>
+        </Panel>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14, alignItems: "stretch" }}>
+        <Panel title={"Lead Gen Agents · " + app.tf} color={C.blue}>
+          {lb.length ? (
+            lb.map((r, i) => (
+              <LBRow
+                key={r.name}
+                i={i}
+                isLast={i === lb.length - 1}
+                name={r.name}
+                badge={lbBadge(r)}
+                rateText={r.rate + "% qual"}
+                chips={[
+                  { t: r.leads + " leads", tone: NEUTRAL_CHIP },
+                  { t: r.q + " qualified", tone: TONES.good },
+                  { t: r.rej + " rejected", tone: TONES.bad },
+                ]}
+              />
+            ))
+          ) : (
+            <div style={{ fontSize: 13, color: C.inkFaint }}>No lead activity in this timeframe.</div>
+          )}
+        </Panel>
+        <Panel title={"Closers · " + app.tf} color={C.ink}>
+          {cb.length ? (
+            cb.map((r, i) => (
+              <LBRow
+                key={r.name}
+                i={i}
+                isLast={i === cb.length - 1}
+                name={r.name}
+                badge={cbBadge(r)}
+                rateText={r.rate + "% win"}
+                chips={[
+                  { t: r.w + " won", tone: TONES.good },
+                  { t: r.a + " assigned", tone: NEUTRAL_CHIP },
+                  { t: r.l + " lost", tone: TONES.bad },
+                ]}
+              />
+            ))
+          ) : (
+            <div style={{ fontSize: 13, color: C.inkFaint }}>No closer activity in this timeframe.</div>
+          )}
+        </Panel>
+      </div>
+
+      {isAdmin ? (
+        <div style={{ marginBottom: 14 }}>
+          <Panel title="Create Login · admin only" color={C.blueDeep}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+              <KeyRound size={16} style={{ color: C.blueDeep, flexShrink: 0 }} />
+              <select value={selProfile} onChange={(e) => setSelProfile(e.target.value)} style={{ ...inputStyle, minWidth: 200 }}>
+                <option value="">Pick a team member&hellip;</option>
+                {noLogin.map((p) => (
+                  <option key={String(p.id)} value={String(p.id)}>
+                    {String(p.full_name)} — {String(p.title)}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{ ...inputStyle, minWidth: 200 }}
+              />
+              <input
+                type="password"
+                placeholder="Password (min 8 chars)"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ ...inputStyle, minWidth: 180 }}
+              />
+              <button
+                onClick={createLogin}
+                disabled={creating}
+                className="btnp"
+                style={{
+                  border: "none",
+                  background: "linear-gradient(180deg,#D2203A,#A6112A)",
+                  color: "#fff",
+                  borderRadius: 10,
+                  padding: "10px 18px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: creating ? "default" : "pointer",
+                  opacity: creating ? 0.7 : 1,
+                }}
+              >
+                {creating ? "Creating..." : "Create login"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11.5, color: C.inkFaint, marginTop: 8 }}>
+              Creates an email + password account and links it to the roster profile. The person signs in at /login. Access follows the profile&apos;s role.
+            </div>
+          </Panel>
+        </div>
+      ) : null}
+
+      <div
+        style={{
+          background: C.surface,
+          border: `1px solid ${C.line}`,
+          borderRadius: 14,
+          overflow: "hidden",
+          boxShadow: "0 12px 34px rgba(46,4,10,0.30)",
+        }}
+      >
+        <DataTable fields={fields} rows={filtered} onRow={(r) => setDrawer({ record: r, isNew: false })} />
+      </div>
+
+      {drawer ? (
+        <Drawer
+          tab={tabDef}
+          fields={fields}
+          record={drawer.record}
+          isNew={drawer.isNew}
+          opts={app.opts}
+          readOnly={!canEdit}
+          manager={app.isManager}
+          canDelete={isAdmin}
+          viewTabs={app.viewTabs}
+          onClose={() => setDrawer(null)}
+          onSave={onSave}
+          onDelete={onDelete}
+        />
+      ) : null}
+    </div>
+  );
+}

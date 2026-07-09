@@ -1,36 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TGT Nexus CRM
 
-## Getting Started
+Production CRM for the TGT Nexus POS operations pipeline — Next.js (App Router) + Supabase (Postgres, Auth, Storage, RLS).
 
-First, run the development server:
+## Setup
+
+### 1. Supabase
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Open the **SQL Editor** and run the files in `sql/` **in order**:
+   - `01_schema.sql` — tables, lead-ID sequence, indexes, storage bucket
+   - `02_triggers.sql` — pipeline auto-advance + validation rules
+   - `03_rls.sql` — row-level security policies per role
+   - `04_dashboards.sql` — dashboard RPC functions
+   - `05_seed.sql` — teams + roster profiles
+3. In **Authentication → Providers**, keep Email enabled. Disable public signups (Authentication → Settings → "Allow new users to sign up" off) — accounts are created by admins from the Team Setup tab.
+
+### 2. App
 
 ```bash
+npm install
+copy .env.example .env.local   # fill in your Supabase URL + keys
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 3. First admin
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The seed creates roster profiles but no logins. Create the first login manually:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Supabase Dashboard → Authentication → Users → **Add user** (email + password, confirm email).
+2. SQL Editor: link it to the CEO (or Super Admin) profile:
 
-## Learn More
+```sql
+update public.profiles
+set user_id = 'THE-NEW-USER-UUID'
+where full_name = 'CEO';
+```
 
-To learn more about Next.js, take a look at the following resources:
+3. Sign in at `/login`. From **Team Setup** you can now create logins for everyone else.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Rules baked into the database
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- New lead → QA record auto-created (Pending)
+- QA Qualified needs all 6 checks Yes + volume > $5k → SQL assignment created
+- SQL Assigned + closer → closer deal (No Answer)
+- Closed Won → OPS verification; Closed Lost requires a reason
+- OPS Approved with any unverified doc → auto-flips Disapproved
+- Any MSP attempt Yes → Approved → Fulfillment (+ Leasing) created
+- Leasing Funded → Customer Success record (Active)
+- Retention comments are append-only
+- Late 2nd/3rd onboarding attempts (>24h) surface as fatal errors
 
-## Deploy on Vercel
+## Conventions
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- All reads/writes go through server actions; data always travels in the request payload (JSON body / FormData), never in URL query params.
+- File uploads: private `documents` bucket, 10 MB max, pdf/jpg/jpeg/png/gif/webp, previewed via short-lived signed URLs.
+- The `SUPABASE_SERVICE_ROLE_KEY` is used only in server-side admin actions (user creation, cross-role enrichment) and must never reach the client.
