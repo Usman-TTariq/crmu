@@ -11,7 +11,16 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) {
+    // If an auth user exists but has no active linked profile, sign them out
+    // (going straight to /login would loop: the proxy bounces signed-in users
+    // away from /login).
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    redirect(user ? "/logout" : "/login");
+  }
 
   const supabase = await createClient();
   const { data: profiles } = await supabase

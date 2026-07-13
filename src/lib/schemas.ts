@@ -5,10 +5,11 @@
 import {
   LEAD_SOURCES, PROCESSORS, MSP_PROVIDERS, LEASING_COS, ONB_BRANDS,
   ONB_FINAL, CS_STATUS, YN, CLOSER_STAGES, FULFILLMENT_STAGES, OPS_STATUS,
-  QA_DECISIONS, SQL_STATUS, FUNDING_STATUS, DEPTS, ROLES, type TabKey,
+  QA_DECISIONS, SQL_STATUS, FUNDING_STATUS, DEPTS, SALES_TEAMS,
+  TITLE_ROLE_MAP, roleByKey, type TabKey,
 } from "@/lib/constants";
 
-const ROLE_KEYS = ROLES.map((r) => r.key);
+const TITLES = Object.keys(TITLE_ROLE_MAP);
 import { num, isBlank } from "@/lib/format";
 import type { Rec } from "@/lib/types";
 
@@ -228,13 +229,20 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
   ],
   teamsetup: [
     { k: "full_name", label: "Name", type: "text" },
-    { k: "title", label: "Title", type: "text" },
+    { k: "title", label: "Title", type: "select", opts: TITLES },
     { k: "dept", label: "Dept", type: "select", opts: DEPTS },
-    { k: "team", label: "Team", type: "text" },
-    { k: "role_key", label: "Access Role", type: "select", opts: ROLE_KEYS, hideTable: true },
+    { k: "team", label: "Team", type: "select", opts: SALES_TEAMS },
+    // Access role is derived from the title (TITLE_ROLE_MAP) when saving.
+    {
+      k: "role_key", label: "Access Role", type: "computed", isPill: true, hideTable: true,
+      compute: (r) => roleByKey(TITLE_ROLE_MAP[String(r.title || "")] || String(r.role_key || "")).label,
+    },
     { k: "target", label: "Target", type: "text" },
     { k: "open_opps", label: "Open Opps", type: "computed", fmt: "num", compute: (r) => r.open_opps ?? 0 },
     { k: "closed_month", label: "Closed (Mo)", type: "computed", fmt: "num", compute: (r) => r.closed_month ?? 0 },
+    { k: "login_state", label: "Login", type: "computed", isPill: true, compute: (r) => (r.user_id ? "Yes" : "Not created") },
+    { k: "login_email", label: "Login Email", type: "text", readOnly: true, mono: true },
+    { k: "active_state", label: "Status", type: "computed", isPill: true, compute: (r) => (r.is_active === false ? "Inactive" : "Active") },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
   ],
 };

@@ -7,6 +7,7 @@ import { C } from "@/lib/theme";
 import { TIMEFRAMES, type Timeframe } from "@/lib/format";
 import { TABS, NAV_GROUPS, groupOf, ADDABLE, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import { useApp } from "@/components/app-context";
+import ActiveLogins from "@/components/ActiveLogins";
 import { fetchTabCounts } from "@/actions/data";
 import { signOut } from "@/actions/auth";
 
@@ -243,6 +244,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               {tab.label}
             </div>
           </div>
+          <ActiveLogins />
           <select
             value={app.tf}
             onChange={(e) => app.setTf(e.target.value as Timeframe)}

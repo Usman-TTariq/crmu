@@ -1,24 +1,28 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { TrendingUp } from "lucide-react";
-import { C } from "@/lib/theme";
+import { AlertTriangle, TrendingUp } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { C, TONES } from "@/lib/theme";
 import { num } from "@/lib/format";
 import { useApp } from "@/components/app-context";
 import { KpiCard, Panel } from "@/components/dash";
 import Pill from "@/components/Pill";
-import { fetchOpsKpi } from "@/actions/dashboard";
+import { fetchOpsKpi, fetchMspFatalLeads } from "@/actions/dashboard";
 
 export default function OpsKpiPage() {
   const app = useApp();
+  const router = useRouter();
   const [d, setD] = useState<Record<string, unknown> | null>(null);
+  const [fatalLeads, setFatalLeads] = useState<string[]>([]);
 
   useEffect(() => {
     let alive = true;
-    fetchOpsKpi({ tf: app.tf }).then((res) => {
+    Promise.all([fetchOpsKpi({ tf: app.tf }), fetchMspFatalLeads()]).then(([res, fl]) => {
       if (!alive) return;
       if (res.error) app.pushToasts([res.error]);
       else setD(res.data || null);
+      setFatalLeads(fl.leadIds);
     });
     return () => {
       alive = false;
@@ -77,6 +81,46 @@ export default function OpsKpiPage() {
         <KpiCard label="At Risk" value={cs.atRiskRate === null || cs.atRiskRate === undefined ? "-" : cs.atRiskRate + "%"} target="monitor" met={null} sub={num(cs.atRisk) + " potential chargebacks"} />
         <KpiCard label="Buy-back / Chargeback" value={cs.buybackRate === null || cs.buybackRate === undefined ? "-" : cs.buybackRate + "%"} target="monitor" met={null} sub={num(cs.chargeback) + " of " + csD + " funded"} />
       </div>
+      {fatalLeads.length ? (
+        <div style={{ marginBottom: 20 }}>
+          <Panel title={"Fatal SLA Breaches · " + fatalLeads.length + " lead" + (fatalLeads.length === 1 ? "" : "s") + " need action now"} color={TONES.bad.fg}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <AlertTriangle size={16} style={{ color: TONES.bad.fg, flexShrink: 0 }} />
+              {fatalLeads.map((id) => (
+                <button
+                  key={id}
+                  className="mono jny"
+                  onClick={
+                    app.viewTabs.includes("msp")
+                      ? () => {
+                          app.jumpTo("msp", id);
+                          router.push("/msp");
+                        }
+                      : undefined
+                  }
+                  title={app.viewTabs.includes("msp") ? "Open this record in Onboarding" : "Onboarding is not visible to your role"}
+                  style={{
+                    border: `1px solid ${TONES.bad.fg}55`,
+                    background: TONES.bad.bg,
+                    color: TONES.bad.fg,
+                    borderRadius: 8,
+                    padding: "5px 11px",
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    cursor: app.viewTabs.includes("msp") ? "pointer" : "default",
+                  }}
+                >
+                  {id}
+                </button>
+              ))}
+              <span style={{ fontSize: 12, color: C.inkFaint }}>
+                A failed attempt was left without a follow-up for more than 24 hours.
+              </span>
+            </div>
+          </Panel>
+        </div>
+      ) : null}
+
       <Panel title="Key Performance Indicators (KPIs) - Onboarding team" color={C.blueDeep}>
         <div className="overflow-auto">
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 13 }}>

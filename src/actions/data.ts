@@ -6,9 +6,9 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireSession } from "@/lib/session";
+import { getSession, requireAuth, requireSession } from "@/lib/session";
 import { EDITABLE_COLUMNS, TAB_TABLE, DATE_FIELD } from "@/lib/schemas";
-import { TABS, type TabKey } from "@/lib/constants";
+import { TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import type { Rec, Attachment, RetentionComment } from "@/lib/types";
 import type { Timeframe } from "@/lib/format";
 
@@ -55,7 +55,7 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
   error?: string;
 }> {
   try {
-    await requireSession();
+    await requireAuth();
     const supabase = await createClient();
     const table = TAB_TABLE[payload.tab];
     if (!table) return { rows: [], error: "Unknown tab." };
@@ -158,6 +158,17 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
         open_opps: open.get(String(r.full_name)) || 0,
         closed_month: closedMo.get(String(r.full_name)) || 0,
       }));
+
+      // Login emails are visible to user admins only
+      const session = await getSession();
+      if (session && USER_ADMIN_ROLES.includes(session.profile.role_key)) {
+        const { data: usersData } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+        const emailById = new Map((usersData?.users || []).map((u) => [u.id, u.email || ""]));
+        rows = rows.map((r) => ({
+          ...r,
+          login_email: r.user_id ? emailById.get(String(r.user_id)) || "" : "",
+        }));
+      }
     }
 
     return { rows };
@@ -172,7 +183,7 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
 export async function fetchJourney(payload: { leadId: string }): Promise<{
   stages: Record<string, string | null>;
 }> {
-  await requireSession();
+  await requireAuth();
   const admin = createAdminClient();
   const stages: Record<string, string | null> = {};
   const checks: [string, string][] = [
@@ -285,7 +296,7 @@ export async function createManualOpsRecord(payload: {
   values: Record<string, unknown>;
 }): Promise<{ ok?: boolean; error?: string; messages?: string[] }> {
   try {
-    await requireSession();
+    await requireAuth();
     const supabase = await createClient();
     const v = payload.values;
 
@@ -332,7 +343,7 @@ export async function deleteRecord(payload: { tab: TabKey; id: string }): Promis
   error?: string;
 }> {
   try {
-    await requireSession();
+    await requireAuth();
     const supabase = await createClient();
     const table = TAB_TABLE[payload.tab];
     if (!table) return { error: "Unknown tab." };
@@ -348,7 +359,7 @@ export async function deleteRecord(payload: { tab: TabKey; id: string }): Promis
 // Sidebar counts (RLS-scoped, per timeframe)
 // ---------------------------------------------------------------------------
 export async function fetchTabCounts(payload: { tf: Timeframe }): Promise<Record<string, number>> {
-  await requireSession();
+  await requireAuth();
   const supabase = await createClient();
   const counts: Record<string, number> = {};
 

@@ -13,6 +13,8 @@ Production CRM for the TGT Nexus POS operations pipeline — Next.js (App Router
    - `03_rls.sql` — row-level security policies per role
    - `04_dashboards.sql` — dashboard RPC functions
    - `05_seed.sql` — teams + roster profiles
+   - `06_demo_data.sql` — *(optional)* sample leads across every pipeline stage, for demos/testing
+   - `07_sessions.sql` — Active Logins dropdown in the top navbar (who is signed in, device, IP) plus admin remote sign-out (per user, or everyone at once)
 3. In **Authentication → Providers**, keep Email enabled. Disable public signups (Authentication → Settings → "Allow new users to sign up" off) — accounts are created by admins from the Team Setup tab.
 
 ### 2. App
@@ -32,7 +34,7 @@ The seed creates roster profiles but no logins. Create the first login manually:
 
 ```sql
 update public.profiles
-set user_id = 'THE-NEW-USER-UUID'
+set user_id = '5f02f016-b65b-4237-af4a-83dc6b7d31ff'
 where full_name = 'CEO';
 ```
 
@@ -50,8 +52,15 @@ where full_name = 'CEO';
 - Retention comments are append-only
 - Late 2nd/3rd onboarding attempts (>24h) surface as fatal errors
 
+## Team & access management (Team Setup, admin only)
+
+- **Create login** — makes an email + password account and links it to a roster profile.
+- **Manage access** — deactivate/reactivate a member (removes them from dropdowns and blocks sign-in, history kept) or revoke a login (deletes the account and ends all its sessions; the profile stays).
+- A member's **access role is derived from their title** — pick the title, the role follows automatically.
+
 ## Conventions
 
 - All reads/writes go through server actions; data always travels in the request payload (JSON body / FormData), never in URL query params.
+- `src/proxy.ts` is the Next.js 16 request proxy (the renamed `middleware.ts` convention): it refreshes the Supabase session cookie and redirects unauthenticated visitors to `/login`.
 - File uploads: private `documents` bucket, 10 MB max, pdf/jpg/jpeg/png/gif/webp, previewed via short-lived signed URLs.
 - The `SUPABASE_SERVICE_ROLE_KEY` is used only in server-side admin actions (user creation, cross-role enrichment) and must never reach the client.

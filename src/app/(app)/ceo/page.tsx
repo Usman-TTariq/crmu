@@ -8,7 +8,7 @@ import { money, num, dd, today } from "@/lib/format";
 import { useApp } from "@/components/app-context";
 import { Stat, Bar, Panel, Donut, FunnelChart, SegmentedDonut, LBRow, type FunnelStep, type Badge } from "@/components/dash";
 import Pill from "@/components/Pill";
-import { fetchCeoDashboard, fetchBoards, type BoardCloserRow } from "@/actions/dashboard";
+import { fetchCeoPage, type BoardCloserRow } from "@/actions/dashboard";
 
 type Ceo = Record<string, unknown>;
 
@@ -36,11 +36,11 @@ export default function CeoDashboardPage() {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([fetchCeoDashboard({ tf: app.tf }), fetchBoards({ tf: app.tf })]).then(([res, b]) => {
+    fetchCeoPage({ tf: app.tf }).then((res) => {
       if (!alive) return;
       if (res.error) setErr(res.error);
       else setD(res.data || null);
-      setClosers(b.closers);
+      setClosers(res.closers);
     });
     return () => {
       alive = false;
@@ -345,7 +345,15 @@ export default function CeoDashboardPage() {
                 {recent.map((r, i) => {
                   const days = dd(r.assigned_date, today());
                   return (
-                    <tr key={i} onClick={() => nav("closer")} className="crm-row" style={{ cursor: "pointer" }}>
+                    <tr
+                      key={i}
+                      onClick={() => {
+                        app.jumpTo("closer", r.lead_id);
+                        nav("closer");
+                      }}
+                      className="crm-row"
+                      style={{ cursor: "pointer" }}
+                    >
                       <td className="mono" style={{ padding: "7px 10px", color: C.blue, fontWeight: 600, borderBottom: `1px solid ${C.lineSoft}` }}>
                         {r.lead_id}
                       </td>
@@ -367,6 +375,7 @@ export default function CeoDashboardPage() {
           </div>
         </Panel>
       </div>
+
     </div>
   );
 }

@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { KeyRound } from "lucide-react";
+import { KeyRound, Plus, ShieldOff } from "lucide-react";
 import { C, TONES, NEUTRAL_CHIP } from "@/lib/theme";
 import { num } from "@/lib/format";
 import { SCHEMAS } from "@/lib/schemas";
-import { TABS, USER_ADMIN_ROLES } from "@/lib/constants";
+import { TABS, USER_ADMIN_ROLES, TITLE_ROLE_MAP } from "@/lib/constants";
 import type { Rec } from "@/lib/types";
 import { useApp } from "@/components/app-context";
 import DataTable from "@/components/DataTable";
@@ -13,7 +13,7 @@ import Drawer from "@/components/Drawer";
 import { Panel, LBRow, type Badge } from "@/components/dash";
 import { fetchRows, saveRecord, deleteRecord } from "@/actions/data";
 import { fetchBoards, type BoardCloserRow, type BoardLeadRow, type BoardTeamRow } from "@/actions/dashboard";
-import { createUserForProfile } from "@/actions/admin";
+import { createUserForProfile, setProfileActive, revokeLogin, setUserPassword } from "@/actions/admin";
 
 function closerBadges(rows: BoardCloserRow[]): (r: BoardCloserRow) => Badge | null {
   const maxW = Math.max(0, ...rows.map((r) => r.w));
@@ -28,6 +28,51 @@ function closerBadges(rows: BoardCloserRow[]): (r: BoardCloserRow) => Badge | nu
     if (maxVol > 0 && num(r.vol) === maxVol) return { e: "\u{1F4B0}", t: "Volume Leader" };
     return null;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Roster grouping: Leadership → Sales pods → Sales QA → Operations,
+// each section ordered by rank (supervisor → agents → closers), then name.
+// ---------------------------------------------------------------------------
+const TEAM_ORDER = ["Olympus", "Phoenix", "Spartan", "Titans"];
+const TITLE_ORDER = [
+  "CEO", "Super Admin", "Sales Head & QA",
+  "Lead Gen Supervisor", "Lead Gen Agent", "Closer", "Tier 3", "QA Agent",
+  "Manager", "Assistant Manager", "QA & Funding Lead", "Quality Assurance",
+  "Onboarding Lead", "Onboarding Agent",
+  "Customer Success Head", "Customer Success Lead", "Customer Success Agent",
+];
+
+function rosterGroup(r: Rec): string {
+  if (r.dept === "ALL" || r.role_key === "sales_head") return "Leadership";
+  if (r.dept === "SALES") return r.team ? `Sales · Team ${r.team}` : "Sales · QA";
+  return "Operations";
+}
+
+function rosterGroupRank(r: Rec): number {
+  if (r.dept === "ALL" || r.role_key === "sales_head") return 0;
+  if (r.dept === "SALES") {
+    if (r.team) {
+      const t = TEAM_ORDER.indexOf(String(r.team));
+      return 1 + (t === -1 ? TEAM_ORDER.length : t);
+    }
+    return 1 + TEAM_ORDER.length + 1; // Sales · QA
+  }
+  return 1 + TEAM_ORDER.length + 2; // Operations
+}
+
+function titleRank(r: Rec): number {
+  const t = TITLE_ORDER.indexOf(String(r.title));
+  return t === -1 ? TITLE_ORDER.length : t;
+}
+
+function sortRoster(rows: Rec[]): Rec[] {
+  return [...rows].sort(
+    (a, b) =>
+      rosterGroupRank(a) - rosterGroupRank(b) ||
+      titleRank(a) - titleRank(b) ||
+      String(a.full_name).localeCompare(String(b.full_name))
+  );
 }
 
 function leadBadges(rows: BoardLeadRow[]): (r: BoardLeadRow) => Badge | null {
@@ -57,6 +102,11 @@ export default function TeamSetupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [creating, setCreating] = useState(false);
+
+  // access management form
+  const [accProfile, setAccProfile] = useState("");
+  const [accBusy, setAccBusy] = useState(false);
+  const [accPassword, setAccPassword] = useState("");
 
   const pushToasts = app.pushToasts;
 
@@ -98,7 +148,14 @@ export default function TeamSetupPage() {
   }
 
   const onSave = async (draft: Rec, isNew: boolean) => {
-    const res = await saveRecord({ tab: "teamsetup", id: isNew ? null : String(draft.id), values: draft });
+    // Access role is derived from the title, never picked by hand.
+    const derivedRole = TITLE_ROLE_MAP[String(draft.title || "")];
+    if (!derivedRole && isNew) {
+      app.pushToasts(["Pick a title so the access role can be assigned."]);
+      return;
+    }
+    const values = derivedRole ? { ...draft, role_key: derivedRole } : draft;
+    const res = await saveRecord({ tab: "teamsetup", id: isNew ? null : String(draft.id), values });
     if (res.error) {
       app.pushToasts([res.error]);
       return;
@@ -137,12 +194,58 @@ export default function TeamSetupPage() {
     load();
   };
 
+  const accSelected = rows.find((r) => String(r.id) === accProfile) || null;
+
+  const toggleActive = async () => {
+    if (!accSelected) return;
+    setAccBusy(true);
+    const active = accSelected.is_active === false;
+    const res = await setProfileActive({ profileId: String(accSelected.id), active });
+    setAccBusy(false);
+    if (res.error) {
+      app.pushToasts([res.error]);
+      return;
+    }
+    app.pushToasts([
+      `${accSelected.full_name} ${active ? "reactivated." : "deactivated. They no longer appear in dropdowns and cannot sign in."}`,
+    ]);
+    load();
+  };
+
+  const doRevokeLogin = async () => {
+    if (!accSelected) return;
+    setAccBusy(true);
+    const res = await revokeLogin({ profileId: String(accSelected.id) });
+    setAccBusy(false);
+    if (res.error) {
+      app.pushToasts([res.error]);
+      return;
+    }
+    app.pushToasts([`Login revoked for ${accSelected.full_name}. Their sessions are terminated.`]);
+    load();
+  };
+
+  const doSetPassword = async () => {
+    if (!accSelected) return;
+    setAccBusy(true);
+    const res = await setUserPassword({ profileId: String(accSelected.id), password: accPassword });
+    setAccBusy(false);
+    if (res.error) {
+      app.pushToasts([res.error]);
+      return;
+    }
+    app.pushToasts([`Password updated for ${accSelected.full_name}. Share it with them securely.`]);
+    setAccPassword("");
+  };
+
   const q = app.query.trim().toLowerCase();
-  const filtered = q
-    ? rows.filter((r) =>
-        Object.values(r).some((v) => v != null && typeof v !== "object" && String(v).toLowerCase().includes(q))
-      )
-    : rows;
+  const filtered = sortRoster(
+    q
+      ? rows.filter((r) =>
+          Object.values(r).some((v) => v != null && typeof v !== "object" && String(v).toLowerCase().includes(q))
+        )
+      : rows
+  );
 
   const noLogin = rows.filter((r) => !r.user_id);
   const tb = boards?.teams || [];
@@ -294,6 +397,108 @@ export default function TeamSetupPage() {
         </div>
       ) : null}
 
+      {isAdmin ? (
+        <div style={{ marginBottom: 14 }}>
+          <Panel title="Manage Access · admin only" color={TONES.bad.fg}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+              <ShieldOff size={16} style={{ color: TONES.bad.fg, flexShrink: 0 }} />
+              <select value={accProfile} onChange={(e) => setAccProfile(e.target.value)} style={{ ...inputStyle, minWidth: 240 }}>
+                <option value="">Pick a team member&hellip;</option>
+                {rows.map((p) => (
+                  <option key={String(p.id)} value={String(p.id)}>
+                    {String(p.full_name)} — {p.is_active === false ? "inactive" : "active"}
+                    {p.user_id ? ", has login" : ", no login"}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={toggleActive}
+                disabled={!accSelected || accBusy}
+                style={{
+                  border: `1px solid ${C.line}`,
+                  background: C.surface,
+                  color: accSelected && accSelected.is_active === false ? TONES.good.fg : TONES.warn.fg,
+                  borderRadius: 10,
+                  padding: "10px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: !accSelected || accBusy ? "default" : "pointer",
+                  opacity: !accSelected || accBusy ? 0.6 : 1,
+                }}
+              >
+                {accBusy ? "Working..." : accSelected && accSelected.is_active === false ? "Reactivate" : "Deactivate"}
+              </button>
+              <button
+                onClick={doRevokeLogin}
+                disabled={!accSelected || !accSelected.user_id || accBusy}
+                style={{
+                  border: `1px solid ${TONES.bad.fg}55`,
+                  background: TONES.bad.bg,
+                  color: TONES.bad.fg,
+                  borderRadius: 10,
+                  padding: "10px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: !accSelected || !accSelected.user_id || accBusy ? "default" : "pointer",
+                  opacity: !accSelected || !accSelected.user_id || accBusy ? 0.6 : 1,
+                }}
+              >
+                Revoke login
+              </button>
+              <input
+                type="password"
+                placeholder="New password (min 8 chars)"
+                value={accPassword}
+                onChange={(e) => setAccPassword(e.target.value)}
+                disabled={!accSelected || !accSelected.user_id}
+                style={{ ...inputStyle, minWidth: 180, opacity: !accSelected || !accSelected.user_id ? 0.6 : 1 }}
+              />
+              <button
+                onClick={doSetPassword}
+                disabled={!accSelected || !accSelected.user_id || accPassword.length < 8 || accBusy}
+                style={{
+                  border: `1px solid ${C.line}`,
+                  background: C.surface,
+                  color: C.blueDeep,
+                  borderRadius: 10,
+                  padding: "10px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: !accSelected || !accSelected.user_id || accPassword.length < 8 || accBusy ? "default" : "pointer",
+                  opacity: !accSelected || !accSelected.user_id || accPassword.length < 8 || accBusy ? 0.6 : 1,
+                }}
+              >
+                {accBusy ? "Setting..." : "Set password"}
+              </button>
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={openAdd}
+                className="btnp"
+                style={{
+                  border: "none",
+                  background: "linear-gradient(180deg,#D2203A,#A6112A)",
+                  color: "#fff",
+                  borderRadius: 10,
+                  padding: "10px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  boxShadow: "0 6px 16px rgba(196,19,47,0.28)",
+                }}
+              >
+                <Plus size={15} /> Add team member
+              </button>
+            </div>
+            <div style={{ fontSize: 11.5, color: C.inkFaint, marginTop: 8 }}>
+              Deactivating removes the person from assignment dropdowns and blocks sign-in, but keeps their history. Revoking a login deletes the account and ends all their sessions; the roster profile stays and a new login can be created later. Passwords are stored encrypted and can never be viewed &mdash; use Set password to give someone a fresh one.
+            </div>
+          </Panel>
+        </div>
+      ) : null}
+
       <div
         style={{
           background: C.surface,
@@ -303,7 +508,7 @@ export default function TeamSetupPage() {
           boxShadow: "0 12px 34px rgba(46,4,10,0.30)",
         }}
       >
-        <DataTable fields={fields} rows={filtered} onRow={(r) => setDrawer({ record: r, isNew: false })} />
+        <DataTable fields={fields} rows={filtered} onRow={(r) => setDrawer({ record: r, isNew: false })} groupOf={rosterGroup} />
       </div>
 
       {drawer ? (

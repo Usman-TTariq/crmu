@@ -31,7 +31,7 @@ export const TONE_MAP: Record<string, keyof typeof TONES> = {
   Qualified: "good", Approved: "good", "Closed Won": "good", Funded: "good", Live: "good",
   Retained: "good", Yes: "good", Active: "good", Passed: "good", Pass: "good", Installed: "good", "On Track": "good",
   Pending: "warn", "Follow Up": "warn", "Docs Pending": "warn", Submitted: "warn",
-  "Equipment Shipped": "warn", "At Risk": "warn", "In Progress": "warn", "On Hold": "warn", Archived: "warn",
+  "Equipment Shipped": "warn", "At Risk": "warn", "In Progress": "warn", "On Hold": "warn", Archived: "warn", Inactive: "warn",
   Disqualified: "bad", Declined: "bad", "Closed Lost": "bad", Lost: "bad", Disapproved: "bad",
   Churned: "bad", No: "bad", Fail: "bad", Rejected: "bad", Cancelled: "bad", "Fatal Error": "bad", "Closed by MSP": "bad", Chargeback: "bad",
   New: "info", Assigned: "info", "Docs Received": "info", "No Answer": "neutral", "Not in QA": "neutral",

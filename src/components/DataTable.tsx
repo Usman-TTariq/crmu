@@ -59,6 +59,7 @@ export default function DataTable({
   rowTone,
   onAdd,
   addLabel,
+  groupOf,
 }: {
   fields: FieldDef[];
   rows: Rec[];
@@ -66,6 +67,8 @@ export default function DataTable({
   rowTone?: (r: Rec) => string | null;
   onAdd?: () => void;
   addLabel?: string;
+  /** When set, a section header row is rendered every time the label changes */
+  groupOf?: (r: Rec) => string;
 }) {
   const cols = fields.filter((f) => !f.hideTable);
   if (rows.length === 0) {
@@ -137,30 +140,54 @@ export default function DataTable({
         <tbody>
           {rows.map((r, i) => {
             const tone = rowTone ? rowTone(r) : null;
-            return (
-              <tr
-                key={r.id}
-                onClick={() => onRow(r)}
-                className="crm-row"
-                style={{ background: tone || (i % 2 ? C.bg : C.surface), cursor: "pointer" }}
-              >
-                {cols.map((f) => (
+            const group = groupOf ? groupOf(r) : null;
+            const prevGroup = groupOf && i > 0 ? groupOf(rows[i - 1]) : null;
+            const header =
+              group && group !== prevGroup ? (
+                <tr key={"group-" + group}>
                   <td
-                    key={f.k}
+                    colSpan={cols.length}
                     style={{
-                      padding: "9px 14px",
-                      whiteSpace: "nowrap",
-                      color: C.ink,
-                      borderBottom: `1px solid ${C.lineSoft}`,
-                      maxWidth: f.long ? 280 : undefined,
-                      overflow: f.long ? "hidden" : undefined,
-                      textOverflow: f.long ? "ellipsis" : undefined,
+                      padding: "10px 14px 6px",
+                      background: C.bg,
+                      color: C.blueDeep,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.07em",
+                      borderBottom: `1px solid ${C.line}`,
                     }}
                   >
-                    {cellContent(f, r)}
+                    {group}
                   </td>
-                ))}
-              </tr>
+                </tr>
+              ) : null;
+            return (
+              <React.Fragment key={r.id}>
+                {header}
+                <tr
+                  onClick={() => onRow(r)}
+                  className="crm-row"
+                  style={{ background: tone || (i % 2 ? C.bg : C.surface), cursor: "pointer" }}
+                >
+                  {cols.map((f) => (
+                    <td
+                      key={f.k}
+                      style={{
+                        padding: "9px 14px",
+                        whiteSpace: "nowrap",
+                        color: C.ink,
+                        borderBottom: `1px solid ${C.lineSoft}`,
+                        maxWidth: f.long ? 280 : undefined,
+                        overflow: f.long ? "hidden" : undefined,
+                        textOverflow: f.long ? "ellipsis" : undefined,
+                      }}
+                    >
+                      {cellContent(f, r)}
+                    </td>
+                  ))}
+                </tr>
+              </React.Fragment>
             );
           })}
         </tbody>

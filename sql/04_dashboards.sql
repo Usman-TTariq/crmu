@@ -126,9 +126,10 @@ begin
     'mspRates', (
       select coalesce(jsonb_agg(jsonb_build_object('name', p.provider, 'rate', p.rate) order by p.rate desc), '[]'::jsonb)
       from (
-        select provider, round(count(*) filter (where result = 'Yes')::numeric * 100 / count(*)) as rate
+        -- alias must not be named "result": it would clash with the plpgsql variable
+        select provider, round(count(*) filter (where res = 'Yes')::numeric * 100 / count(*)) as rate
         from (
-          select a1_provider as provider, a1_result as result from msp_onboarding where a1_provider <> ''
+          select a1_provider as provider, a1_result as res from msp_onboarding where a1_provider <> ''
           union all
           select a2_provider, a2_result from msp_onboarding where a2_provider <> ''
           union all

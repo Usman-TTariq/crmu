@@ -6,6 +6,7 @@ import { C } from "@/lib/theme";
 import { isBlank } from "@/lib/format";
 import { PIPE, type TabKey } from "@/lib/constants";
 import { fetchJourney } from "@/actions/data";
+import { useApp } from "@/components/app-context";
 
 export default function Journey({
   leadId,
@@ -17,6 +18,7 @@ export default function Journey({
   viewTabs: TabKey[];
 }) {
   const router = useRouter();
+  const app = useApp();
   const [stages, setStages] = useState<Record<string, string | null> | null>(null);
 
   useEffect(() => {
@@ -60,7 +62,14 @@ export default function Journey({
                 </span>
               ) : null}
               <button
-                onClick={clickable ? () => router.push(`/${s.tk}`) : undefined}
+                onClick={
+                  clickable
+                    ? () => {
+                        app.jumpTo(s.tk, leadId);
+                        router.push(`/${s.tk}`);
+                      }
+                    : undefined
+                }
                 disabled={!clickable}
                 className={clickable ? "jny" : ""}
                 title={
@@ -69,7 +78,7 @@ export default function Journey({
                     : here
                     ? "You are here"
                     : clickable
-                    ? "Open this stage"
+                    ? "Open this record at this stage"
                     : "Not visible to your role"
                 }
                 style={{

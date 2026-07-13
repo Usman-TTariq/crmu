@@ -18,22 +18,20 @@ export async function createUserForProfile(payload: CreateUserPayload): Promise<
   error?: string;
 }> {
   try {
-    const session = await requireSession();
-    if (!USER_ADMIN_ROLES.includes(session.profile.role_key)) {
-      return { error: "Only admins can create users." };
-    }
     if (!payload.email || payload.password.length < 8) {
       return { error: "Email required and password must be at least 8 characters." };
     }
 
     const admin = createAdminClient();
-
-    const { data: profile, error: pErr } = await admin
-      .from("profiles")
-      .select("id, user_id, full_name")
-      .eq("id", payload.profileId)
-      .single();
-    if (pErr || !profile) return { error: "Profile not found." };
+    const [session, profileRes] = await Promise.all([
+      requireSession(),
+      admin.from("profiles").select("id, user_id, full_name").eq("id", payload.profileId).single(),
+    ]);
+    if (!USER_ADMIN_ROLES.includes(session.profile.role_key)) {
+      return { error: "Only admins can create users." };
+    }
+    const profile = profileRes.data;
+    if (profileRes.error || !profile) return { error: "Profile not found." };
     if (profile.user_id) return { error: `${profile.full_name} already has a login.` };
 
     const { data: created, error: cErr } = await admin.auth.admin.createUser({
@@ -55,5 +53,108 @@ export async function createUserForProfile(payload: CreateUserPayload): Promise<
     return { ok: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "User creation failed." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Deactivate / reactivate a roster profile. Deactivated members disappear
+// from assignment dropdowns and can no longer sign in (session gate).
+// ---------------------------------------------------------------------------
+export async function setProfileActive(payload: {
+  profileId: string;
+  active: boolean;
+}): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    const session = await requireSession();
+    if (!USER_ADMIN_ROLES.includes(session.profile.role_key)) {
+      return { error: "Only admins can change member access." };
+    }
+    if (payload.profileId === session.profile.id && !payload.active) {
+      return { error: "You cannot deactivate your own account." };
+    }
+
+    const admin = createAdminClient();
+    const { error } = await admin
+      .from("profiles")
+      .update({ is_active: payload.active })
+      .eq("id", payload.profileId);
+    if (error) return { error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Update failed." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Set a new password for a member's login. Passwords are stored hashed and
+// can never be read back, so admins set a fresh one and share it instead.
+// ---------------------------------------------------------------------------
+export async function setUserPassword(payload: {
+  profileId: string;
+  password: string;
+}): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    if (payload.password.length < 8) {
+      return { error: "Password must be at least 8 characters." };
+    }
+
+    // Session check and target lookup are independent reads — run in parallel
+    const admin = createAdminClient();
+    const [session, profileRes] = await Promise.all([
+      requireSession(),
+      admin.from("profiles").select("id, user_id, full_name").eq("id", payload.profileId).single(),
+    ]);
+    if (!USER_ADMIN_ROLES.includes(session.profile.role_key)) {
+      return { error: "Only admins can set passwords." };
+    }
+    const profile = profileRes.data;
+    if (profileRes.error || !profile) return { error: "Profile not found." };
+    if (!profile.user_id) return { error: `${profile.full_name} has no login yet.` };
+
+    const { error } = await admin.auth.admin.updateUserById(profile.user_id, {
+      password: payload.password,
+    });
+    if (error) return { error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Password update failed." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Revoke a login: unlink the auth user from the profile and delete the auth
+// account (kills all its sessions). The roster profile itself is kept.
+// ---------------------------------------------------------------------------
+export async function revokeLogin(payload: {
+  profileId: string;
+}): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    const admin = createAdminClient();
+    const [session, profileRes] = await Promise.all([
+      requireSession(),
+      admin.from("profiles").select("id, user_id, full_name").eq("id", payload.profileId).single(),
+    ]);
+    if (!USER_ADMIN_ROLES.includes(session.profile.role_key)) {
+      return { error: "Only admins can revoke logins." };
+    }
+    if (payload.profileId === session.profile.id) {
+      return { error: "You cannot revoke your own login." };
+    }
+    const profile = profileRes.data;
+    if (profileRes.error || !profile) return { error: "Profile not found." };
+    if (!profile.user_id) return { error: `${profile.full_name} has no login to revoke.` };
+
+    const { error: unlinkErr } = await admin
+      .from("profiles")
+      .update({ user_id: null })
+      .eq("id", payload.profileId);
+    if (unlinkErr) return { error: unlinkErr.message };
+
+    const { error: delErr } = await admin.auth.admin.deleteUser(profile.user_id);
+    if (delErr) return { error: delErr.message };
+
+    return { ok: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Revoke failed." };
   }
 }

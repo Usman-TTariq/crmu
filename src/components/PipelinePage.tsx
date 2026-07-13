@@ -90,6 +90,18 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     };
   }, [tab, app.tf, notAllowed, pushToasts]);
 
+  // Deep-link: open a specific record after a cross-tab jump (journey pills,
+  // CEO recent leads, fatal SLA list). Consumed once rows are loaded.
+  const pendingOpen = app.pendingOpen;
+  const clearPendingOpen = app.clearPendingOpen;
+  useEffect(() => {
+    if (!rows || !pendingOpen || pendingOpen.tab !== tab) return;
+    const rec = rows.find((r) => r.lead_id === pendingOpen.leadId);
+    clearPendingOpen();
+    if (rec) setDrawer({ record: rec, isNew: false });
+    else pushToasts([`${pendingOpen.leadId} is not visible on this tab.`]);
+  }, [rows, pendingOpen, tab, clearPendingOpen, pushToasts]);
+
   const ownerScope = app.role.row?.[tab];
   const ownerLock =
     ownerScope && OWNER_FIELD[ownerScope]

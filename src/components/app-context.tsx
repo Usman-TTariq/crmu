@@ -11,6 +11,13 @@ export interface Toast {
   text: string;
 }
 
+// Cross-tab record deep-link: which record to auto-open after navigating.
+// Kept in client state (never in URL params, per the app convention).
+export interface PendingOpen {
+  tab: TabKey;
+  leadId: string;
+}
+
 interface AppCtx {
   session: SessionInfo;
   profiles: Profile[];
@@ -31,6 +38,9 @@ interface AppCtx {
   onAdd: (fn: () => void) => () => void;
   counts: Record<string, number>;
   setCounts: (c: Record<string, number>) => void;
+  pendingOpen: PendingOpen | null;
+  jumpTo: (tab: TabKey, leadId: string) => void;
+  clearPendingOpen: () => void;
 }
 
 const Ctx = createContext<AppCtx | null>(null);
@@ -56,7 +66,14 @@ export function AppProvider({
   const [query, setQuery] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null);
   const addListeners = useRef(new Set<() => void>());
+
+  const jumpTo = useCallback((tab: TabKey, leadId: string) => {
+    setPendingOpen({ tab, leadId });
+  }, []);
+
+  const clearPendingOpen = useCallback(() => setPendingOpen(null), []);
 
   const pushToasts = useCallback((msgs: string[]) => {
     const items = msgs.map((m) => ({ id: uid(), text: m }));
@@ -114,8 +131,11 @@ export function AppProvider({
       onAdd,
       counts,
       setCounts,
+      pendingOpen,
+      jumpTo,
+      clearPendingOpen,
     }),
-    [session, profiles, role, opts, tf, query, toasts, pushToasts, requestAdd, onAdd, counts]
+    [session, profiles, role, opts, tf, query, toasts, pushToasts, requestAdd, onAdd, counts, pendingOpen, jumpTo, clearPendingOpen]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
