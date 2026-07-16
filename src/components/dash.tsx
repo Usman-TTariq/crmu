@@ -101,7 +101,15 @@ export function Panel({
   return (
     <div
       className="crm-card fade-up"
-      style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden", ...(style || {}) }}
+      style={{
+        background: C.surface,
+        border: `1px solid ${C.line}`,
+        borderRadius: 16,
+        overflow: "hidden",
+        minWidth: 0,
+        maxWidth: "100%",
+        ...(style || {}),
+      }}
     >
       <div style={{ padding: "12px 18px", display: "flex", alignItems: "center", gap: 9, borderBottom: `1px solid ${C.lineSoft}` }}>
         <span
@@ -250,7 +258,11 @@ export function FunnelChart({ steps }: { steps: FunnelStep[] }) {
   const w = steps.map((s) => Math.max(MINW, (s.count / max) * MAXW));
   const H = steps.length * STEP;
   return (
-    <svg viewBox={`0 0 560 ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+    <svg
+      viewBox={`0 0 560 ${H}`}
+      style={{ width: "100%", maxWidth: "100%", height: "auto", display: "block" }}
+      preserveAspectRatio="xMinYMid meet"
+    >
       {steps.map((s, i) => {
         const y = i * STEP,
           h = STEP - 10;
@@ -338,7 +350,7 @@ export function SegmentedDonut({
           {centerLabel}
         </text>
       </svg>
-      <div style={{ flex: 1, minWidth: 180 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         {items.map((x, i) => (
           <div key={x.label} style={{ display: "flex", alignItems: "center", gap: 9, padding: "4px 0" }}>
             <span style={{ width: 11, height: 11, borderRadius: 3, background: MIX_COLORS[i % MIX_COLORS.length], flexShrink: 0 }} />

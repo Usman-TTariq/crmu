@@ -304,7 +304,7 @@ export default function TeamSetupPage() {
   };
 
   return (
-    <div style={{ padding: 20 }}>
+    <div className="app-page">
       <div style={{ marginBottom: 14 }}>
         <Panel title={"Team Leaderboard · " + app.tf} color={C.blueDeep}>
           {anyTeam ? (
@@ -336,7 +336,7 @@ export default function TeamSetupPage() {
         </Panel>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14, alignItems: "stretch" }}>
+      <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14, alignItems: "stretch" }}>
         <Panel title={"Lead Gen Agents · " + app.tf} color={C.blue}>
           {lb.length ? (
             lb.map((r, i) => (

@@ -66,7 +66,7 @@ export default function OpsKpiPage() {
   ];
 
   return (
-    <div style={{ padding: "22px 26px" }}>
+    <div className="app-page">
       <div className="app-page-head">
         <div className="app-page-title">
           <TrendingUp size={22} style={{ color: C.blue }} />
@@ -124,7 +124,7 @@ export default function OpsKpiPage() {
       ) : null}
 
       <Panel title="Key Performance Indicators (KPIs) - Onboarding team" color={C.blueDeep}>
-        <div className="overflow-auto">
+        <div className="data-table-scroll overflow-auto">
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 13 }}>
             <thead>
               <tr>

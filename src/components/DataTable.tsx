@@ -109,7 +109,7 @@ export default function DataTable({
     );
   }
   return (
-    <div className="overflow-auto">
+    <div className="data-table-scroll overflow-auto">
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", fontSize: 13.5 }}>
         <thead>
           <tr>

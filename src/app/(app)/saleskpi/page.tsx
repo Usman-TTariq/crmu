@@ -40,7 +40,7 @@ export default function SalesKpiPage() {
   const winRate = decided ? Math.round((won / decided) * 100) : 0;
 
   return (
-    <div style={{ padding: "22px 26px" }}>
+    <div className="app-page">
       <div className="app-page-head">
         <div className="app-page-title">
           <TrendingUp size={22} style={{ color: C.blue }} />

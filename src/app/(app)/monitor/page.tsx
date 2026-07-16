@@ -347,7 +347,7 @@ export default function MonitorPage() {
   }
 
   return (
-    <div style={{ padding: "22px 26px" }}>
+    <div className="app-page">
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
         <div className="app-page-head" style={{ marginBottom: 0 }}>
           <div className="app-page-title">
@@ -415,7 +415,10 @@ export default function MonitorPage() {
         <Stat label="Below target" value={counts.below} sub="< 50% of 8h (2h+ online)" tone={TONES.bad.fg} onClick={() => setFilter("below")} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: selectedRow ? "1.45fr 1fr" : "1fr", gap: 14 }}>
+      <div
+        className="monitor-split"
+        style={{ display: "grid", gridTemplateColumns: selectedRow ? "1.45fr 1fr" : "1fr", gap: 14 }}
+      >
         <Panel
           title="Live roster"
           right={
@@ -465,8 +468,8 @@ export default function MonitorPage() {
           ) : filtered.length === 0 ? (
             <div style={{ padding: 20, color: C.inkSoft, fontWeight: 600 }}>No employees match this filter.</div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <div className="data-table-scroll">
+              <table style={{ width: "100%", minWidth: 720, borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ textAlign: "left", color: C.inkSoft, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                     <th style={{ padding: "8px 10px" }}>Employee</th>

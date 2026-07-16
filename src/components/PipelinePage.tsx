@@ -209,7 +209,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   })() : null;
 
   return (
-    <div style={{ padding: 20 }}>
+    <div className="app-page">
       {opsBanner ? (
         <div
           className="crm-card"

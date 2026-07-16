@@ -80,7 +80,7 @@ export default function CeoDashboardPage() {
   const csD = num(cs.funded);
 
   return (
-    <div style={{ padding: "22px 26px" }}>
+    <div className="app-page">
       <div className="app-page-head">
         <div className="app-page-title">TGT Nexus</div>
         <div className="app-page-lede">
@@ -89,7 +89,7 @@ export default function CeoDashboardPage() {
       </div>
 
       <div
-        className="fade-up"
+        className="fade-up ceo-hero"
         style={{
           backgroundImage:
             "radial-gradient(900px 320px at 88% -30%, rgba(255,255,255,0.12), transparent 60%), linear-gradient(135deg, #0a0d12 0%, #151b24 45%, #8e1015 100%)",
@@ -105,7 +105,7 @@ export default function CeoDashboardPage() {
           marginBottom: 14,
         }}
       >
-        <div style={{ flex: 1, minWidth: 280 }}>
+        <div className="ceo-hero-main" style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", opacity: 0.75, textTransform: "uppercase" }}>
             Funded lease volume vs target
           </div>
@@ -119,7 +119,7 @@ export default function CeoDashboardPage() {
             {leasePct}% of target &middot; {money(Math.max(0, leaseTarget - revenue))} remaining
           </div>
         </div>
-        <div style={{ display: "flex", gap: 12 }}>
+        <div className="ceo-hero-stats" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           {[
             { l: "Funded Leases", v: n("fundedLeases"), tk: "leasing" },
             { l: "Approved MIDs", v: n("approvedMids"), tk: "msp" },
@@ -129,13 +129,14 @@ export default function CeoDashboardPage() {
               key={c.l}
               onClick={() => nav(c.tk)}
               role="button"
-              className="jny"
+              className="jny ceo-hero-stat"
               style={{
                 background: "rgba(255,255,255,0.1)",
                 borderRadius: 12,
                 padding: "14px 18px",
                 textAlign: "center",
                 minWidth: 96,
+                flex: "1 1 96px",
                 cursor: "pointer",
               }}
             >
@@ -148,7 +149,7 @@ export default function CeoDashboardPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 14, marginBottom: 14 }}>
+      <div className="ceo-stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 14, marginBottom: 14 }}>
         <Stat label="Leads" value={n("leads")} sub={app.tf.toLowerCase()} onClick={() => nav("leadgen")} />
         <Stat label="QA Passed" value={n("qaQualified")} tone={TONES.good.fg} sub={qualRate + "% qual rate"} onClick={() => nav("qa")} />
         <Stat label="Rejected by QA" value={n("qaRejected")} tone={n("qaRejected") ? TONES.bad.fg : C.ink} sub="kept in history" onClick={() => nav("qa")} />
@@ -157,7 +158,7 @@ export default function CeoDashboardPage() {
         <Stat label="Closed Lost" value={n("lost")} tone={n("lost") ? TONES.bad.fg : C.ink} onClick={() => nav("closer")} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14, marginBottom: 14, alignItems: "stretch" }}>
+      <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14, marginBottom: 14, alignItems: "stretch" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
           <Panel title="Conversion Funnel · lead to live · all time" color={C.blueDeep}>
             <FunnelChart steps={funnel} />
@@ -274,7 +275,7 @@ export default function CeoDashboardPage() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 14 }}>
+      <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 14 }}>
         <Panel title={"Closer Leaderboard · " + app.tf + " · top 5"} color={C.ink}>
           {closers.length ? (
             closers.slice(0, 5).map((r, i) => (
@@ -319,7 +320,7 @@ export default function CeoDashboardPage() {
           </button>
         </Panel>
         <Panel title="Recent Leads in Pipeline" color={C.blueDeep}>
-          <div className="overflow-auto">
+          <div className="data-table-scroll">
             <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 13 }}>
               <thead>
                 <tr>

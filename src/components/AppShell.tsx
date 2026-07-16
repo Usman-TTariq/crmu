@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Eye, Lock, LogOut, Plus, Search } from "lucide-react";
+import { Eye, Lock, LogOut, Menu, Plus, Search, X } from "lucide-react";
 import { C } from "@/lib/theme";
 import { TIMEFRAMES, type Timeframe } from "@/lib/format";
 import { TABS, NAV_GROUPS, groupOf, ADDABLE, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
@@ -17,6 +17,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const app = useApp();
   const pathname = usePathname();
   const router = useRouter();
+  const [navOpen, setNavOpen] = useState(false);
 
   const activeKey = (pathname.split("/")[1] || app.role.home) as TabKey;
   const tab = TABS.find((t) => t.k === activeKey) || TABS[0];
@@ -36,6 +37,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     (activeKey !== "teamsetup" || USER_ADMIN_ROLES.includes(app.role.key));
 
   useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNavOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [navOpen]);
+
+  useEffect(() => {
     let alive = true;
     fetchTabCounts({ tf: app.tf }).then((c) => {
       if (alive) app.setCounts(c);
@@ -47,7 +65,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [app.tf, pathname]);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${navOpen ? " nav-open" : ""}`}>
       <PresenceTracker />
       <div className="app-atmosphere" aria-hidden>
         <div className="app-atmosphere-wash" />
@@ -56,7 +74,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <div className="app-atmosphere-noise" />
       </div>
 
-      <nav className="app-side">
+      {navOpen ? (
+        <button
+          type="button"
+          className="app-nav-backdrop"
+          aria-label="Close navigation"
+          onClick={() => setNavOpen(false)}
+        />
+      ) : null}
+
+      <nav className={`app-side${navOpen ? " is-open" : ""}`} aria-label="Main">
         <div className="app-side-brand app-rise">
           <div className="app-logo-lockup">
             <div className="app-logo-plate">
@@ -91,6 +118,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       type="button"
                       onClick={() => {
                         app.setQuery("");
+                        setNavOpen(false);
                         router.push(`/${t.k}`);
                       }}
                       className={`crm-nav app-nav-btn${at ? " is-active" : ""}`}
@@ -135,52 +163,67 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       <main className="app-main">
         <header className="app-header">
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <button
+            type="button"
+            className="app-menu-btn"
+            aria-label={navOpen ? "Close menu" : "Open menu"}
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen((v) => !v)}
+          >
+            {navOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+          <div className="app-header-title-block">
             <div className="app-header-kicker">{groupOf(activeKey)}</div>
             <div className="app-header-title">
-              <span style={{ fontSize: 18 }}>{tab.emoji}</span>
+              <span className="app-header-emoji">{tab.emoji}</span>
               {tab.label}
             </div>
           </div>
-          <PresenceBadge />
-          <ActiveLogins />
-          <select
-            value={app.tf}
-            onChange={(e) => app.setTf(e.target.value as Timeframe)}
-            className="app-control"
-          >
-            {TIMEFRAMES.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-          {!tab.kind ? (
-            <div style={{ position: "relative" }}>
-              <Search size={15} style={{ position: "absolute", left: 9, top: 9, color: C.inkFaint }} />
-              <input
-                value={app.query}
-                onChange={(e) => app.setQuery(e.target.value)}
-                placeholder="Search"
-                className="app-control app-control-search"
-              />
-            </div>
-          ) : null}
-          {canAdd ? (
-            <button type="button" onClick={() => app.requestAdd()} className="btnp app-cta">
-              <Plus size={16} /> Add {tab.singular || "Row"}
-            </button>
-          ) : null}
+          <div className="app-header-actions">
+            <PresenceBadge />
+            <ActiveLogins />
+            <select
+              value={app.tf}
+              onChange={(e) => app.setTf(e.target.value as Timeframe)}
+              className="app-control"
+            >
+              {TIMEFRAMES.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            {!tab.kind ? (
+              <div className="app-search-wrap">
+                <Search size={15} className="app-search-icon" />
+                <input
+                  value={app.query}
+                  onChange={(e) => app.setQuery(e.target.value)}
+                  placeholder="Search"
+                  className="app-control app-control-search"
+                />
+              </div>
+            ) : null}
+            {canAdd ? (
+              <button type="button" onClick={() => app.requestAdd()} className="btnp app-cta">
+                <Plus size={16} />
+                <span className="app-cta-label">Add {tab.singular || "Row"}</span>
+              </button>
+            ) : null}
+          </div>
         </header>
 
         <div className="app-scope">
-          <Lock size={13} style={{ color: C.inkSoft }} />
-          <span>
+          <Lock size={13} style={{ color: C.inkSoft, flexShrink: 0 }} />
+          <span className="app-scope-text">
             <b>
               {app.session.profile.full_name} · {app.role.label}
-            </b>{" "}
-            · {app.role.scope}
-            {!canEditTab && !tab.kind ? "  (this tab is read-only for you)" : ""}
+            </b>
+            <span className="app-scope-detail">
+              {" "}
+              · {app.role.scope}
+              {!canEditTab && !tab.kind ? "  (this tab is read-only for you)" : ""}
+            </span>
           </span>
         </div>
 
@@ -191,7 +234,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </section>
       </main>
 
-      <div style={{ position: "fixed", bottom: 18, right: 18, zIndex: 60, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className="app-toasts">
         {app.toasts.map((t) => (
           <div
             key={t.id}

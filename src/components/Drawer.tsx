@@ -153,7 +153,7 @@ export default function Drawer({
         ) : null}
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div className="drawer-grid">
             {fullFields.map((f) => (
               <Field
                 key={f.k}

@@ -64,7 +64,9 @@ export default function PresenceBadge() {
       >
         {alerts}
       </span>
-      <span style={{ fontSize: 12, fontWeight: 700 }}>seat alerts</span>
+      <span className="app-seat-label" style={{ fontSize: 12, fontWeight: 700 }}>
+        seat alerts
+      </span>
     </button>
   );
 }
