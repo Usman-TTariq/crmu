@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { KeyRound, Plus, ShieldOff } from "lucide-react";
+import { Download, KeyRound, Plus, ShieldOff } from "lucide-react";
 import { C, TONES, NEUTRAL_CHIP } from "@/lib/theme";
-import { num } from "@/lib/format";
-import { SCHEMAS } from "@/lib/schemas";
+import { isBlank, num, numfmt } from "@/lib/format";
+import { SCHEMAS, type FieldDef } from "@/lib/schemas";
 import { TABS, USER_ADMIN_ROLES, TITLE_ROLE_MAP } from "@/lib/constants";
 import type { Rec } from "@/lib/types";
 import { useApp } from "@/components/app-context";
@@ -36,21 +36,23 @@ function closerBadges(rows: BoardCloserRow[]): (r: BoardCloserRow) => Badge | nu
 // ---------------------------------------------------------------------------
 const TEAM_ORDER = ["Olympus", "Phoenix", "Spartan", "Titans"];
 const TITLE_ORDER = [
-  "CEO", "Super Admin", "Sales Head & QA",
+  "CEO", "Super Admin", "Sales Head & QA", "AVP Sales", "Floor Manager",
   "Lead Gen Supervisor", "Lead Gen Agent", "Closer", "Tier 3", "QA Agent",
   "Manager", "Assistant Manager", "QA & Funding Lead", "Quality Assurance",
   "Onboarding Lead", "Onboarding Agent",
   "Customer Success Head", "Customer Success Lead", "Customer Success Agent",
 ];
 
+const LEADERSHIP_ROLES = new Set(["sales_head", "avp_sales", "floor_manager"]);
+
 function rosterGroup(r: Rec): string {
-  if (r.dept === "ALL" || r.role_key === "sales_head") return "Leadership";
+  if (r.dept === "ALL" || LEADERSHIP_ROLES.has(String(r.role_key))) return "Leadership";
   if (r.dept === "SALES") return r.team ? `Sales · Team ${r.team}` : "Sales · QA";
   return "Operations";
 }
 
 function rosterGroupRank(r: Rec): number {
-  if (r.dept === "ALL" || r.role_key === "sales_head") return 0;
+  if (r.dept === "ALL" || LEADERSHIP_ROLES.has(String(r.role_key))) return 0;
   if (r.dept === "SALES") {
     if (r.team) {
       const t = TEAM_ORDER.indexOf(String(r.team));
@@ -73,6 +75,41 @@ function sortRoster(rows: Rec[]): Rec[] {
       titleRank(a) - titleRank(b) ||
       String(a.full_name).localeCompare(String(b.full_name))
   );
+}
+
+function csvEscape(v: string): string {
+  if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+  return v;
+}
+
+function rosterCellText(f: FieldDef, r: Rec): string {
+  if (f.type === "computed") {
+    const v = f.compute ? f.compute(r) : r[f.k];
+    if (f.fmt === "num") return numfmt(v);
+    return v == null ? "" : String(v);
+  }
+  const v = r[f.k];
+  if (isBlank(v)) return "";
+  if (f.fmt === "num") return numfmt(v);
+  return String(v);
+}
+
+function downloadRosterCsv(rows: Rec[], fields: FieldDef[]) {
+  const cols = fields.filter((f) => !f.hideTable);
+  const headers = ["Category", ...cols.map((f) => f.label)];
+  const lines = [
+    headers.map(csvEscape).join(","),
+    ...rows.map((r) =>
+      [rosterGroup(r), ...cols.map((f) => rosterCellText(f, r))].map(csvEscape).join(",")
+    ),
+  ];
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `team-roster-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function leadBadges(rows: BoardLeadRow[]): (r: BoardLeadRow) => Badge | null {
@@ -498,6 +535,41 @@ export default function TeamSetupPage() {
           </Panel>
         </div>
       ) : null}
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", opacity: 0.92 }}>
+          Team roster{filtered.length ? ` · ${filtered.length}` : ""}
+        </div>
+        <button
+          type="button"
+          onClick={() => downloadRosterCsv(filtered, fields)}
+          disabled={!filtered.length}
+          style={{
+            border: `1px solid rgba(255,255,255,0.28)`,
+            background: "rgba(255,255,255,0.12)",
+            color: "#fff",
+            borderRadius: 10,
+            padding: "8px 14px",
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: filtered.length ? "pointer" : "default",
+            opacity: filtered.length ? 1 : 0.5,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <Download size={15} /> Export CSV
+        </button>
+      </div>
 
       <div
         style={{

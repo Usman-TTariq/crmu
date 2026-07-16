@@ -106,7 +106,7 @@ export function AppProvider({
       opsVerifiers: byTitle("QA & Funding Lead", "Quality Assurance"),
       onboarders: byTitle("Onboarding Lead", "Onboarding Agent"),
       csAgents: byTitle("Customer Success Head", "Customer Success Lead", "Customer Success Agent"),
-      assigners: byTitle("Sales Head & QA", "Manager", "Assistant Manager"),
+      assigners: byTitle("Sales Head & QA", "AVP Sales", "Floor Manager", "Manager", "Assistant Manager"),
     };
   }, [profiles]);
 

@@ -17,6 +17,8 @@ insert into public.profiles (full_name, title, dept, team, role_key, target) val
   ('CEO',                     'CEO',                     'ALL',   '',        'ceo',            ''),
   ('Abdullah Zahid',          'Super Admin',             'ALL',   '',        'super_admin',    ''),
   ('Arish Raheel',            'Sales Head & QA',         'SALES', '',        'sales_head',     ''),
+  ('Muhammad Ubaid',          'AVP Sales',               'SALES', '',        'avp_sales',      ''),
+  ('Roshaan Aamir',           'Floor Manager',           'SALES', '',        'floor_manager',  ''),
 
   -- Olympus pod
   ('Rehmatullah',             'Lead Gen Supervisor',     'SALES', 'Olympus', 'lg_sup',   '2 SQL/Agent/Day'),
