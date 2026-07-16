@@ -4,12 +4,13 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { num, isBlank, today } from "@/lib/format";
-import { SCHEMAS, mspIsFatal } from "@/lib/schemas";
+import { SCHEMAS, TAB_TABLE, mspIsFatal } from "@/lib/schemas";
 import { TABS, ADDABLE, OWNER_FIELD, type TabKey } from "@/lib/constants";
 import type { Rec } from "@/lib/types";
 import { useApp } from "@/components/app-context";
 import DataTable from "@/components/DataTable";
 import Drawer from "@/components/Drawer";
+import { createClient } from "@/lib/supabase/client";
 import { fetchRows, saveRecord, deleteRecord, createManualOpsRecord, fetchTabCounts } from "@/actions/data";
 
 function buildDefault(tab: TabKey): Rec {
@@ -76,11 +77,20 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   const loading = rows === null;
 
   const pushToasts = app.pushToasts;
+  const setCounts = app.setCounts;
+  const tf = app.tf;
+
+  const refresh = useCallback(async () => {
+    const res = await fetchRows({ tab, tf });
+    if (res.error) pushToasts([res.error]);
+    setRows(res.rows);
+    fetchTabCounts({ tf }).then((c) => setCounts(c));
+  }, [tab, tf, pushToasts, setCounts]);
 
   useEffect(() => {
     if (notAllowed) return;
     let alive = true;
-    fetchRows({ tab, tf: app.tf }).then((res) => {
+    fetchRows({ tab, tf }).then((res) => {
       if (!alive) return;
       if (res.error) pushToasts([res.error]);
       setRows(res.rows);
@@ -88,7 +98,45 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     return () => {
       alive = false;
     };
-  }, [tab, app.tf, notAllowed, pushToasts]);
+  }, [tab, tf, notAllowed, pushToasts]);
+
+  // Live list: Supabase Realtime → refetch (tables must be in supabase_realtime publication)
+  useEffect(() => {
+    if (notAllowed) return;
+    const table = TAB_TABLE[tab];
+    if (!table) return;
+
+    const supabase = createClient();
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        void refresh();
+      }, 350);
+    };
+
+    const channel = supabase
+      .channel(`pipeline-${tab}-${table}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table },
+        scheduleRefresh
+      )
+      .subscribe();
+
+    const onFocus = () => {
+      if (document.visibilityState === "visible") scheduleRefresh();
+    };
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onFocus);
+      void supabase.removeChannel(channel);
+    };
+  }, [tab, notAllowed, refresh]);
 
   // Deep-link: open a specific record after a cross-tab jump (journey pills,
   // CEO recent leads, fatal SLA list). Consumed once rows are loaded.
@@ -121,13 +169,6 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     if (!(canEdit && ADDABLE.includes(tab))) return;
     return app.onAdd(openAdd);
   }, [app, canEdit, tab, openAdd]);
-
-  const refresh = async () => {
-    const res = await fetchRows({ tab, tf: app.tf });
-    if (res.error) pushToasts([res.error]);
-    setRows(res.rows);
-    fetchTabCounts({ tf: app.tf }).then((c) => app.setCounts(c));
-  };
 
   const onSave = async (draft: Rec, isNew: boolean) => {
     // Client-side guards, mirrored from the prototype (DB enforces them too)

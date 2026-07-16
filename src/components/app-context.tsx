@@ -65,9 +65,13 @@ export function AppProvider({
   const [tf, setTf] = useState<Timeframe>("All time");
   const [query, setQuery] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [counts, setCountsState] = useState<Record<string, number>>({});
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null);
   const addListeners = useRef(new Set<() => void>());
+
+  const setCounts = useCallback((c: Record<string, number>) => {
+    setCountsState(c);
+  }, []);
 
   const jumpTo = useCallback((tab: TabKey, leadId: string) => {
     setPendingOpen({ tab, leadId });
@@ -135,7 +139,7 @@ export function AppProvider({
       jumpTo,
       clearPendingOpen,
     }),
-    [session, profiles, role, opts, tf, query, toasts, pushToasts, requestAdd, onAdd, counts, pendingOpen, jumpTo, clearPendingOpen]
+    [session, profiles, role, opts, tf, query, toasts, pushToasts, requestAdd, onAdd, counts, setCounts, pendingOpen, jumpTo, clearPendingOpen]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
