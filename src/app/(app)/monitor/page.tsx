@@ -1,0 +1,612 @@
+"use client";
+
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Activity, RefreshCw, UserRoundSearch } from "lucide-react";
+import { C, TONES } from "@/lib/theme";
+import { useApp } from "@/components/app-context";
+import { Stat, Panel, Bar } from "@/components/dash";
+import {
+  fetchPresenceBoard,
+  fetchPresenceEvents,
+  fetchPresenceWeek,
+  type PresenceDayRow,
+  type PresenceEvent,
+  type PresenceRow,
+  type PresenceStatus,
+} from "@/actions/presence";
+import { deviceOf, ago } from "@/components/ActiveLogins";
+
+/** Always show hours, minutes, seconds — e.g. 2h 15m 30s */
+function fmtDur(sec: number): string {
+  const s = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  return `${h}h ${m}m ${r}s`;
+}
+
+function weekdayLabel(day: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(day + "T00:00:00Z"));
+  } catch {
+    return day;
+  }
+}
+
+function todayKarachi(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Karachi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function statusTone(status: PresenceStatus) {
+  if (status === "working") return TONES.good;
+  if (status === "idle") return TONES.warn;
+  if (status === "away") return TONES.bad;
+  return TONES.neutral;
+}
+
+function statusLabel(status: PresenceStatus): string {
+  if (status === "working") return "Working";
+  if (status === "idle") return "Idle / Timepass";
+  if (status === "away") return "Away from seat";
+  return "Offline";
+}
+
+/** Clear verdict from today's mix + live status */
+function verdict(r: PresenceRow): { label: string; tone: keyof typeof TONES; detail: string } {
+  const total = r.working_seconds + r.idle_seconds_today + r.away_seconds;
+  const workPct = total > 0 ? Math.round((r.working_seconds / total) * 100) : 0;
+  const idlePct = total > 0 ? Math.round((r.idle_seconds_today / total) * 100) : 0;
+  const interactRate = r.heartbeats > 0 ? r.interactions / r.heartbeats : 0;
+
+  if (r.status === "offline" && total === 0) {
+    return { label: "No signal", tone: "neutral", detail: "Has not opened CRM today" };
+  }
+  if (r.status === "idle") {
+    return {
+      label: "Timepassing now",
+      tone: "warn",
+      detail: `No mouse/keyboard for ${fmtDur(r.idle_seconds)} — seat likely empty`,
+    };
+  }
+  if (r.status === "away") {
+    return {
+      label: "Away now",
+      tone: "bad",
+      detail: r.focused === false ? "CRM tab in background or closed focus" : "Long idle — not at desk",
+    };
+  }
+  if (r.status === "working" && interactRate < 0.5 && r.heartbeats >= 4) {
+    return {
+      label: "Passive browsing",
+      tone: "warn",
+      detail: "Online but almost no clicks/keys — may be watching, not working",
+    };
+  }
+  if (idlePct >= 45 && total >= 1800) {
+    return {
+      label: "Mostly idle today",
+      tone: "bad",
+      detail: `${idlePct}% of CRM time idle · only ${workPct}% actively working`,
+    };
+  }
+  if (workPct >= 60 && total >= 600) {
+    return {
+      label: "Solid work day",
+      tone: "good",
+      detail: `${workPct}% active · ${fmtDur(r.working_seconds)} working · ${r.interactions} interactions`,
+    };
+  }
+  if (r.status === "working") {
+    return {
+      label: "Engaged now",
+      tone: "good",
+      detail: `On /${r.current_tab || "…"} · ${r.clicks_1m + r.keys_1m + r.scrolls_1m} inputs last pulse`,
+    };
+  }
+  return {
+    label: "Offline",
+    tone: "neutral",
+    detail: total > 0 ? `Today: ${workPct}% work / ${idlePct}% idle` : "Not signed into CRM",
+  };
+}
+
+function StatusChip({ status }: { status: PresenceStatus }) {
+  const t = statusTone(status);
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "3px 9px",
+        borderRadius: 999,
+        background: t.bg,
+        color: t.fg,
+        fontSize: 11,
+        fontWeight: 800,
+        letterSpacing: "0.02em",
+      }}
+    >
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: t.fg,
+          boxShadow: status === "working" ? `0 0 0 3px ${t.bg}` : undefined,
+        }}
+      />
+      {statusLabel(status)}
+    </span>
+  );
+}
+
+export default function MonitorPage() {
+  const app = useApp();
+  const [day, setDay] = useState(todayKarachi);
+  const [rows, setRows] = useState<PresenceRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<"all" | PresenceStatus>("all");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [events, setEvents] = useState<PresenceEvent[]>([]);
+  const [weekDays, setWeekDays] = useState<PresenceDayRow[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    fetchPresenceBoard({ day }).then((res) => {
+      setRows(res.rows || []);
+      setErr(res.error || "");
+      setLoading(false);
+    });
+  }, [day]);
+
+  useEffect(() => {
+    load();
+    const t = window.setInterval(load, 15_000);
+    return () => window.clearInterval(t);
+  }, [load]);
+
+  useEffect(() => {
+    if (!selected) {
+      setEvents([]);
+      setWeekDays([]);
+      return;
+    }
+    setEventsLoading(true);
+    Promise.all([
+      fetchPresenceEvents({ userId: selected, day }),
+      fetchPresenceWeek({ userId: selected, day }),
+    ]).then(([ev, wk]) => {
+      setEvents(ev.events || []);
+      setWeekDays(wk.days || []);
+      setEventsLoading(false);
+    });
+  }, [selected, day]);
+
+  const counts = useMemo(() => {
+    const c = { working: 0, idle: 0, away: 0, offline: 0 };
+    for (const r of rows) c[r.status] += 1;
+    return c;
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (filter !== "all" && r.status !== filter) return false;
+      if (!qq) return true;
+      return (
+        r.name.toLowerCase().includes(qq) ||
+        r.title.toLowerCase().includes(qq) ||
+        r.team.toLowerCase().includes(qq) ||
+        r.current_tab.toLowerCase().includes(qq)
+      );
+    });
+  }, [rows, q, filter]);
+
+  const selectedRow = rows.find((r) => r.user_id === selected) || null;
+
+  if (!app.canSeeCeo) {
+    return <div className="app-gate">Employee Monitor is restricted to Super Admin / CEO.</div>;
+  }
+
+  return (
+    <div style={{ padding: "22px 26px" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
+        <div className="app-page-head" style={{ marginBottom: 0 }}>
+          <div className="app-page-title">
+            <Activity size={22} style={{ color: C.blue }} />
+            Employee Monitor
+          </div>
+          <div className="app-page-lede">
+            Per-day hours · weekly totals (Mon–Sun) · live seat check · Asia/Karachi
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            type="date"
+            value={day}
+            onChange={(e) => setDay(e.target.value)}
+            style={{
+              border: "none",
+              borderRadius: 10,
+              padding: "8px 10px",
+              fontSize: 13,
+              fontWeight: 600,
+              background: "#fff",
+            }}
+          />
+          <button
+            type="button"
+            onClick={load}
+            style={{
+              border: "none",
+              borderRadius: 10,
+              padding: "8px 12px",
+              fontWeight: 700,
+              background: "#fff",
+              color: C.ink,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              cursor: "pointer",
+            }}
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {err ? (
+        <div
+          style={{
+            marginBottom: 14,
+            padding: "12px 14px",
+            borderRadius: 12,
+            background: TONES.bad.bg,
+            color: TONES.bad.fg,
+            fontWeight: 700,
+            fontSize: 13,
+          }}
+        >
+          {err.includes("dash_presence") || err.includes("function") || err.includes("does not exist")
+            ? "Presence SQL not applied yet. Run sql/09_presence.sql then sql/10_presence_hours.sql in Supabase SQL Editor, then refresh."
+            : err}
+        </div>
+      ) : null}
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          gap: 12,
+          marginBottom: 14,
+        }}
+      >
+        <Stat label="Working now" value={counts.working} sub="Mouse/keyboard active" tone={TONES.good.fg} onClick={() => setFilter("working")} />
+        <Stat label="Idle / timepass" value={counts.idle} sub="No input 2+ min" tone={TONES.warn.fg} onClick={() => setFilter("idle")} />
+        <Stat label="Away from seat" value={counts.away} sub="Tab hidden or 5+ min idle" tone={TONES.bad.fg} onClick={() => setFilter("away")} />
+        <Stat label="Offline" value={counts.offline} sub="No heartbeat 90s+" tone={C.inkSoft} onClick={() => setFilter("offline")} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: selectedRow ? "1.4fr 1fr" : "1fr", gap: 14 }}>
+        <Panel
+          title="Live roster"
+          right={
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                type="button"
+                onClick={() => setFilter("all")}
+                style={{
+                  border: "none",
+                  background: filter === "all" ? C.blueSoft : "transparent",
+                  color: filter === "all" ? C.blueDeep : C.inkSoft,
+                  fontWeight: 700,
+                  fontSize: 12,
+                  borderRadius: 8,
+                  padding: "4px 8px",
+                  cursor: "pointer",
+                }}
+              >
+                All ({rows.length})
+              </button>
+              <div style={{ position: "relative" }}>
+                <UserRoundSearch size={14} style={{ position: "absolute", left: 8, top: 8, color: C.inkFaint }} />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search name / team / tab"
+                  style={{
+                    border: `1px solid ${C.line}`,
+                    borderRadius: 8,
+                    padding: "6px 10px 6px 28px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    width: 200,
+                    outline: "none",
+                  }}
+                />
+              </div>
+            </div>
+          }
+        >
+          {loading && !rows.length ? (
+            <div style={{ padding: 20, color: C.inkSoft, fontWeight: 600 }}>Loading live presence…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: 20, color: C.inkSoft, fontWeight: 600 }}>No employees match this filter.</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ textAlign: "left", color: C.inkSoft, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    <th style={{ padding: "8px 10px" }}>Employee</th>
+                    <th style={{ padding: "8px 10px" }}>Live</th>
+                    <th style={{ padding: "8px 10px" }}>Verdict</th>
+                    <th style={{ padding: "8px 10px" }}>Now on</th>
+                    <th style={{ padding: "8px 10px" }}>Day work</th>
+                    <th style={{ padding: "8px 10px" }}>Week work</th>
+                    <th style={{ padding: "8px 10px" }}>Day idle</th>
+                    <th style={{ padding: "8px 10px" }}>Day away</th>
+                    <th style={{ padding: "8px 10px" }}>Inputs</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((r) => {
+                    const v = verdict(r);
+                    const active = selected === r.user_id;
+                    return (
+                      <tr
+                        key={r.user_id}
+                        onClick={() => setSelected(r.user_id === selected ? null : r.user_id)}
+                        style={{
+                          borderTop: `1px solid ${C.lineSoft}`,
+                          cursor: "pointer",
+                          background: active ? C.blueSoft : "transparent",
+                        }}
+                      >
+                        <td style={{ padding: "10px" }}>
+                          <div style={{ fontWeight: 800, color: C.ink }}>{r.name}</div>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: C.inkSoft }}>
+                            {r.title}
+                            {r.team ? ` · ${r.team}` : ""}
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px" }}>
+                          <StatusChip status={r.status} />
+                          <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 4, fontWeight: 600 }}>
+                            {r.last_heartbeat_at ? ago(r.last_heartbeat_at) : "never"}
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px", maxWidth: 200 }}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "2px 8px",
+                              borderRadius: 8,
+                              background: TONES[v.tone].bg,
+                              color: TONES[v.tone].fg,
+                              fontWeight: 800,
+                              fontSize: 11,
+                            }}
+                          >
+                            {v.label}
+                          </span>
+                          <div style={{ fontSize: 11, color: C.inkSoft, marginTop: 4, fontWeight: 600, lineHeight: 1.35 }}>
+                            {v.detail}
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px", fontWeight: 700, color: C.ink }}>
+                          {r.status === "offline" ? "—" : `/${r.current_tab || "…"}`}
+                        </td>
+                        <td className="mono" style={{ padding: "10px", fontWeight: 800, color: TONES.good.fg, whiteSpace: "nowrap" }}>
+                          {fmtDur(r.working_seconds)}
+                        </td>
+                        <td className="mono" style={{ padding: "10px", fontWeight: 800, color: C.blueDeep, whiteSpace: "nowrap" }}>
+                          {fmtDur(r.week_working_seconds || 0)}
+                        </td>
+                        <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.warn.fg, whiteSpace: "nowrap" }}>
+                          {fmtDur(r.idle_seconds_today)}
+                        </td>
+                        <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.bad.fg, whiteSpace: "nowrap" }}>
+                          {fmtDur(r.away_seconds)}
+                        </td>
+                        <td className="mono" style={{ padding: "10px", fontWeight: 700 }}>
+                          {r.interactions}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+
+        {selectedRow ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Panel title={selectedRow.name} right={<StatusChip status={selectedRow.status} />}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.inkSoft, marginBottom: 10 }}>
+                {selectedRow.title}
+                {selectedRow.team ? ` · ${selectedRow.team}` : ""} · {deviceOf(selectedRow.user_agent)}
+              </div>
+              {(() => {
+                const v = verdict(selectedRow);
+                return (
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: 12,
+                      background: TONES[v.tone].bg,
+                      color: TONES[v.tone].fg,
+                      fontWeight: 700,
+                      fontSize: 13,
+                      marginBottom: 12,
+                    }}
+                  >
+                    {v.label} — {v.detail}
+                  </div>
+                );
+              })()}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                <Mini label="Work this day" value={fmtDur(selectedRow.working_seconds)} />
+                <Mini label="Work this week" value={fmtDur(selectedRow.week_working_seconds || 0)} />
+                <Mini label="Idle this day" value={fmtDur(selectedRow.idle_seconds_today)} />
+                <Mini label="Away this day" value={fmtDur(selectedRow.away_seconds)} />
+                <Mini label="Week idle" value={fmtDur(selectedRow.week_idle_seconds || 0)} />
+                <Mini label="Week away" value={fmtDur(selectedRow.week_away_seconds || 0)} />
+              </div>
+              {selectedRow.week_start && selectedRow.week_end ? (
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.inkSoft, marginBottom: 10 }}>
+                  Week: {String(selectedRow.week_start).slice(0, 10)} → {String(selectedRow.week_end).slice(0, 10)} (Mon–Sun)
+                </div>
+              ) : null}
+
+              <div style={{ fontSize: 12, fontWeight: 800, color: C.inkSoft, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                This week — day by day
+              </div>
+              {eventsLoading && !weekDays.length ? (
+                <div style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600, marginBottom: 10 }}>Loading week…</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+                  {weekDays.map((d) => {
+                    const isSel = String(d.day).slice(0, 10) === day;
+                    return (
+                      <div
+                        key={String(d.day)}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "88px 1fr",
+                          gap: 8,
+                          alignItems: "center",
+                          padding: "7px 9px",
+                          borderRadius: 10,
+                          background: isSel ? C.blueSoft : C.bg,
+                          border: `1px solid ${isSel ? C.blue : C.lineSoft}`,
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 800, color: C.ink }}>
+                          {weekdayLabel(String(d.day).slice(0, 10))}
+                        </div>
+                        <div>
+                          <div className="mono" style={{ fontSize: 12, fontWeight: 800, color: TONES.good.fg }}>
+                            Work {fmtDur(d.working_seconds)}
+                          </div>
+                          <div style={{ fontSize: 10.5, fontWeight: 600, color: C.inkSoft }}>
+                            Idle {fmtDur(d.idle_seconds)} · Away {fmtDur(d.away_seconds)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={{ fontSize: 12, fontWeight: 800, color: C.inkSoft, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Time on CRM tabs (selected day)
+              </div>
+              {Object.keys(selectedRow.tabs || {}).length === 0 ? (
+                <div style={{ fontSize: 12, color: C.inkFaint, fontWeight: 600 }}>No tab time logged yet.</div>
+              ) : (
+                Object.entries(selectedRow.tabs)
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 8)
+                  .map(([tab, sec]) => {
+                    const max = Math.max(...Object.values(selectedRow.tabs));
+                    return <Bar key={tab} label={`/${tab}`} value={Math.round(sec / 60)} max={Math.max(1, Math.round(max / 60))} suffix="" color={C.blue} />;
+                  })
+              )}
+            </Panel>
+
+            <Panel title="Status timeline">
+              {eventsLoading ? (
+                <div style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>Loading…</div>
+              ) : events.length === 0 ? (
+                <div style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>No status changes logged for this day yet.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }}>
+                  {events.map((e) => {
+                    const t = statusTone(e.status);
+                    return (
+                      <div
+                        key={e.id}
+                        style={{
+                          display: "flex",
+                          gap: 10,
+                          alignItems: "flex-start",
+                          padding: "8px 10px",
+                          borderRadius: 10,
+                          background: C.bg,
+                          border: `1px solid ${C.lineSoft}`,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: t.fg,
+                            marginTop: 5,
+                            flexShrink: 0,
+                          }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 800, fontSize: 12, color: C.ink }}>
+                            {e.prev_status ? `${e.prev_status} → ` : ""}
+                            {statusLabel(e.status)}
+                          </div>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: C.inkSoft }}>
+                            {String(e.created_at).slice(0, 19).replace("T", " ")}
+                            {e.current_tab ? ` · /${e.current_tab}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Panel>
+          </div>
+        ) : null}
+      </div>
+
+      <div style={{ marginTop: 14, fontSize: 12, fontWeight: 600, color: C.inkSoft, lineHeight: 1.45 }}>
+        <b style={{ color: C.ink }}>Day work</b> = selected date pe active mouse/keyboard time (hours · mins · secs).{" "}
+        <b style={{ color: C.ink }}>Week work</b> = usi week (Mon–Sun) ka total. Row pe click karke har din ka breakdown dekho.{" "}
+        Idle = CRM open, input nahi; Away = tab hide / long idle; Offline = heartbeat band.
+      </div>
+    </div>
+  );
+}
+
+function Mini({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        background: C.bg,
+        border: `1px solid ${C.lineSoft}`,
+        borderRadius: 10,
+        padding: "8px 10px",
+      }}
+    >
+      <div style={{ fontSize: 10, fontWeight: 800, color: C.inkSoft, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        {label}
+      </div>
+      <div className="mono" style={{ fontSize: 15, fontWeight: 800, color: C.ink, marginTop: 2 }}>
+        {value}
+      </div>
+    </div>
+  );
+}

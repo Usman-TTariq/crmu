@@ -183,9 +183,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
 
   if (notAllowed) {
     return (
-      <div style={{ padding: 40, color: "#fff", fontWeight: 600 }}>
-        This tab is not visible to your role.
-      </div>
+      <div className="app-gate">This tab is not visible to your role.</div>
     );
   }
 

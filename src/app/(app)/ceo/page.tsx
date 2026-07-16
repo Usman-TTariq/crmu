@@ -48,13 +48,13 @@ export default function CeoDashboardPage() {
   }, [app.tf]);
 
   if (!app.canSeeCeo) {
-    return <div style={{ padding: 40, color: "#fff", fontWeight: 600 }}>The CEO dashboard is restricted.</div>;
+    return <div className="app-gate">The CEO dashboard is restricted.</div>;
   }
   if (err) {
-    return <div style={{ padding: 40, color: "#fff", fontWeight: 600 }}>{err}</div>;
+    return <div className="app-gate">{err}</div>;
   }
   if (!d) {
-    return <div style={{ padding: 40, color: "rgba(255,255,255,0.8)", fontWeight: 600 }}>Loading&hellip;</div>;
+    return <div className="app-gate">Loading&hellip;</div>;
   }
 
   const n = (k: string) => num(d[k]);
@@ -81,9 +81,9 @@ export default function CeoDashboardPage() {
 
   return (
     <div style={{ padding: "22px 26px" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: "#FFFFFF" }}>TGT Nexus</div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.78)" }}>
+      <div className="app-page-head">
+        <div className="app-page-title">TGT Nexus</div>
+        <div className="app-page-lede">
           CEO dashboard &middot; live &middot; {app.tf}
         </div>
       </div>
@@ -92,9 +92,9 @@ export default function CeoDashboardPage() {
         className="fade-up"
         style={{
           backgroundImage:
-            "radial-gradient(900px 320px at 88% -30%, rgba(255,255,255,0.16), transparent 60%), linear-gradient(135deg, #1A0D0F 0%, #7E0E1F 58%, #A9152B 100%)",
-          border: "1px solid rgba(255,255,255,0.22)",
-          boxShadow: "0 16px 44px rgba(20,1,5,0.5)",
+            "radial-gradient(900px 320px at 88% -30%, rgba(255,255,255,0.12), transparent 60%), linear-gradient(135deg, #0a0d12 0%, #151b24 45%, #8e1015 100%)",
+          border: "1px solid rgba(255,255,255,0.14)",
+          boxShadow: "0 16px 44px rgba(18,21,26,0.22)",
           borderRadius: 18,
           padding: "20px 24px",
           color: "#fff",

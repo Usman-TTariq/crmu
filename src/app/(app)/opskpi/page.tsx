@@ -31,10 +31,10 @@ export default function OpsKpiPage() {
   }, [app.tf]);
 
   if (!app.viewTabs.includes("opskpi")) {
-    return <div style={{ padding: 40, color: "#fff", fontWeight: 600 }}>This tab is not visible to your role.</div>;
+    return <div className="app-gate">This tab is not visible to your role.</div>;
   }
   if (!d) {
-    return <div style={{ padding: 40, color: "rgba(255,255,255,0.8)", fontWeight: 600 }}>Loading&hellip;</div>;
+    return <div className="app-gate">Loading&hellip;</div>;
   }
 
   const cs = (d.cs || {}) as Record<string, number | null>;
@@ -67,10 +67,12 @@ export default function OpsKpiPage() {
 
   return (
     <div style={{ padding: "22px 26px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-        <TrendingUp size={20} style={{ color: "#FFFFFF" }} />
-        <div style={{ fontSize: 20, fontWeight: 800, color: "#FFFFFF" }}>OPS KPIs</div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.78)" }}>&middot; {app.tf}</div>
+      <div className="app-page-head">
+        <div className="app-page-title">
+          <TrendingUp size={22} style={{ color: C.blue }} />
+          OPS KPIs
+        </div>
+        <div className="app-page-lede">&middot; {app.tf}</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 14, marginBottom: 20 }}>
         <KpiCard label="Onboarding Approval" value={onbRate === null ? "-" : onbRate + "%"} target="\u2265 85%" met={onbRate === null ? null : onbRate >= 85} sub={onbApp + " of " + onbTotal} />

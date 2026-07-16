@@ -245,7 +245,7 @@ export default function Drawer({
               className="btnp"
               style={{
                 border: "none",
-                background: "linear-gradient(180deg,#D2203A,#A6112A)",
+                background: "linear-gradient(180deg,#ba161c,#8e1015)",
                 color: "#fff",
                 borderRadius: 10,
                 padding: "10px 22px",

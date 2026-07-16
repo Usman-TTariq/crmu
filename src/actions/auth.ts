@@ -20,6 +20,11 @@ export async function signIn(payload: SignInPayload): Promise<{ error?: string }
 
 export async function signOut(): Promise<void> {
   const supabase = await createClient();
+  try {
+    await supabase.rpc("presence_offline");
+  } catch {
+    // Presence SQL may not be applied yet; never block logout.
+  }
   await supabase.auth.signOut();
   redirect("/login");
 }

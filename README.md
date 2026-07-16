@@ -15,6 +15,9 @@ Production CRM for the TGT Nexus POS operations pipeline — Next.js (App Router
    - `05_seed.sql` — teams + roster profiles
    - `06_demo_data.sql` — *(optional)* sample leads across every pipeline stage, for demos/testing
    - `07_sessions.sql` — Active Logins dropdown in the top navbar (who is signed in, device, IP) plus admin remote sign-out (per user, or everyone at once)
+   - `08_roles_floor_avp.sql` — AVP Sales + Floor Manager role deltas (if upgrading an older DB)
+   - `09_presence.sql` — Employee Monitor: live working/idle/away heartbeats, daily + weekly work totals, status timeline
+   - `10_presence_hours.sql` — *(upgrade)* weekly hours + day-by-day week breakdown if you already ran an older `09_presence.sql`
 3. In **Authentication → Providers**, keep Email enabled. Disable public signups (Authentication → Settings → "Allow new users to sign up" off) — accounts are created by admins from the Team Setup tab.
 
 ### 2. App

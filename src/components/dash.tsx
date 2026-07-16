@@ -90,11 +90,13 @@ export function Panel({
   color,
   children,
   style,
+  right,
 }: {
   title: string;
   color?: string;
   children: React.ReactNode;
   style?: React.CSSProperties;
+  right?: React.ReactNode;
 }) {
   return (
     <div
@@ -112,9 +114,10 @@ export function Panel({
             flexShrink: 0,
           }}
         />
-        <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.inkSoft }}>
+        <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.inkSoft, flex: 1 }}>
           {title}
         </span>
+        {right}
       </div>
       <div style={{ padding: "16px 18px" }}>{children}</div>
     </div>

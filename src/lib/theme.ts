@@ -1,20 +1,20 @@
-// Design tokens ported 1:1 from the TGT CRM prototype
+// Design tokens — aligned with the login page brand language
 
 export const C = {
-  ink: "#1B1517",
-  inkSoft: "#332B2E",
-  inkFaint: "#544A4D",
-  bg: "#F7F4F3",
+  ink: "#12151a",
+  inkSoft: "#5c6570",
+  inkFaint: "#8a929c",
+  bg: "#f7f8fa",
   surface: "#FFFFFF",
-  line: "#EAE2E3",
-  lineSoft: "#F3EEEF",
-  side: "#141011",
-  sideHi: "#291B1E",
-  sideText: "#BCAFB2",
-  blue: "#C4132F",
-  blueDeep: "#8C0F22",
-  blueSoft: "#FCEBEE",
-  accentOnDark: "#FF5568",
+  line: "#e2e6eb",
+  lineSoft: "#eef1f5",
+  side: "#0a0d12",
+  sideHi: "#151b24",
+  sideText: "#a8b0bb",
+  blue: "#ba161c",
+  blueDeep: "#8e1015",
+  blueSoft: "#fcebec",
+  accentOnDark: "#ff6b75",
 } as const;
 
 export type Tone = { bg: string; fg: string };
@@ -40,9 +40,9 @@ export const TONE_MAP: Record<string, keyof typeof TONES> = {
 export const toneFor = (v: unknown): Tone =>
   TONES[TONE_MAP[String(v)] || "neutral"];
 
-export const FUNNEL_COLORS = ["#7E0E1F", "#9C1226", "#C4132F", "#D84557", "#1F7A8C", "#177143"];
-export const MIX_COLORS = ["#C4132F", "#1F7A8C", "#177143", "#8F6410", "#6D28D9", "#5D6B80"];
-export const NEUTRAL_CHIP: Tone = { bg: "#EDE7E8", fg: "#1B1517" };
+export const FUNNEL_COLORS = ["#8e1015", "#ba161c", "#d4454c", "#1F7A8C", "#177143", "#5c6570"];
+export const MIX_COLORS = ["#ba161c", "#1F7A8C", "#177143", "#8F6410", "#6D28D9", "#5D6B80"];
+export const NEUTRAL_CHIP: Tone = { bg: "#EEF1F5", fg: "#12151a" };
 
 export const MEDALS = [
   { bg: "linear-gradient(135deg,#FFE9A8,#E7A514)", fg: "#6B4A00", ring: "#F3C64A" },

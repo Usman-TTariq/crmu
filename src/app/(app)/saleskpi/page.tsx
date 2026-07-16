@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { TrendingUp } from "lucide-react";
+import { C } from "@/lib/theme";
 import { num } from "@/lib/format";
 import { useApp } from "@/components/app-context";
 import { KpiCard } from "@/components/dash";
@@ -25,10 +26,10 @@ export default function SalesKpiPage() {
   }, [app.tf]);
 
   if (!app.viewTabs.includes("saleskpi")) {
-    return <div style={{ padding: 40, color: "#fff", fontWeight: 600 }}>This tab is not visible to your role.</div>;
+    return <div className="app-gate">This tab is not visible to your role.</div>;
   }
   if (!d) {
-    return <div style={{ padding: 40, color: "rgba(255,255,255,0.8)", fontWeight: 600 }}>Loading&hellip;</div>;
+    return <div className="app-gate">Loading&hellip;</div>;
   }
 
   const qaTotal = num(d.qaTotal);
@@ -40,10 +41,12 @@ export default function SalesKpiPage() {
 
   return (
     <div style={{ padding: "22px 26px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-        <TrendingUp size={20} style={{ color: "#FFFFFF" }} />
-        <div style={{ fontSize: 20, fontWeight: 800, color: "#FFFFFF" }}>Sales KPIs</div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.78)" }}>&middot; {app.tf}</div>
+      <div className="app-page-head">
+        <div className="app-page-title">
+          <TrendingUp size={22} style={{ color: C.blue }} />
+          Sales KPIs
+        </div>
+        <div className="app-page-lede">&middot; {app.tf}</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14 }}>
         <KpiCard
@@ -61,7 +64,7 @@ export default function SalesKpiPage() {
           sub={won + " won of " + decided + " decided"}
         />
       </div>
-      <div style={{ marginTop: 14, fontSize: 12.5, fontWeight: 600, color: "rgba(255,255,255,0.75)" }}>
+      <div style={{ marginTop: 14, fontSize: 12.5, fontWeight: 600, color: C.inkSoft }}>
         Sales QA does not have accuracy KPIs yet. These two will expand as you define more.
       </div>
     </div>

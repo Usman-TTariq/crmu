@@ -181,7 +181,7 @@ export default function TeamSetupPage() {
   }, [app, canEdit, openAdd]);
 
   if (!app.viewTabs.includes("teamsetup")) {
-    return <div style={{ padding: 40, color: "#fff", fontWeight: 600 }}>This tab is not visible to your role.</div>;
+    return <div className="app-gate">This tab is not visible to your role.</div>;
   }
 
   const onSave = async (draft: Rec, isNew: boolean) => {
@@ -414,7 +414,7 @@ export default function TeamSetupPage() {
                 className="btnp"
                 style={{
                   border: "none",
-                  background: "linear-gradient(180deg,#D2203A,#A6112A)",
+                  background: "linear-gradient(180deg,#ba161c,#8e1015)",
                   color: "#fff",
                   borderRadius: 10,
                   padding: "10px 18px",
@@ -513,7 +513,7 @@ export default function TeamSetupPage() {
                 className="btnp"
                 style={{
                   border: "none",
-                  background: "linear-gradient(180deg,#D2203A,#A6112A)",
+                  background: "linear-gradient(180deg,#ba161c,#8e1015)",
                   color: "#fff",
                   borderRadius: 10,
                   padding: "10px 16px",
@@ -545,7 +545,7 @@ export default function TeamSetupPage() {
           marginBottom: 10,
         }}
       >
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", opacity: 0.92 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
           Team roster{filtered.length ? ` · ${filtered.length}` : ""}
         </div>
         <button
@@ -553,9 +553,9 @@ export default function TeamSetupPage() {
           onClick={() => downloadRosterCsv(filtered, fields)}
           disabled={!filtered.length}
           style={{
-            border: `1px solid rgba(255,255,255,0.28)`,
-            background: "rgba(255,255,255,0.12)",
-            color: "#fff",
+            border: `1px solid ${C.line}`,
+            background: C.surface,
+            color: C.ink,
             borderRadius: 10,
             padding: "8px 14px",
             fontSize: 13,

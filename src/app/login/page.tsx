@@ -2,20 +2,7 @@
 
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { Cormorant_Garamond, IBM_Plex_Sans } from "next/font/google";
 import { signIn } from "@/actions/auth";
-
-const display = Cormorant_Garamond({
-  subsets: ["latin"],
-  weight: ["500", "600"],
-  variable: "--font-login-display",
-});
-
-const ui = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-login-ui",
-});
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -36,7 +23,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className={`${display.variable} ${ui.variable} login-shell`}>
+    <div className="login-shell">
       <div className="login-atmosphere" aria-hidden>
         <div className="login-wash" />
         <div className="login-panel-dark" />

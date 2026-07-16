@@ -5,7 +5,8 @@
 // admin sign a person out of all their devices — or sign everyone out.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { LogOut, MonitorSmartphone, RefreshCw, ShieldAlert } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Activity, LogOut, MonitorSmartphone, RefreshCw, ShieldAlert } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { useApp } from "@/components/app-context";
 import {
@@ -58,6 +59,7 @@ const fmtTs = (ts: string) => String(ts || "").slice(0, 16).replace("T", " ");
 
 export default function ActiveLogins() {
   const app = useApp();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -119,18 +121,18 @@ export default function ActiveLogins() {
         }}
         title="Active logins"
         style={{
-          border: "none",
+          border: `1px solid ${open ? C.blue : C.line}`,
           borderRadius: 10,
           padding: "8px 12px",
           fontSize: 13,
           fontWeight: 700,
-          color: "#fff",
-          background: open ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.14)",
+          color: open ? C.blueDeep : C.ink,
+          background: open ? C.blueSoft : "#fff",
           cursor: "pointer",
           display: "flex",
           alignItems: "center",
           gap: 7,
-          boxShadow: "0 3px 10px rgba(0,0,0,0.22)",
+          boxShadow: "0 1px 2px rgba(18,21,26,0.04)",
         }}
       >
         <MonitorSmartphone size={15} />
@@ -280,6 +282,32 @@ export default function ActiveLogins() {
           </div>
 
           <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.line}`, background: C.surface }}>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                router.push("/monitor");
+              }}
+              style={{
+                width: "100%",
+                border: `1px solid ${C.line}`,
+                background: C.blueSoft,
+                color: C.blueDeep,
+                borderRadius: 9,
+                padding: "8px 12px",
+                fontSize: 12.5,
+                fontWeight: 800,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 7,
+                marginBottom: 8,
+              }}
+            >
+              <Activity size={14} />
+              Open Employee Monitor (work vs idle)
+            </button>
             <button
               onClick={kickAll}
               disabled={busy !== ""}

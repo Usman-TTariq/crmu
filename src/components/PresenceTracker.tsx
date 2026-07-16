@@ -1,0 +1,107 @@
+"use client";
+
+// Silent activity tracker for every signed-in user.
+// Reports heartbeats so admins can see working / idle / away / offline.
+
+import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
+import { markPresenceOffline, sendPresenceHeartbeat } from "@/actions/presence";
+
+const HEARTBEAT_MS = 30_000;
+
+function tabOf(pathname: string): string {
+  const seg = (pathname || "/").split("/").filter(Boolean)[0] || "home";
+  return seg.slice(0, 40);
+}
+
+export default function PresenceTracker() {
+  const pathname = usePathname();
+  const lastInput = useRef(Date.now());
+  const clicks = useRef(0);
+  const keys = useRef(0);
+  const scrolls = useRef(0);
+  const tabRef = useRef(tabOf(pathname));
+  const sending = useRef(false);
+
+  useEffect(() => {
+    tabRef.current = tabOf(pathname);
+  }, [pathname]);
+
+  useEffect(() => {
+    const bump = () => {
+      lastInput.current = Date.now();
+    };
+    const onClick = () => {
+      bump();
+      clicks.current += 1;
+    };
+    const onKey = () => {
+      bump();
+      keys.current += 1;
+    };
+    const onScroll = () => {
+      bump();
+      scrolls.current += 1;
+    };
+    const onVis = () => {
+      if (!document.hidden) bump();
+    };
+
+    window.addEventListener("mousemove", bump, { passive: true });
+    window.addEventListener("mousedown", onClick, { passive: true });
+    window.addEventListener("keydown", onKey, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true, capture: true });
+    window.addEventListener("touchstart", bump, { passive: true });
+    document.addEventListener("visibilitychange", onVis);
+
+    const pulse = async () => {
+      if (sending.current) return;
+      sending.current = true;
+      const idleSeconds = Math.floor((Date.now() - lastInput.current) / 1000);
+      const focused = typeof document !== "undefined" ? !document.hidden : true;
+      const payload = {
+        tab: tabRef.current,
+        idleSeconds: Math.min(idleSeconds, 86_400),
+        focused,
+        clicks: clicks.current,
+        keys: keys.current,
+        scrolls: scrolls.current,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 240) : "",
+      };
+      clicks.current = 0;
+      keys.current = 0;
+      scrolls.current = 0;
+      try {
+        await sendPresenceHeartbeat(payload);
+      } catch {
+        // best-effort; never block the UI
+      } finally {
+        sending.current = false;
+      }
+    };
+
+    // Immediate first pulse so the board lights up quickly
+    void pulse();
+    const timer = window.setInterval(() => void pulse(), HEARTBEAT_MS);
+
+    const onHide = () => {
+      // Fire-and-forget offline when the tab is closing
+      void markPresenceOffline();
+    };
+    window.addEventListener("pagehide", onHide);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("mousemove", bump);
+      window.removeEventListener("mousedown", onClick);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("touchstart", bump);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", onHide);
+      void markPresenceOffline();
+    };
+  }, []);
+
+  return null;
+}
