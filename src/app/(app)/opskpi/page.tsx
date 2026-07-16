@@ -75,10 +75,10 @@ export default function OpsKpiPage() {
         <div className="app-page-lede">&middot; {app.tf}</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 14, marginBottom: 20 }}>
-        <KpiCard label="Onboarding Approval" value={onbRate === null ? "-" : onbRate + "%"} target="\u2265 85%" met={onbRate === null ? null : onbRate >= 85} sub={onbApp + " of " + onbTotal} />
+        <KpiCard label="Onboarding Approval" value={onbRate === null ? "-" : onbRate + "%"} target="≥ 85%" met={onbRate === null ? null : onbRate >= 85} sub={onbApp + " of " + onbTotal} />
         <KpiCard label="Onboarding SLA" value={fatals} target="0 fatal errors" met={fatals === 0} glow sub="late 2nd/3rd attempts" />
-        <KpiCard label="OPS QA Accuracy" value={acc === null ? "No checks" : acc + "%"} target="\u2265 95%" met={acc === null ? null : acc >= 95} glow sub={reviewed + " checked"} />
-        <KpiCard label="Retention Rate" value={retRate === null ? "-" : retRate + "%"} target="\u2265 85%" met={retRate === null ? null : num(retRate) >= 85} sub={"Active " + num(cs.active) + " of " + csD + " funded"} />
+        <KpiCard label="OPS QA Accuracy" value={acc === null ? "No checks" : acc + "%"} target="≥ 95%" met={acc === null ? null : acc >= 95} glow sub={reviewed + " checked"} />
+        <KpiCard label="Retention Rate" value={retRate === null ? "-" : retRate + "%"} target="≥ 85%" met={retRate === null ? null : num(retRate) >= 85} sub={"Active " + num(cs.active) + " of " + csD + " funded"} />
         <KpiCard label="Churn Rate" value={churnRate === null ? "-" : churnRate + "%"} target="< 10%" met={churnRate === null ? null : num(churnRate) < 10} sub={num(cs.churned) + " churned of " + csD} />
         <KpiCard label="At Risk" value={cs.atRiskRate === null || cs.atRiskRate === undefined ? "-" : cs.atRiskRate + "%"} target="monitor" met={null} sub={num(cs.atRisk) + " potential chargebacks"} />
         <KpiCard label="Buy-back / Chargeback" value={cs.buybackRate === null || cs.buybackRate === undefined ? "-" : cs.buybackRate + "%"} target="monitor" met={null} sub={num(cs.chargeback) + " of " + csD + " funded"} />

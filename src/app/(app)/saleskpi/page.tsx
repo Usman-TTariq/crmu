@@ -52,14 +52,14 @@ export default function SalesKpiPage() {
         <KpiCard
           label="Lead Qualification Rate"
           value={qualRate + "%"}
-          target="\u2265 60%"
+          target="≥ 60%"
           met={qaTotal ? qualRate >= 60 : null}
           sub={qualified + " of " + qaTotal}
         />
         <KpiCard
           label="Closer Win Rate"
           value={winRate + "%"}
-          target="\u2265 50%"
+          target="≥ 50%"
           met={decided ? winRate >= 50 : null}
           sub={won + " won of " + decided + " decided"}
         />
