@@ -1,13 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { Lock } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
+import { Cormorant_Garamond, IBM_Plex_Sans } from "next/font/google";
 import { signIn } from "@/actions/auth";
-import { C } from "@/lib/theme";
+
+const display = Cormorant_Garamond({
+  subsets: ["latin"],
+  weight: ["500", "600"],
+  variable: "--font-login-display",
+});
+
+const ui = IBM_Plex_Sans({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-login-ui",
+});
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -22,150 +35,130 @@ export default function LoginPage() {
     }
   };
 
-  const inputStyle: React.CSSProperties = {
-    width: "100%",
-    border: `1px solid ${C.line}`,
-    borderRadius: 10,
-    padding: "11px 13px",
-    fontSize: 14,
-    color: C.ink,
-    background: C.surface,
-    outline: "none",
-    fontFamily: "inherit",
-  };
-
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundImage: "linear-gradient(160deg, #4A060F 0%, #7E0E1F 48%, #B01226 100%)",
-        padding: 20,
-      }}
-    >
-      <div
-        className="crm-card fade-up"
-        style={{
-          background: C.surface,
-          borderRadius: 18,
-          padding: "34px 32px",
-          width: 400,
-          maxWidth: "94vw",
-        }}
-      >
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <div
-            style={{
-              width: 52,
-              height: 52,
-              borderRadius: 14,
-              margin: "0 auto 12px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "linear-gradient(180deg,#D2203A,#A6112A)",
-              color: "#fff",
-              boxShadow: "0 8px 20px rgba(196,19,47,0.35)",
-            }}
-          >
-            <Lock size={24} />
-          </div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: C.ink }}>TGT Nexus</div>
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: C.inkSoft,
-              textTransform: "uppercase",
-              letterSpacing: "0.14em",
-              marginTop: 4,
-            }}
-          >
-            POS Operations CRM
-          </div>
-        </div>
+    <div className={`${display.variable} ${ui.variable} login-shell`}>
+      <div className="login-atmosphere" aria-hidden>
+        <div className="login-wash" />
+        <div className="login-panel-dark" />
+        <div className="login-grid" />
+        <div className="login-glow" />
+        <div className="login-glow-soft" />
+        <div className="login-noise" />
+        <div className="login-giant">NEXUS</div>
+      </div>
 
-        <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
-          <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: 11,
-                fontWeight: 700,
-                color: C.inkSoft,
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-                marginBottom: 5,
-              }}
-            >
-              Email
-            </label>
-            <input
-              type="email"
-              required
-              autoFocus
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={inputStyle}
-            />
-          </div>
-          <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: 11,
-                fontWeight: 700,
-                color: C.inkSoft,
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-                marginBottom: 5,
-              }}
-            >
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={inputStyle}
-            />
-          </div>
-          {error ? (
-            <div
-              style={{
-                fontSize: 12.5,
-                color: "#AE3A44",
-                background: "#FAE7E8",
-                borderRadius: 8,
-                padding: "8px 11px",
-              }}
-            >
-              {error}
+      <div className="login-frame">
+        <aside className="login-brand-col login-rise" style={{ animationDelay: "0.06s" }}>
+          <div className="login-brand-top">
+            <div className="login-logo-lockup">
+              <div className="login-logo-plate">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/brand/logo-mark-light.svg" alt="" className="login-logo-mark" />
+              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/logo-type-light.svg" alt="TGT Nexus" className="login-logo-type" />
             </div>
-          ) : null}
-          <button
-            type="submit"
-            disabled={busy}
-            className="btnp"
-            style={{
-              border: "none",
-              background: "linear-gradient(180deg,#D2203A,#A6112A)",
-              color: "#fff",
-              borderRadius: 10,
-              padding: "12px 22px",
-              fontSize: 14,
-              fontWeight: 700,
-              cursor: busy ? "default" : "pointer",
-              opacity: busy ? 0.7 : 1,
-              boxShadow: "0 6px 16px rgba(196,19,47,0.28)",
-            }}
-          >
-            {busy ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
+          </div>
+
+          <div className="login-brand-main">
+            <div className="login-kicker">
+              <span className="login-kicker-dot" aria-hidden />
+              POS Operations CRM
+            </div>
+            <h1 className="login-headline">
+              From first lead
+              <em>to live install.</em>
+            </h1>
+            <p className="login-lede">
+              One workspace for sales and ops — shared pipeline, clear ownership, zero guesswork.
+            </p>
+
+            <div className="login-rail" aria-label="Pipeline">
+              {[
+                ["01", "Lead"],
+                ["02", "QA"],
+                ["03", "SQL"],
+                ["04", "Close"],
+                ["05", "Ops"],
+              ].map(([n, label]) => (
+                <div key={label} className="login-rail-step">
+                  <span className="login-rail-num">{n}</span>
+                  <span className="login-rail-label">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="login-brand-foot">
+            <div className="login-foot-rule" aria-hidden />
+            <div className="login-foot-row">
+              <span>Secure team access</span>
+              <span className="login-sep" aria-hidden />
+              <span>Authorized only</span>
+            </div>
+          </div>
+        </aside>
+
+        <main className="login-auth-col login-rise" style={{ animationDelay: "0.16s" }}>
+          <div className="login-auth">
+            <header className="login-auth-head">
+              <h2>Sign in</h2>
+              <p>Enter the credentials issued by your administrator.</p>
+            </header>
+
+            <form onSubmit={submit} className="login-form" noValidate>
+              <label className="login-label" htmlFor="login-email">
+                Email address
+              </label>
+              <input
+                id="login-email"
+                className="login-control"
+                type="email"
+                required
+                autoFocus
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@tgtnexus.net"
+              />
+
+              <div className="login-label-row">
+                <label className="login-label" htmlFor="login-password">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  className="login-ghost"
+                  onClick={() => setShowPw((v) => !v)}
+                  aria-label={showPw ? "Hide password" : "Show password"}
+                >
+                  {showPw ? <EyeOff size={14} strokeWidth={1.75} /> : <Eye size={14} strokeWidth={1.75} />}
+                  {showPw ? "Hide" : "Show"}
+                </button>
+              </div>
+              <input
+                id="login-password"
+                className="login-control"
+                type={showPw ? "text" : "password"}
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+              />
+
+              {error ? (
+                <div className="login-error" role="alert">
+                  {error}
+                </div>
+              ) : null}
+
+              <button type="submit" className="login-cta" disabled={busy}>
+                {busy ? "Authenticating…" : "Enter workspace"}
+              </button>
+            </form>
+          </div>
+        </main>
       </div>
     </div>
   );
