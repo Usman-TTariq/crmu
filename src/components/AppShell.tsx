@@ -65,7 +65,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [app.tf, pathname]);
 
   return (
-    <div className={`app-shell${navOpen ? " nav-open" : ""}`}>
+    <div className={`app-shell min-w-0 w-full${navOpen ? " nav-open" : ""}`}>
       <PresenceTracker />
       <div className="app-atmosphere" aria-hidden>
         <div className="app-atmosphere-wash" />
