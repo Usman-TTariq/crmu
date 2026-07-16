@@ -17,6 +17,10 @@ const ui = IBM_Plex_Sans({
 export const metadata: Metadata = {
   title: "TGT Nexus CRM",
   description: "TGT Nexus POS Operations CRM",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({
