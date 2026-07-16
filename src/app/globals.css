@@ -768,8 +768,8 @@ html { scrollbar-color: #ffe3e7 rgba(0, 0, 0, 0.25); }
   flex-shrink: 0;
 }
 .login-logo-type {
-  width: auto;
-  height: 24px;
+  width: 170px;
+  height: 24;
   object-fit: contain;
 }
 .login-kicker {
