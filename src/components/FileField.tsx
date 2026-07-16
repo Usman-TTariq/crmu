@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useState } from "react";
-import { Download, FileText, Paperclip, X } from "lucide-react";
+import { Download, Eye, FileText, Paperclip, X } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { IMG_EXT, MAX_FILE_BYTES, OK_EXT, extOf, fileSizeLabel } from "@/lib/format";
 import { uploadAttachment, deleteAttachment } from "@/actions/files";
@@ -126,6 +126,17 @@ export default function FileField({
                     {a.file_ext.toUpperCase()} &middot; {fileSizeLabel(a.file_size)}
                   </div>
                 </div>
+                {a.signed_url ? (
+                  <a
+                    href={a.signed_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="View"
+                    style={{ color: C.inkSoft, flexShrink: 0, display: "flex", padding: 5 }}
+                  >
+                    <Eye size={16} />
+                  </a>
+                ) : null}
                 <a
                   href={a.signed_url}
                   download={a.file_name}
