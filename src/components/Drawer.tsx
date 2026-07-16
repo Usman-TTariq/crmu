@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Trash2, X, Zap } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import type { FieldDef, OptsCtx } from "@/lib/schemas";
@@ -42,6 +43,16 @@ export default function Drawer({
     ownerLock ? { ...record, [ownerLock.field]: ownerLock.value } : record
   );
   const [saving, setSaving] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
   const onChange = (f: { k: string }, v: unknown) => setDraft((d) => ({ ...d, [f.k]: v }));
 
@@ -69,8 +80,10 @@ export default function Drawer({
 
   const fileStage = tab.k === "ops" ? "ops" : "closer";
 
-  return (
-    <div className="crm-overlay" style={{ position: "fixed", inset: 0, zIndex: 40 }}>
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="crm-overlay" style={{ position: "fixed", inset: 0, zIndex: 70 }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(20,2,6,0.55)" }} />
       <aside
         className="crm-drawer"
@@ -261,6 +274,7 @@ export default function Drawer({
           ) : null}
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body
   );
 }
