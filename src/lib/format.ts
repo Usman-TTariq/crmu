@@ -55,5 +55,5 @@ export const fileSizeLabel = (b: number): string =>
     ? Math.max(1, Math.round(b / 1024)) + " KB"
     : Math.round((b / 1024 / 1024) * 10) / 10 + " MB";
 
-export type Timeframe = "Daily" | "Weekly" | "Monthly" | "All time";
-export const TIMEFRAMES: Timeframe[] = ["Daily", "Weekly", "Monthly", "All time"];
+export type Timeframe = "Daily" | "Weekly" | "Last 7 days" | "Monthly" | "All time";
+export const TIMEFRAMES: Timeframe[] = ["Daily", "Weekly", "Last 7 days", "Monthly", "All time"];

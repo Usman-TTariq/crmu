@@ -27,6 +27,11 @@ function tfRange(tf: Timeframe): { start: string; end: string } | null {
     ws.setDate(ws.getDate() - ws.getDay());
     return { start: iso(ws), end };
   }
+  if (tf === "Last 7 days") {
+    const start = new Date(now);
+    start.setDate(start.getDate() - 6);
+    return { start: iso(start), end };
+  }
   const ms = new Date(now.getFullYear(), now.getMonth(), 1);
   return { start: iso(ms), end };
 }

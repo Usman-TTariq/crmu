@@ -2,7 +2,7 @@
 -- TGT Nexus CRM — 04_dashboards.sql
 -- Dashboard RPC functions. Called from the app via supabase.rpc() with the
 -- timeframe in the payload (never in URL params). Run after 03_rls.sql.
--- Timeframes: 'Daily' | 'Weekly' | 'Monthly' | 'All time'
+-- Timeframes: 'Daily' | 'Weekly' | 'Last 7 days' | 'Monthly' | 'All time'
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -18,6 +18,7 @@ as $$
     when d is null then true
     when tf = 'Daily'   then d = current_date
     when tf = 'Weekly'  then d >= (current_date - extract(dow from current_date)::int) and d <= current_date
+    when tf = 'Last 7 days' then d >= (current_date - 6) and d <= current_date
     when tf = 'Monthly' then date_trunc('month', d) = date_trunc('month', current_date)
     else true
   end;

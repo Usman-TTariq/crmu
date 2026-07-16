@@ -8,6 +8,7 @@ import { TIMEFRAMES, type Timeframe } from "@/lib/format";
 import { TABS, NAV_GROUPS, groupOf, ADDABLE, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import { useApp } from "@/components/app-context";
 import ActiveLogins from "@/components/ActiveLogins";
+import PresenceBadge from "@/components/PresenceBadge";
 import PresenceTracker from "@/components/PresenceTracker";
 import { fetchTabCounts } from "@/actions/data";
 import { signOut } from "@/actions/auth";
@@ -56,7 +57,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <nav className="app-side">
-        <div className="app-side-brand">
+        <div className="app-side-brand app-rise">
           <div className="app-logo-lockup">
             <div className="app-logo-plate">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -72,11 +73,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="side-scroll app-side-nav">
-          {NAV_GROUPS.map((g) => {
+          {NAV_GROUPS.map((g, gi) => {
             const items = visibleTabs.filter((t) => g.keys.includes(t.k));
             if (!items.length) return null;
             return (
-              <div key={g.label} className="app-side-group">
+              <div
+                key={g.label}
+                className={`app-side-group app-rise app-rise-delay-${Math.min(gi + 1, 3)}`}
+              >
                 <div className="app-side-group-label">{g.label}</div>
                 {items.map((t) => {
                   const at = t.k === activeKey;
@@ -138,6 +142,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               {tab.label}
             </div>
           </div>
+          <PresenceBadge />
           <ActiveLogins />
           <select
             value={app.tf}
@@ -179,7 +184,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </span>
         </div>
 
-        <section className="app-content">{children}</section>
+        <section className="app-content">
+          <div key={pathname} className="app-content-inner">
+            {children}
+          </div>
+        </section>
       </main>
 
       <div style={{ position: "fixed", bottom: 18, right: 18, zIndex: 60, display: "flex", flexDirection: "column", gap: 8 }}>

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, RefreshCw, UserRoundSearch } from "lucide-react";
+import { Activity, Download, RefreshCw, UserRoundSearch } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { useApp } from "@/components/app-context";
 import { Stat, Panel, Bar } from "@/components/dash";
@@ -16,7 +16,12 @@ import {
 } from "@/actions/presence";
 import { deviceOf, ago } from "@/components/ActiveLogins";
 
-/** Always show hours, minutes, seconds — e.g. 2h 15m 30s */
+const DAY_TARGET_SEC = 8 * 3600;
+const WEEK_TARGET_SEC = 40 * 3600;
+
+type SortKey = "status" | "day" | "week" | "name";
+type FilterKey = "all" | PresenceStatus | "below";
+
 function fmtDur(sec: number): string {
   const s = Math.max(0, Math.floor(sec || 0));
   const h = Math.floor(s / 3600);
@@ -61,9 +66,60 @@ function statusLabel(status: PresenceStatus): string {
   return "Offline";
 }
 
-/** Clear verdict from today's mix + live status */
+function statusRank(s: PresenceStatus): number {
+  if (s === "working") return 0;
+  if (s === "idle") return 1;
+  if (s === "away") return 2;
+  return 3;
+}
+
+function dayProgress(r: PresenceRow): number {
+  return Math.min(100, Math.round(((r.working_seconds || 0) / DAY_TARGET_SEC) * 100));
+}
+
+function weekProgress(r: PresenceRow): number {
+  return Math.min(100, Math.round(((r.week_working_seconds || 0) / WEEK_TARGET_SEC) * 100));
+}
+
+function onlineSample(r: PresenceRow): number {
+  return (r.working_seconds || 0) + (r.idle_seconds_today || 0) + (r.away_seconds || 0);
+}
+
+/** Below target: day work < 50% of 8h with ≥2h online sample */
+function isBelowTarget(r: PresenceRow): boolean {
+  const sample = onlineSample(r);
+  if (sample < 2 * 3600) return false;
+  return (r.working_seconds || 0) < DAY_TARGET_SEC * 0.5;
+}
+
+function isHighIdle(r: PresenceRow): boolean {
+  const sample = onlineSample(r);
+  if (sample < 30 * 60) return false;
+  const idleAway = (r.idle_seconds_today || 0) + (r.away_seconds || 0);
+  return idleAway / sample >= 0.3;
+}
+
+function isPassive(r: PresenceRow): boolean {
+  const interactRate = r.heartbeats > 0 ? r.interactions / r.heartbeats : 0;
+  return r.status === "working" && interactRate < 0.5 && r.heartbeats >= 4;
+}
+
+function progressTone(pct: number, sampleOk: boolean): string {
+  if (!sampleOk) return C.inkFaint;
+  if (pct >= 90) return TONES.good.fg;
+  if (pct >= 50) return TONES.warn.fg;
+  return TONES.bad.fg;
+}
+
+function flagOf(r: PresenceRow): { label: string; tone: keyof typeof TONES } | null {
+  if (isBelowTarget(r)) return { label: "Below target", tone: "bad" };
+  if (isHighIdle(r)) return { label: "High idle", tone: "warn" };
+  if (isPassive(r)) return { label: "Passive browsing", tone: "warn" };
+  return null;
+}
+
 function verdict(r: PresenceRow): { label: string; tone: keyof typeof TONES; detail: string } {
-  const total = r.working_seconds + r.idle_seconds_today + r.away_seconds;
+  const total = onlineSample(r);
   const workPct = total > 0 ? Math.round((r.working_seconds / total) * 100) : 0;
   const idlePct = total > 0 ? Math.round((r.idle_seconds_today / total) * 100) : 0;
   const interactRate = r.heartbeats > 0 ? r.interactions / r.heartbeats : 0;
@@ -85,7 +141,7 @@ function verdict(r: PresenceRow): { label: string; tone: keyof typeof TONES; det
       detail: r.focused === false ? "CRM tab in background or closed focus" : "Long idle — not at desk",
     };
   }
-  if (r.status === "working" && interactRate < 0.5 && r.heartbeats >= 4) {
+  if (isPassive(r)) {
     return {
       label: "Passive browsing",
       tone: "warn",
@@ -120,6 +176,46 @@ function verdict(r: PresenceRow): { label: string; tone: keyof typeof TONES; det
   };
 }
 
+function csvEscape(v: string): string {
+  if (/[",\r\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+  return v;
+}
+
+function downloadPresenceCsv(rows: PresenceRow[], day: string) {
+  const headers = [
+    "Name", "Title", "Team", "Status", "Day work", "Day idle", "Day away",
+    "Week work", "Day % of 8h", "Week % of 40h", "Interactions", "Current tab", "Flag",
+  ];
+  const lines = [
+    headers.map(csvEscape).join(","),
+    ...rows.map((r) => {
+      const flag = flagOf(r);
+      return [
+        r.name,
+        r.title,
+        r.team,
+        r.status,
+        fmtDur(r.working_seconds),
+        fmtDur(r.idle_seconds_today),
+        fmtDur(r.away_seconds),
+        fmtDur(r.week_working_seconds || 0),
+        String(dayProgress(r)),
+        String(weekProgress(r)),
+        String(r.interactions),
+        r.current_tab || "",
+        flag?.label || "",
+      ].map(csvEscape).join(",");
+    }),
+  ];
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `employee-monitor-${day}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function StatusChip({ status }: { status: PresenceStatus }) {
   const t = statusTone(status);
   return (
@@ -137,17 +233,27 @@ function StatusChip({ status }: { status: PresenceStatus }) {
         letterSpacing: "0.02em",
       }}
     >
-      <span
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
-          background: t.fg,
-          boxShadow: status === "working" ? `0 0 0 3px ${t.bg}` : undefined,
-        }}
-      />
+      {status === "working" ? <span className="pulse-dot" /> : (
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: t.fg }} />
+      )}
       {statusLabel(status)}
     </span>
+  );
+}
+
+function ShiftCell({ sec, target, label }: { sec: number; target: number; label: string }) {
+  const pct = Math.min(100, Math.round((sec / target) * 100));
+  const color = progressTone(pct, sec > 0);
+  return (
+    <div style={{ minWidth: 96 }}>
+      <div className="mono" style={{ fontWeight: 800, color, whiteSpace: "nowrap", fontSize: 12.5 }}>
+        {fmtDur(sec)}
+      </div>
+      <div className="shift-bar" title={`${label}: ${pct}% of target`}>
+        <i style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: C.inkFaint, marginTop: 2 }}>{pct}% of {label}</div>
+    </div>
   );
 }
 
@@ -158,7 +264,8 @@ export default function MonitorPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<"all" | PresenceStatus>("all");
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [sort, setSort] = useState<SortKey>("status");
   const [selected, setSelected] = useState<string | null>(null);
   const [events, setEvents] = useState<PresenceEvent[]>([]);
   const [weekDays, setWeekDays] = useState<PresenceDayRow[]>([]);
@@ -197,15 +304,22 @@ export default function MonitorPage() {
   }, [selected, day]);
 
   const counts = useMemo(() => {
-    const c = { working: 0, idle: 0, away: 0, offline: 0 };
-    for (const r of rows) c[r.status] += 1;
+    const c = { working: 0, idle: 0, away: 0, offline: 0, below: 0 };
+    for (const r of rows) {
+      c[r.status] += 1;
+      if (isBelowTarget(r)) c.below += 1;
+    }
     return c;
   }, [rows]);
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (filter !== "all" && r.status !== filter) return false;
+    const list = rows.filter((r) => {
+      if (filter === "below") {
+        if (!isBelowTarget(r)) return false;
+      } else if (filter !== "all" && r.status !== filter) {
+        return false;
+      }
       if (!qq) return true;
       return (
         r.name.toLowerCase().includes(qq) ||
@@ -214,7 +328,17 @@ export default function MonitorPage() {
         r.current_tab.toLowerCase().includes(qq)
       );
     });
-  }, [rows, q, filter]);
+
+    list.sort((a, b) => {
+      if (sort === "name") return a.name.localeCompare(b.name);
+      if (sort === "day") return (b.working_seconds || 0) - (a.working_seconds || 0);
+      if (sort === "week") return (b.week_working_seconds || 0) - (a.week_working_seconds || 0);
+      const sr = statusRank(a.status) - statusRank(b.status);
+      if (sr !== 0) return sr;
+      return (b.working_seconds || 0) - (a.working_seconds || 0);
+    });
+    return list;
+  }, [rows, q, filter, sort]);
 
   const selectedRow = rows.find((r) => r.user_id === selected) || null;
 
@@ -231,7 +355,7 @@ export default function MonitorPage() {
             Employee Monitor
           </div>
           <div className="app-page-lede">
-            Per-day hours · weekly totals (Mon–Sun) · live seat check · Asia/Karachi
+            8h day · 40h week targets · live seat check · Asia/Karachi
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -239,33 +363,21 @@ export default function MonitorPage() {
             type="date"
             value={day}
             onChange={(e) => setDay(e.target.value)}
-            style={{
-              border: "none",
-              borderRadius: 10,
-              padding: "8px 10px",
-              fontSize: 13,
-              fontWeight: 600,
-              background: "#fff",
-            }}
+            className="app-control"
           />
-          <button
-            type="button"
-            onClick={load}
-            style={{
-              border: "none",
-              borderRadius: 10,
-              padding: "8px 12px",
-              fontWeight: 700,
-              background: "#fff",
-              color: C.ink,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              cursor: "pointer",
-            }}
-          >
+          <button type="button" onClick={load} className="app-control" style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
             <RefreshCw size={14} />
             Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadPresenceCsv(filtered, day)}
+            disabled={!filtered.length}
+            className="app-cta"
+            style={{ opacity: filtered.length ? 1 : 0.5, cursor: filtered.length ? "pointer" : "default" }}
+          >
+            <Download size={14} />
+            Export CSV
           </button>
         </div>
       </div>
@@ -291,7 +403,7 @@ export default function MonitorPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
           gap: 12,
           marginBottom: 14,
         }}
@@ -300,13 +412,14 @@ export default function MonitorPage() {
         <Stat label="Idle / timepass" value={counts.idle} sub="No input 2+ min" tone={TONES.warn.fg} onClick={() => setFilter("idle")} />
         <Stat label="Away from seat" value={counts.away} sub="Tab hidden or 5+ min idle" tone={TONES.bad.fg} onClick={() => setFilter("away")} />
         <Stat label="Offline" value={counts.offline} sub="No heartbeat 90s+" tone={C.inkSoft} onClick={() => setFilter("offline")} />
+        <Stat label="Below target" value={counts.below} sub="< 50% of 8h (2h+ online)" tone={TONES.bad.fg} onClick={() => setFilter("below")} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: selectedRow ? "1.4fr 1fr" : "1fr", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: selectedRow ? "1.45fr 1fr" : "1fr", gap: 14 }}>
         <Panel
           title="Live roster"
           right={
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button
                 type="button"
                 onClick={() => setFilter("all")}
@@ -323,21 +436,25 @@ export default function MonitorPage() {
               >
                 All ({rows.length})
               </button>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+                className="app-control"
+                style={{ padding: "5px 8px", fontSize: 12 }}
+              >
+                <option value="status">Sort: Live status</option>
+                <option value="day">Sort: Day work</option>
+                <option value="week">Sort: Week work</option>
+                <option value="name">Sort: Name</option>
+              </select>
               <div style={{ position: "relative" }}>
                 <UserRoundSearch size={14} style={{ position: "absolute", left: 8, top: 8, color: C.inkFaint }} />
                 <input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Search name / team / tab"
-                  style={{
-                    border: `1px solid ${C.line}`,
-                    borderRadius: 8,
-                    padding: "6px 10px 6px 28px",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    width: 200,
-                    outline: "none",
-                  }}
+                  className="app-control"
+                  style={{ paddingLeft: 28, width: 180, fontSize: 12 }}
                 />
               </div>
             </div>
@@ -354,18 +471,18 @@ export default function MonitorPage() {
                   <tr style={{ textAlign: "left", color: C.inkSoft, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                     <th style={{ padding: "8px 10px" }}>Employee</th>
                     <th style={{ padding: "8px 10px" }}>Live</th>
-                    <th style={{ padding: "8px 10px" }}>Verdict</th>
+                    <th style={{ padding: "8px 10px" }}>Flags</th>
                     <th style={{ padding: "8px 10px" }}>Now on</th>
-                    <th style={{ padding: "8px 10px" }}>Day work</th>
-                    <th style={{ padding: "8px 10px" }}>Week work</th>
-                    <th style={{ padding: "8px 10px" }}>Day idle</th>
-                    <th style={{ padding: "8px 10px" }}>Day away</th>
+                    <th style={{ padding: "8px 10px" }}>Day / 8h</th>
+                    <th style={{ padding: "8px 10px" }}>Week / 40h</th>
+                    <th style={{ padding: "8px 10px" }}>Idle</th>
+                    <th style={{ padding: "8px 10px" }}>Away</th>
                     <th style={{ padding: "8px 10px" }}>Inputs</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((r) => {
-                    const v = verdict(r);
+                    const flag = flagOf(r);
                     const active = selected === r.user_id;
                     return (
                       <tr
@@ -378,7 +495,10 @@ export default function MonitorPage() {
                         }}
                       >
                         <td style={{ padding: "10px" }}>
-                          <div style={{ fontWeight: 800, color: C.ink }}>{r.name}</div>
+                          <div style={{ fontWeight: 800, color: C.ink, display: "flex", alignItems: "center", gap: 7 }}>
+                            {r.status === "working" ? <span className="pulse-dot" /> : null}
+                            {r.name}
+                          </div>
                           <div style={{ fontSize: 11, fontWeight: 600, color: C.inkSoft }}>
                             {r.title}
                             {r.team ? ` · ${r.team}` : ""}
@@ -390,32 +510,33 @@ export default function MonitorPage() {
                             {r.last_heartbeat_at ? ago(r.last_heartbeat_at) : "never"}
                           </div>
                         </td>
-                        <td style={{ padding: "10px", maxWidth: 200 }}>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: 8,
-                              background: TONES[v.tone].bg,
-                              color: TONES[v.tone].fg,
-                              fontWeight: 800,
-                              fontSize: 11,
-                            }}
-                          >
-                            {v.label}
-                          </span>
-                          <div style={{ fontSize: 11, color: C.inkSoft, marginTop: 4, fontWeight: 600, lineHeight: 1.35 }}>
-                            {v.detail}
-                          </div>
+                        <td style={{ padding: "10px" }}>
+                          {flag ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: 8,
+                                background: TONES[flag.tone].bg,
+                                color: TONES[flag.tone].fg,
+                                fontWeight: 800,
+                                fontSize: 11,
+                              }}
+                            >
+                              {flag.label}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 11, color: C.inkFaint, fontWeight: 600 }}>—</span>
+                          )}
                         </td>
                         <td style={{ padding: "10px", fontWeight: 700, color: C.ink }}>
                           {r.status === "offline" ? "—" : `/${r.current_tab || "…"}`}
                         </td>
-                        <td className="mono" style={{ padding: "10px", fontWeight: 800, color: TONES.good.fg, whiteSpace: "nowrap" }}>
-                          {fmtDur(r.working_seconds)}
+                        <td style={{ padding: "10px" }}>
+                          <ShiftCell sec={r.working_seconds} target={DAY_TARGET_SEC} label="8h" />
                         </td>
-                        <td className="mono" style={{ padding: "10px", fontWeight: 800, color: C.blueDeep, whiteSpace: "nowrap" }}>
-                          {fmtDur(r.week_working_seconds || 0)}
+                        <td style={{ padding: "10px" }}>
+                          <ShiftCell sec={r.week_working_seconds || 0} target={WEEK_TARGET_SEC} label="40h" />
                         </td>
                         <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.warn.fg, whiteSpace: "nowrap" }}>
                           {fmtDur(r.idle_seconds_today)}
@@ -444,29 +565,37 @@ export default function MonitorPage() {
               </div>
               {(() => {
                 const v = verdict(selectedRow);
+                const flag = flagOf(selectedRow);
                 return (
-                  <div
-                    style={{
-                      padding: "10px 12px",
-                      borderRadius: 12,
-                      background: TONES[v.tone].bg,
-                      color: TONES[v.tone].fg,
-                      fontWeight: 700,
-                      fontSize: 13,
-                      marginBottom: 12,
-                    }}
-                  >
-                    {v.label} — {v.detail}
-                  </div>
+                  <>
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        background: TONES[v.tone].bg,
+                        color: TONES[v.tone].fg,
+                        fontWeight: 700,
+                        fontSize: 13,
+                        marginBottom: 10,
+                      }}
+                    >
+                      {v.label} — {v.detail}
+                    </div>
+                    {flag ? (
+                      <div style={{ marginBottom: 12, fontSize: 12, fontWeight: 800, color: TONES[flag.tone].fg }}>
+                        Flag: {flag.label}
+                      </div>
+                    ) : null}
+                  </>
                 );
               })()}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                 <Mini label="Work this day" value={fmtDur(selectedRow.working_seconds)} />
+                <Mini label="Day vs 8h" value={`${dayProgress(selectedRow)}%`} />
                 <Mini label="Work this week" value={fmtDur(selectedRow.week_working_seconds || 0)} />
+                <Mini label="Week vs 40h" value={`${weekProgress(selectedRow)}%`} />
                 <Mini label="Idle this day" value={fmtDur(selectedRow.idle_seconds_today)} />
                 <Mini label="Away this day" value={fmtDur(selectedRow.away_seconds)} />
-                <Mini label="Week idle" value={fmtDur(selectedRow.week_idle_seconds || 0)} />
-                <Mini label="Week away" value={fmtDur(selectedRow.week_away_seconds || 0)} />
               </div>
               {selectedRow.week_start && selectedRow.week_end ? (
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.inkSoft, marginBottom: 10 }}>
@@ -483,6 +612,7 @@ export default function MonitorPage() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
                   {weekDays.map((d) => {
                     const isSel = String(d.day).slice(0, 10) === day;
+                    const pct = Math.min(100, Math.round((d.working_seconds / DAY_TARGET_SEC) * 100));
                     return (
                       <div
                         key={String(d.day)}
@@ -502,9 +632,12 @@ export default function MonitorPage() {
                         </div>
                         <div>
                           <div className="mono" style={{ fontSize: 12, fontWeight: 800, color: TONES.good.fg }}>
-                            Work {fmtDur(d.working_seconds)}
+                            Work {fmtDur(d.working_seconds)} · {pct}% of 8h
                           </div>
-                          <div style={{ fontSize: 10.5, fontWeight: 600, color: C.inkSoft }}>
+                          <div className="shift-bar">
+                            <i style={{ width: `${pct}%`, background: progressTone(pct, d.working_seconds > 0) }} />
+                          </div>
+                          <div style={{ fontSize: 10.5, fontWeight: 600, color: C.inkSoft, marginTop: 3 }}>
                             Idle {fmtDur(d.idle_seconds)} · Away {fmtDur(d.away_seconds)}
                           </div>
                         </div>
@@ -583,9 +716,10 @@ export default function MonitorPage() {
       </div>
 
       <div style={{ marginTop: 14, fontSize: 12, fontWeight: 600, color: C.inkSoft, lineHeight: 1.45 }}>
-        <b style={{ color: C.ink }}>Day work</b> = selected date pe active mouse/keyboard time (hours · mins · secs).{" "}
-        <b style={{ color: C.ink }}>Week work</b> = usi week (Mon–Sun) ka total. Row pe click karke har din ka breakdown dekho.{" "}
-        Idle = CRM open, input nahi; Away = tab hide / long idle; Offline = heartbeat band.
+        <b style={{ color: C.ink }}>Day / 8h</b> = active work vs shift target.{" "}
+        <b style={{ color: C.ink }}>Week / 40h</b> = Mon–Sun total.{" "}
+        <b style={{ color: C.ink }}>Below target</b> = &lt;50% of 8h after 2h+ online.{" "}
+        High idle = idle+away ≥30% of CRM time (30m+ sample).
       </div>
     </div>
   );

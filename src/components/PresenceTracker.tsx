@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { markPresenceOffline, sendPresenceHeartbeat } from "@/actions/presence";
 
 const HEARTBEAT_MS = 30_000;
+const MOVE_THROTTLE_MS = 1_000;
 
 function tabOf(pathname: string): string {
   const seg = (pathname || "/").split("/").filter(Boolean)[0] || "home";
@@ -17,11 +18,13 @@ function tabOf(pathname: string): string {
 export default function PresenceTracker() {
   const pathname = usePathname();
   const lastInput = useRef(Date.now());
+  const lastMoveBump = useRef(0);
   const clicks = useRef(0);
   const keys = useRef(0);
   const scrolls = useRef(0);
   const tabRef = useRef(tabOf(pathname));
   const sending = useRef(false);
+  const pulseRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     tabRef.current = tabOf(pathname);
@@ -30,6 +33,12 @@ export default function PresenceTracker() {
   useEffect(() => {
     const bump = () => {
       lastInput.current = Date.now();
+    };
+    const bumpMove = () => {
+      const now = Date.now();
+      if (now - lastMoveBump.current < MOVE_THROTTLE_MS) return;
+      lastMoveBump.current = now;
+      bump();
     };
     const onClick = () => {
       bump();
@@ -43,16 +52,6 @@ export default function PresenceTracker() {
       bump();
       scrolls.current += 1;
     };
-    const onVis = () => {
-      if (!document.hidden) bump();
-    };
-
-    window.addEventListener("mousemove", bump, { passive: true });
-    window.addEventListener("mousedown", onClick, { passive: true });
-    window.addEventListener("keydown", onKey, { passive: true });
-    window.addEventListener("scroll", onScroll, { passive: true, capture: true });
-    window.addEventListener("touchstart", bump, { passive: true });
-    document.addEventListener("visibilitychange", onVis);
 
     const pulse = async () => {
       if (sending.current) return;
@@ -79,20 +78,33 @@ export default function PresenceTracker() {
         sending.current = false;
       }
     };
+    pulseRef.current = pulse;
 
-    // Immediate first pulse so the board lights up quickly
+    const onVis = () => {
+      if (!document.hidden) {
+        bump();
+        void pulse();
+      }
+    };
+
+    window.addEventListener("mousemove", bumpMove, { passive: true });
+    window.addEventListener("mousedown", onClick, { passive: true });
+    window.addEventListener("keydown", onKey, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true, capture: true });
+    window.addEventListener("touchstart", bump, { passive: true });
+    document.addEventListener("visibilitychange", onVis);
+
     void pulse();
     const timer = window.setInterval(() => void pulse(), HEARTBEAT_MS);
 
     const onHide = () => {
-      // Fire-and-forget offline when the tab is closing
       void markPresenceOffline();
     };
     window.addEventListener("pagehide", onHide);
 
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("mousemove", bump);
+      window.removeEventListener("mousemove", bumpMove);
       window.removeEventListener("mousedown", onClick);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", onScroll, true);
