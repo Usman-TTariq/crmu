@@ -286,6 +286,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           border: `1px solid ${C.line}`,
           borderRadius: 14,
           overflow: "hidden",
+          maxWidth: "100%",
           boxShadow: "0 12px 34px rgba(46,4,10,0.30)",
         }}
       >

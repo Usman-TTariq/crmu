@@ -241,22 +241,6 @@ function StatusChip({ status }: { status: PresenceStatus }) {
   );
 }
 
-function ShiftCell({ sec, target, label }: { sec: number; target: number; label: string }) {
-  const pct = Math.min(100, Math.round((sec / target) * 100));
-  const color = progressTone(pct, sec > 0);
-  return (
-    <div style={{ minWidth: 96 }}>
-      <div className="mono" style={{ fontWeight: 800, color, whiteSpace: "nowrap", fontSize: 12.5 }}>
-        {fmtDur(sec)}
-      </div>
-      <div className="shift-bar" title={`${label}: ${pct}% of target`}>
-        <i style={{ width: `${pct}%`, background: color }} />
-      </div>
-      <div style={{ fontSize: 10, fontWeight: 700, color: C.inkFaint, marginTop: 2 }}>{pct}% of {label}</div>
-    </div>
-  );
-}
-
 export default function MonitorPage() {
   const app = useApp();
   const [day, setDay] = useState(todayKarachi);
@@ -469,15 +453,13 @@ export default function MonitorPage() {
             <div style={{ padding: 20, color: C.inkSoft, fontWeight: 600 }}>No employees match this filter.</div>
           ) : (
             <div className="data-table-scroll">
-              <table style={{ width: "100%", minWidth: 720, borderCollapse: "collapse", fontSize: 13 }}>
+              <table style={{ width: "100%", minWidth: 560, borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ textAlign: "left", color: C.inkSoft, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                     <th style={{ padding: "8px 10px" }}>Employee</th>
                     <th style={{ padding: "8px 10px" }}>Live</th>
                     <th style={{ padding: "8px 10px" }}>Flags</th>
                     <th style={{ padding: "8px 10px" }}>Now on</th>
-                    <th style={{ padding: "8px 10px" }}>Day / 8h</th>
-                    <th style={{ padding: "8px 10px" }}>Week / 40h</th>
                     <th style={{ padding: "8px 10px" }}>Idle</th>
                     <th style={{ padding: "8px 10px" }}>Away</th>
                     <th style={{ padding: "8px 10px" }}>Inputs</th>
@@ -534,12 +516,6 @@ export default function MonitorPage() {
                         </td>
                         <td style={{ padding: "10px", fontWeight: 700, color: C.ink }}>
                           {r.status === "offline" ? "—" : `/${r.current_tab || "…"}`}
-                        </td>
-                        <td style={{ padding: "10px" }}>
-                          <ShiftCell sec={r.working_seconds} target={DAY_TARGET_SEC} label="8h" />
-                        </td>
-                        <td style={{ padding: "10px" }}>
-                          <ShiftCell sec={r.week_working_seconds || 0} target={WEEK_TARGET_SEC} label="40h" />
                         </td>
                         <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.warn.fg, whiteSpace: "nowrap" }}>
                           {fmtDur(r.idle_seconds_today)}
@@ -719,8 +695,6 @@ export default function MonitorPage() {
       </div>
 
       <div style={{ marginTop: 14, fontSize: 12, fontWeight: 600, color: C.inkSoft, lineHeight: 1.45 }}>
-        <b style={{ color: C.ink }}>Day / 8h</b> = active work vs shift target.{" "}
-        <b style={{ color: C.ink }}>Week / 40h</b> = Mon–Sun total.{" "}
         <b style={{ color: C.ink }}>Below target</b> = &lt;50% of 8h after 2h+ online.{" "}
         High idle = idle+away ≥30% of CRM time (30m+ sample).
       </div>
