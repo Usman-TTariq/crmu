@@ -9,17 +9,30 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getSession, requireAuth, requireSession } from "@/lib/session";
 import { EDITABLE_COLUMNS, TAB_TABLE, DATE_FIELD } from "@/lib/schemas";
 import { TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
-import type { Rec, Attachment, RetentionComment } from "@/lib/types";
-import { phoneDigits, type Timeframe } from "@/lib/format";
+import type { Rec, Attachment, LeadComment, RetentionComment } from "@/lib/types";
+import { isDayTimeframe, phoneDigits, type Timeframe } from "@/lib/format";
 
 /** Roster profiles linked to these auth emails stay hidden from Team Setup. */
 const HIDDEN_ROSTER_LOGIN_EMAILS = new Set(["yasal.khan@tgtnexus.net"]);
+
+const PIPELINE_COMMENT_TABS: TabKey[] = [
+  "leadgen",
+  "qa",
+  "sqlassign",
+  "closer",
+  "ops",
+  "msp",
+  "fulfillment",
+  "leasing",
+];
 
 // ---------------------------------------------------------------------------
 // Timeframe boundaries (blank dates always pass, like the prototype)
 // ---------------------------------------------------------------------------
 function tfRange(tf: Timeframe): { start: string; end: string } | null {
   if (tf === "All time") return null;
+  // Calendar pick: one exact day
+  if (isDayTimeframe(tf)) return { start: tf, end: tf };
   const now = new Date();
   const iso = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -209,6 +222,21 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
       rows = rows.map((r) => ({ ...r, attachments: byLead.get(r.lead_id as string) || [] }));
     }
 
+    if (PIPELINE_COMMENT_TABS.includes(payload.tab) && leadIds.length) {
+      const { data: comments } = await supabase
+        .from("lead_comments")
+        .select("*")
+        .in("lead_id", leadIds)
+        .order("created_at", { ascending: true });
+      const byLead = new Map<string, LeadComment[]>();
+      ((comments || []) as LeadComment[]).forEach((c) => {
+        const list = byLead.get(c.lead_id) || [];
+        list.push(c);
+        byLead.set(c.lead_id, list);
+      });
+      rows = rows.map((r) => ({ ...r, lead_comments: byLead.get(r.lead_id as string) || [] }));
+    }
+
     if (payload.tab === "retention" && leadIds.length) {
       const { data: comments } = await supabase
         .from("retention_comments")
@@ -351,7 +379,21 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
     if (error) return { error: error.message };
     if (!payload.id && payload.tab === "leadgen") messages.push("Lead created and sent to QA.");
 
-    // Retention: append-only comment
+    // Pipeline lead comments (append-only)
+    if (PIPELINE_COMMENT_TABS.includes(payload.tab) && payload.newComment?.trim()) {
+      const leadId = String(payload.values.lead_id || "");
+      if (leadId) {
+        const { error: cErr } = await supabase.from("lead_comments").insert({
+          lead_id: leadId,
+          author: session.profile.full_name,
+          author_id: session.userId,
+          body: payload.newComment.trim(),
+        });
+        if (cErr) return { error: cErr.message };
+      }
+    }
+
+    // Retention: append-only comment (CS-specific log)
     if (payload.tab === "retention" && payload.newComment?.trim()) {
       const leadId = payload.values.lead_id as string;
       const { error } = await supabase.from("retention_comments").insert({
@@ -438,6 +480,59 @@ export async function createManualOpsRecord(payload: {
     return { ok: true, messages: [`OPS record created as ${lead.lead_id}.`] };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Create failed." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Append-only lead comment (works even when the drawer is read-only)
+// ---------------------------------------------------------------------------
+export async function addLeadComment(payload: {
+  leadId: string;
+  body: string;
+}): Promise<{ ok?: boolean; comment?: LeadComment; error?: string }> {
+  try {
+    const session = await requireSession();
+    const leadId = String(payload.leadId || "").trim();
+    const body = String(payload.body || "").trim();
+    if (!leadId) return { error: "Missing lead." };
+    if (!body) return { error: "Comment cannot be empty." };
+
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("lead_comments")
+      .insert({
+        lead_id: leadId,
+        author: session.profile.full_name,
+        author_id: session.userId,
+        body,
+      })
+      .select("*")
+      .single();
+    if (error) return { error: error.message };
+    return { ok: true, comment: data as LeadComment };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not add comment." };
+  }
+}
+
+/** Fast path: comments for one lead only (keeps drawer snappy). */
+export async function fetchLeadComments(payload: {
+  leadId: string;
+}): Promise<{ comments: LeadComment[]; error?: string }> {
+  try {
+    await requireAuth();
+    const leadId = String(payload.leadId || "").trim();
+    if (!leadId) return { comments: [] };
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("lead_comments")
+      .select("*")
+      .eq("lead_id", leadId)
+      .order("created_at", { ascending: true });
+    if (error) return { comments: [], error: error.message };
+    return { comments: (data || []) as LeadComment[] };
+  } catch (e) {
+    return { comments: [], error: e instanceof Error ? e.message : "Failed to load comments." };
   }
 }
 

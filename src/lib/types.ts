@@ -24,13 +24,16 @@ export interface Attachment {
   signed_url?: string;
 }
 
-export interface RetentionComment {
+export interface LeadComment {
   id: string;
   lead_id: string;
   author: string;
   body: string;
   created_at: string;
 }
+
+/** @deprecated alias — same shape as LeadComment */
+export type RetentionComment = LeadComment;
 
 // Generic record — pages work with loosely-typed rows driven by field schemas
 export type Rec = Record<string, unknown> & { id: string; lead_id?: string };

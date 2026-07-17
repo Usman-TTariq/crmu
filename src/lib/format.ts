@@ -80,5 +80,13 @@ export const formatUsPhone = (v: unknown): string => {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 };
 
-export type Timeframe = "Daily" | "Weekly" | "Last 7 days" | "Monthly" | "All time";
-export const TIMEFRAMES: Timeframe[] = ["Daily", "Weekly", "Last 7 days", "Monthly", "All time"];
+export type PresetTimeframe = "Daily" | "Weekly" | "Last 7 days" | "Monthly" | "All time";
+/** Preset label, or a single calendar day as YYYY-MM-DD */
+export type Timeframe = PresetTimeframe | (string & {});
+export const TIMEFRAMES: PresetTimeframe[] = ["Daily", "Weekly", "Last 7 days", "Monthly", "All time"];
+
+export const isPresetTimeframe = (tf: string): tf is PresetTimeframe =>
+  (TIMEFRAMES as string[]).includes(tf);
+
+/** True when tf is a concrete calendar day (YYYY-MM-DD). */
+export const isDayTimeframe = (tf: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(tf);

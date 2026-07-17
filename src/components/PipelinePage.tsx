@@ -11,7 +11,27 @@ import { useApp } from "@/components/app-context";
 import DataTable from "@/components/DataTable";
 import Drawer from "@/components/Drawer";
 import { createClient } from "@/lib/supabase/client";
-import { fetchRows, saveRecord, deleteRecord, createManualOpsRecord, fetchTabCounts } from "@/actions/data";
+import {
+  fetchRows,
+  saveRecord,
+  deleteRecord,
+  createManualOpsRecord,
+  fetchTabCounts,
+  addLeadComment,
+  fetchLeadComments,
+} from "@/actions/data";
+import type { LeadComment } from "@/lib/types";
+
+const PIPELINE_COMMENT_TABS: TabKey[] = [
+  "leadgen",
+  "qa",
+  "sqlassign",
+  "closer",
+  "ops",
+  "msp",
+  "fulfillment",
+  "leasing",
+];
 
 function buildDefault(tab: TabKey): Rec {
   const base: Rec = { id: "", lead_id: "" };
@@ -190,6 +210,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     delete values.__newComment;
     delete values.attachments;
     delete values.comments;
+    delete values.lead_comments;
 
     let res;
     if (isNew && tab === "ops") {
@@ -208,6 +229,42 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       return;
     }
     if (res.messages?.length) app.pushToasts(res.messages);
+
+    // Keep drawer open on update; show new comment immediately (no reopen / wait for full table)
+    if (!isNew && drawer) {
+      const leadId = String(draft.lead_id || "");
+      const prev = Array.isArray(draft.lead_comments) ? (draft.lead_comments as LeadComment[]) : [];
+      let nextComments = prev;
+      if (newComment.trim() && leadId) {
+        nextComments = [
+          ...prev,
+          {
+            id: `local-${Date.now()}`,
+            lead_id: leadId,
+            author: app.session.profile.full_name,
+            body: newComment.trim(),
+            created_at: new Date().toISOString(),
+          },
+        ];
+      }
+      setDrawer({
+        record: { ...draft, lead_comments: nextComments, __newComment: "" },
+        isNew: false,
+      });
+      if (leadId && PIPELINE_COMMENT_TABS.includes(tab)) {
+        fetchLeadComments({ leadId }).then((c) => {
+          if (c.error || !c.comments) return;
+          setDrawer((d) =>
+            d && String(d.record.lead_id) === leadId
+              ? { ...d, record: { ...d.record, lead_comments: c.comments, __newComment: "" } }
+              : d
+          );
+        });
+      }
+      refresh();
+      return;
+    }
+
     setDrawer(null);
     refresh();
   };
@@ -360,7 +417,11 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           record={drawer.record}
           isNew={drawer.isNew}
           opts={app.opts}
-          readOnly={!canEdit}
+          readOnly={
+            !canEdit ||
+            // Lead Gen agents may create, but cannot edit an existing lead's fields
+            (tab === "leadgen" && app.role.key === "lg_agent" && !drawer.isNew)
+          }
           manager={app.isManager}
           canDelete={app.canDelete}
           viewTabs={app.viewTabs}
@@ -368,6 +429,46 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           onClose={() => setDrawer(null)}
           onSave={onSave}
           onDelete={onDelete}
+          allowComment={
+            PIPELINE_COMMENT_TABS.includes(tab) && !!drawer.record.lead_id && !drawer.isNew
+          }
+          onAddComment={async (body) => {
+            const leadId = String(drawer.record.lead_id);
+            const prev = Array.isArray(drawer.record.lead_comments)
+              ? (drawer.record.lead_comments as LeadComment[])
+              : [];
+            // Optimistic: show instantly, keep drawer open
+            const optimistic: LeadComment = {
+              id: `local-${Date.now()}`,
+              lead_id: leadId,
+              author: app.session.profile.full_name,
+              body,
+              created_at: new Date().toISOString(),
+            };
+            setDrawer({
+              record: {
+                ...drawer.record,
+                lead_comments: [...prev, optimistic],
+                __newComment: "",
+              },
+              isNew: false,
+            });
+            const res = await addLeadComment({ leadId, body });
+            if (res.error) {
+              app.pushToasts([res.error]);
+              setDrawer({
+                record: { ...drawer.record, lead_comments: prev, __newComment: body },
+                isNew: false,
+              });
+              return;
+            }
+            const next = res.comment ? [...prev, res.comment] : [...prev, optimistic];
+            setDrawer({
+              record: { ...drawer.record, lead_comments: next, __newComment: "" },
+              isNew: false,
+            });
+            refresh();
+          }}
         />
       ) : null}
     </div>

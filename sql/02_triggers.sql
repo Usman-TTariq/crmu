@@ -320,6 +320,11 @@ create trigger trg_comments_no_update
 before update or delete on public.retention_comments
 for each row execute function private.block_comment_mutation();
 
+drop trigger if exists trg_lead_comments_no_update on public.lead_comments;
+create trigger trg_lead_comments_no_update
+before update or delete on public.lead_comments
+for each row execute function private.block_comment_mutation();
+
 -- ---------------------------------------------------------------------------
 -- Fatal-error helper (SLA): 2nd/3rd attempt more than 24h after a failure,
 -- or a failure left unaddressed for more than 24h. Computed, not stored.

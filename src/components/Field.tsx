@@ -4,7 +4,7 @@ import React from "react";
 import { C, TONES } from "@/lib/theme";
 import { isBlank, money, pct, numfmt, stamp, today, formatUsPhone } from "@/lib/format";
 import type { FieldDef, OptsCtx } from "@/lib/schemas";
-import type { Attachment, Rec, RetentionComment } from "@/lib/types";
+import type { Attachment, LeadComment, Rec } from "@/lib/types";
 import FileField from "@/components/FileField";
 import AddressField from "@/components/AddressField";
 
@@ -80,6 +80,7 @@ export default function Field({
   locked,
   lockedValue,
   fileStage,
+  allowComment,
 }: {
   f: FieldDef;
   value: Rec;
@@ -91,6 +92,8 @@ export default function Field({
   locked?: boolean;
   lockedValue?: string;
   fileStage?: "closer" | "ops";
+  /** Allow appending comments even when the drawer is read-only */
+  allowComment?: boolean;
 }) {
   const lbl = (
     <label
@@ -168,17 +171,18 @@ export default function Field({
   }
 
   if (f.type === "thread") {
-    const list = Array.isArray(value[f.k]) ? (value[f.k] as RetentionComment[]) : [];
+    const list = Array.isArray(value[f.k]) ? (value[f.k] as LeadComment[]) : [];
+    const canCompose = (!ro || !!allowComment) && !!value.lead_id;
     return (
       <div>
         {lbl}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: ro ? 0 : 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: canCompose ? 10 : 0 }}>
           {list.length === 0 ? (
             <div style={{ fontSize: 13, color: C.inkFaint }}>No comments yet.</div>
           ) : (
-            list.map((c, i) => (
+            list.map((c) => (
               <div
-                key={i}
+                key={c.id || `${c.author}-${c.created_at}`}
                 style={{
                   background: C.lineSoft,
                   border: `1px solid ${C.line}`,
@@ -198,7 +202,7 @@ export default function Field({
                 >
                   <span>{c.author}</span>
                   <span className="mono" style={{ color: C.inkFaint, fontWeight: 500 }}>
-                    {String(c.created_at).slice(0, 16).replace("T", " ")}
+                    {stamp(c.created_at)}
                   </span>
                 </div>
                 <div style={{ fontSize: 13.5, color: C.ink, marginTop: 3, whiteSpace: "pre-wrap" }}>{c.body}</div>
@@ -206,7 +210,7 @@ export default function Field({
             ))
           )}
         </div>
-        {!ro ? (
+        {canCompose ? (
           <textarea
             value={String(value.__newComment ?? "")}
             onChange={(e) => onChange({ k: "__newComment" }, e.target.value)}

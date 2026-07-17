@@ -97,6 +97,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money" },
     { k: "qa_outcome", label: "QA Outcome", type: "computed", isPill: true, compute: (r) => r.qa_outcome ?? "Not in QA" },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+    { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
   qa: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
@@ -116,6 +117,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "qa_agent", label: "QA Agent", type: "select", opts: (c) => c.qaAgents },
     { k: "qa_decision", label: "QA Decision", type: "select", opts: QA_DECISIONS },
     { k: "qa_notes", label: "QA Notes", type: "text", long: true, hideTable: true },
+    { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
   sqlassign: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
@@ -139,6 +141,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "assigned_by", label: "Assigned By", type: "select", opts: (c) => c.assigners },
     { k: "sql_status", label: "SQL Status", type: "select", opts: SQL_STATUS },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+    { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
   closer: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
@@ -161,6 +164,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "closed_date", label: "Closed Date", type: "date" },
     { k: "attachments", label: "Documents", type: "files" },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+    { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
   ops: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
@@ -184,6 +188,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "accuracy_review", label: "Accuracy Check", type: "select", opts: ["Pass", "Fail"], isPill: true, managerOnly: true },
     { k: "attachments", label: "Documents", type: "files" },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+    { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
   msp: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
@@ -214,6 +219,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "delivery_date", label: "Equipment Delivery Date", type: "date" },
     { k: "shipping_cost", label: "Equipment/Shipping Cost", type: "num", fmt: "money" },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+    { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
   fulfillment: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
@@ -225,6 +231,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "serial", label: "Serial #", type: "text", mono: true },
     { k: "live_date", label: "Live Date", type: "date" },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+    { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
   leasing: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
@@ -239,6 +246,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "funding_date", label: "Funding Date", type: "date" },
     { k: "invoice_no", label: "Invoice No.", type: "text", mono: true },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+    { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
   retention: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },

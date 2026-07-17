@@ -24,6 +24,8 @@ export default function Drawer({
   onClose,
   onSave,
   onDelete,
+  allowComment,
+  onAddComment,
 }: {
   tab: TabDef;
   fields: FieldDef[];
@@ -38,6 +40,9 @@ export default function Drawer({
   onClose: () => void;
   onSave: (draft: Rec, isNew: boolean) => void;
   onDelete: (rec: Rec) => void;
+  /** Pipeline comments: compose even when the rest of the drawer is read-only */
+  allowComment?: boolean;
+  onAddComment?: (body: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<Rec>(() =>
     ownerLock ? { ...record, [ownerLock.field]: ownerLock.value } : record
@@ -53,6 +58,16 @@ export default function Drawer({
       document.body.style.overflow = prev;
     };
   }, []);
+
+  // Parent can push fresh comments without remounting / losing the open drawer
+  useEffect(() => {
+    setDraft((d) => ({
+      ...d,
+      lead_comments: record.lead_comments ?? d.lead_comments,
+      comments: record.comments ?? d.comments,
+      ...(record.__newComment === "" ? { __newComment: "" } : null),
+    }));
+  }, [record.lead_comments, record.comments, record.__newComment]);
 
   const onChange = (f: { k: string }, v: unknown) => setDraft((d) => ({ ...d, [f.k]: v }));
 
@@ -180,6 +195,7 @@ export default function Drawer({
                 locked={!!ownerLock && f.k === ownerLock.field}
                 lockedValue={ownerLock ? ownerLock.value : undefined}
                 fileStage={fileStage}
+                allowComment={allowComment && f.type === "thread"}
               />
             ))}
           </div>
@@ -198,6 +214,7 @@ export default function Drawer({
                   locked={!!ownerLock && f.k === ownerLock.field}
                   lockedValue={ownerLock ? ownerLock.value : undefined}
                   fileStage={fileStage}
+                  allowComment={allowComment && f.type === "thread"}
                 />
               ))}
             </div>
@@ -247,6 +264,35 @@ export default function Drawer({
           >
             {readOnly ? "Close" : "Cancel"}
           </button>
+          {allowComment && onAddComment && String(draft.__newComment || "").trim() ? (
+            <button
+              onClick={async () => {
+                const body = String(draft.__newComment || "").trim();
+                if (!body) return;
+                setSaving(true);
+                await onAddComment(body);
+                setSaving(false);
+              }}
+              disabled={saving}
+              className="btnp"
+              style={{
+                border: "none",
+                background: readOnly
+                  ? "linear-gradient(180deg,#ba161c,#8e1015)"
+                  : C.blueDeep,
+                color: "#fff",
+                borderRadius: 10,
+                padding: "10px 22px",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: saving ? "default" : "pointer",
+                opacity: saving ? 0.7 : 1,
+                boxShadow: readOnly ? "0 6px 16px rgba(196,19,47,0.28)" : "none",
+              }}
+            >
+              {saving ? "Saving..." : "Add comment"}
+            </button>
+          ) : null}
           {!readOnly ? (
             <button
               onClick={async () => {

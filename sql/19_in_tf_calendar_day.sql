@@ -1,9 +1,7 @@
 -- ============================================================================
--- TGT Nexus CRM — 11_last_7_days_tf.sql
--- Adds rolling "Last 7 days" timeframe to private.in_tf (dashboards / KPIs / boards).
--- App lists/counts use the matching window in src/actions/data.ts.
--- Safe to re-run. Apply in Supabase SQL Editor after 04_dashboards.sql (or on
--- an existing DB that already has private.in_tf).
+-- TGT Nexus CRM — 19_in_tf_calendar_day.sql
+-- Allow timeframe = YYYY-MM-DD for a single calendar day filter.
+-- Safe to re-run. Paste into Supabase SQL editor.
 -- ============================================================================
 
 create or replace function private.in_tf(d date, tf text)

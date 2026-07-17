@@ -2,7 +2,7 @@
 -- TGT Nexus CRM — 04_dashboards.sql
 -- Dashboard RPC functions. Called from the app via supabase.rpc() with the
 -- timeframe in the payload (never in URL params). Run after 03_rls.sql.
--- Timeframes: 'Daily' | 'Weekly' | 'Last 7 days' | 'Monthly' | 'All time'
+-- Timeframes: 'Daily' | 'Weekly' | 'Last 7 days' | 'Monthly' | 'All time' | YYYY-MM-DD
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -16,6 +16,8 @@ as $$
   select case
     when tf = 'All time' then true
     when d is null then true
+    -- Calendar day from the app (YYYY-MM-DD)
+    when tf ~ '^\d{4}-\d{2}-\d{2}$' then d = tf::date
     when tf = 'Daily'   then d = current_date
     when tf = 'Weekly'  then d >= (current_date - extract(dow from current_date)::int) and d <= current_date
     when tf = 'Last 7 days' then d >= (current_date - 6) and d <= current_date

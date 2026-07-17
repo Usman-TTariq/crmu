@@ -280,6 +280,16 @@ create table if not exists public.retention_comments (
   created_at   timestamptz not null default now()
 );
 
+-- Shared append-only comments across the lead pipeline (Lead Gen → Leasing)
+create table if not exists public.lead_comments (
+  id           uuid primary key default gen_random_uuid(),
+  lead_id      text not null references public.leads (lead_id) on delete cascade,
+  author       text not null,
+  author_id    uuid references auth.users (id),
+  body         text not null,
+  created_at   timestamptz not null default now()
+);
+
 -- ---------------------------------------------------------------------------
 -- Attachments (metadata; binaries live in Storage bucket "documents")
 -- ---------------------------------------------------------------------------
@@ -349,6 +359,7 @@ create index if not exists idx_leasing_status         on public.leasing (funding
 create index if not exists idx_retention_agent        on public.retention (agent_name);
 create index if not exists idx_retention_status       on public.retention (status);
 create index if not exists idx_comments_lead          on public.retention_comments (lead_id);
+create index if not exists idx_lead_comments_lead     on public.lead_comments (lead_id, created_at);
 create index if not exists idx_attachments_lead       on public.attachments (lead_id, stage);
 
 -- ---------------------------------------------------------------------------

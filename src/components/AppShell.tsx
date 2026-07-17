@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Eye, Lock, LogOut, Menu, Plus, Search, X } from "lucide-react";
 import { C } from "@/lib/theme";
-import { TIMEFRAMES, type Timeframe } from "@/lib/format";
+import { TIMEFRAMES, isDayTimeframe, type Timeframe } from "@/lib/format";
 import { TABS, NAV_GROUPS, groupOf, ADDABLE, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import { useApp } from "@/components/app-context";
 import ActiveLogins from "@/components/ActiveLogins";
@@ -183,16 +183,36 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <PresenceBadge />
             <ActiveLogins />
             <select
-              value={app.tf}
-              onChange={(e) => app.setTf(e.target.value as Timeframe)}
+              value={isDayTimeframe(app.tf) ? "__day__" : app.tf}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "__day__") return;
+                app.setTf(v as Timeframe);
+              }}
               className="app-control"
+              title="Timeframe"
             >
               {TIMEFRAMES.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>
               ))}
+              {isDayTimeframe(app.tf) ? (
+                <option value="__day__">{app.tf}</option>
+              ) : null}
             </select>
+            <input
+              type="date"
+              value={isDayTimeframe(app.tf) ? app.tf : ""}
+              onChange={(e) => {
+                const d = e.target.value;
+                app.setTf(d || "All time");
+              }}
+              className="app-control"
+              title="Pick a date — show that day's records"
+              aria-label="Pick a date"
+              style={{ minWidth: 140 }}
+            />
             {!tab.kind ? (
               <div className="app-search-wrap">
                 <Search size={15} className="app-search-icon" />
