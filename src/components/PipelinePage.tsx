@@ -443,7 +443,15 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           manager={app.isManager}
           canDelete={app.canDelete}
           viewTabs={app.viewTabs}
-          ownerLock={ownerLock}
+          ownerLock={
+            // Substitute must not overwrite the primary agent_name on open
+            tab === "retention" &&
+            !drawer.isNew &&
+            String(drawer.record.agent_name || "") !== app.session.profile.full_name &&
+            String(drawer.record.substitute || "") === app.session.profile.full_name
+              ? null
+              : ownerLock
+          }
           onClose={() => setDrawer(null)}
           onSave={onSave}
           onDelete={onDelete}

@@ -385,7 +385,14 @@ create policy retention_select on public.retention
   using (
     private.is_manager()
     or private.role_key() in ('sales_head','cs_head','cs_lead')
-    or (private.role_key() = 'cs_agent' and (agent_name = private.identity() or agent_name = ''))
+    or (
+      private.role_key() = 'cs_agent'
+      and (
+        agent_name = private.identity()
+        or agent_name = ''
+        or substitute = private.identity()
+      )
+    )
   );
 
 drop policy if exists retention_update on public.retention;
@@ -394,12 +401,25 @@ create policy retention_update on public.retention
   using (
     private.ops_writer()
     or private.role_key() in ('cs_head','cs_lead')
-    or (private.role_key() = 'cs_agent' and (agent_name = private.identity() or agent_name = ''))
+    or (
+      private.role_key() = 'cs_agent'
+      and (
+        agent_name = private.identity()
+        or agent_name = ''
+        or substitute = private.identity()
+      )
+    )
   )
   with check (
     private.ops_writer()
     or private.role_key() in ('cs_head','cs_lead')
-    or (private.role_key() = 'cs_agent' and agent_name = private.identity())
+    or (
+      private.role_key() = 'cs_agent'
+      and (
+        agent_name = private.identity()
+        or substitute = private.identity()
+      )
+    )
   );
 
 drop policy if exists retention_delete on public.retention;
@@ -484,7 +504,11 @@ as $$
         private.role_key() = 'cs_agent'
         and exists (
           select 1 from public.retention r
-          where r.lead_id = p_lead_id and r.agent_name = private.identity()
+          where r.lead_id = p_lead_id
+            and (
+              r.agent_name = private.identity()
+              or r.substitute = private.identity()
+            )
         )
       )
     );

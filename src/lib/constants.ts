@@ -121,7 +121,7 @@ export const ROLES: RoleDef[] = [
   { key: "onb_agent", label: "Onboarding Agent [OPS]", view: ["msp"], edit: ["msp"], home: "msp", row: { msp: "ownOnb" }, scope: "End-to-end ownership: only the submissions assigned to you, and only you chase them." },
   { key: "cs_head", label: "Customer Success Head [OPS]", view: ["retention"], edit: ["retention"], home: "retention", scope: "Heads Customer Success. Edits the whole team." },
   { key: "cs_lead", label: "Customer Success Lead [OPS]", view: ["retention"], edit: ["retention"], home: "retention", scope: "All customer success cases. Assigns to agents." },
-  { key: "cs_agent", label: "Customer Success Agent [OPS]", view: ["retention"], edit: ["retention"], home: "retention", row: { retention: "ownRet" }, scope: "Only the cases assigned to you." },
+  { key: "cs_agent", label: "Customer Success Agent [OPS]", view: ["retention"], edit: ["retention"], home: "retention", row: { retention: "ownRet" }, scope: "Cases where you are the agent or the substitute agent." },
 ];
 
 export const roleByKey = (key: string): RoleDef =>

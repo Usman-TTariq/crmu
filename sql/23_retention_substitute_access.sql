@@ -1,30 +1,52 @@
 -- ============================================================================
--- TGT Nexus CRM — 17_lead_comments.sql
--- Shared append-only comments on any in-flight lead (pipeline stages).
+-- TGT Nexus CRM — 23_retention_substitute_access.sql
+-- CS agents see/edit cases where they are agent_name OR substitute.
 -- Safe to re-run. Paste into Supabase SQL editor.
 -- ============================================================================
 
-create table if not exists public.lead_comments (
-  id           uuid primary key default gen_random_uuid(),
-  lead_id      text not null references public.leads (lead_id) on delete cascade,
-  author       text not null,
-  author_id    uuid references auth.users (id),
-  body         text not null,
-  created_at   timestamptz not null default now()
-);
+drop policy if exists retention_select on public.retention;
+create policy retention_select on public.retention
+  for select to authenticated
+  using (
+    private.is_manager()
+    or private.role_key() in ('sales_head','cs_head','cs_lead')
+    or (
+      private.role_key() = 'cs_agent'
+      and (
+        agent_name = private.identity()
+        or agent_name = ''
+        or substitute = private.identity()
+      )
+    )
+  );
 
-create index if not exists idx_lead_comments_lead
-  on public.lead_comments (lead_id, created_at);
+drop policy if exists retention_update on public.retention;
+create policy retention_update on public.retention
+  for update to authenticated
+  using (
+    private.ops_writer()
+    or private.role_key() in ('cs_head','cs_lead')
+    or (
+      private.role_key() = 'cs_agent'
+      and (
+        agent_name = private.identity()
+        or agent_name = ''
+        or substitute = private.identity()
+      )
+    )
+  )
+  with check (
+    private.ops_writer()
+    or private.role_key() in ('cs_head','cs_lead')
+    or (
+      private.role_key() = 'cs_agent'
+      and (
+        agent_name = private.identity()
+        or substitute = private.identity()
+      )
+    )
+  );
 
--- Append-only (same blocker as retention_comments)
-drop trigger if exists trg_lead_comments_no_update on public.lead_comments;
-create trigger trg_lead_comments_no_update
-  before update or delete on public.lead_comments
-  for each row execute function private.block_comment_mutation();
-
-alter table public.lead_comments enable row level security;
-
--- Who may see / comment on a lead (security definer so stage RLS does not block the check)
 create or replace function private.can_access_lead_comments(p_lead_id text)
 returns boolean
 language sql
@@ -96,18 +118,3 @@ as $$
       )
     );
 $$;
-
-drop policy if exists lead_comments_select on public.lead_comments;
-create policy lead_comments_select on public.lead_comments
-  for select to authenticated
-  using (private.can_access_lead_comments(lead_id));
-
-drop policy if exists lead_comments_insert on public.lead_comments;
-create policy lead_comments_insert on public.lead_comments
-  for insert to authenticated
-  with check (
-    author_id = auth.uid()
-    and private.can_access_lead_comments(lead_id)
-  );
-
--- No UPDATE/DELETE policies — trigger blocks mutations anyway
