@@ -326,7 +326,7 @@ export default function MonitorPage() {
 
   const selectedRow = rows.find((r) => r.user_id === selected) || null;
 
-  if (!app.canSeeCeo) {
+  if (!app.canSeeMonitor) {
     return <div className="app-gate">Employee Monitor is restricted to Super Admin / CEO.</div>;
   }
 

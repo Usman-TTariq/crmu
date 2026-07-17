@@ -13,6 +13,8 @@ export interface Profile {
   notes: string;
 }
 
+export type AttachmentDocType = "driving_license" | "voided_cheque" | "other";
+
 export interface Attachment {
   id: string;
   lead_id: string;
@@ -21,6 +23,7 @@ export interface Attachment {
   file_name: string;
   file_size: number;
   file_ext: string;
+  doc_type?: AttachmentDocType | null;
   signed_url?: string;
 }
 

@@ -301,9 +301,14 @@ create table if not exists public.attachments (
   file_name     text not null,
   file_size     bigint not null,
   file_ext      text not null,
+  doc_type      text check (doc_type is null or doc_type in ('driving_license', 'voided_cheque', 'other')),
   uploaded_by   uuid references auth.users (id),
   created_at    timestamptz not null default now()
 );
+
+create unique index if not exists idx_attachments_lead_stage_doctype
+  on public.attachments (lead_id, stage, doc_type)
+  where doc_type in ('driving_license', 'voided_cheque');
 
 -- ---------------------------------------------------------------------------
 -- updated_at maintenance

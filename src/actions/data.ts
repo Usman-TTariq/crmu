@@ -363,6 +363,28 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       else values.created_by = session.userId;
     }
 
+    // Closer: Driving License + Voided Cheque before Docs Received / Closed
+    if (payload.tab === "closer") {
+      const stage = String(values.stage ?? payload.values.stage ?? "");
+      if (stage === "Docs Received" || stage === "Closed" || stage === "Closed Won") {
+        const leadId = String(payload.values.lead_id || "");
+        if (!leadId) return { error: "Lead ID required." };
+        const { data: docs } = await supabase
+          .from("attachments")
+          .select("doc_type")
+          .eq("lead_id", leadId)
+          .eq("stage", "closer")
+          .in("doc_type", ["driving_license", "voided_cheque"]);
+        const types = new Set((docs || []).map((d) => d.doc_type));
+        if (!types.has("driving_license") || !types.has("voided_cheque")) {
+          return {
+            error:
+              "Driving License and Voided Cheque are required before Docs Received or Closed.",
+          };
+        }
+      }
+    }
+
     const write = async (vals: Record<string, unknown>) =>
       payload.id
         ? supabase.from(table).update(vals).eq("id", payload.id)

@@ -23,6 +23,10 @@
 # misc
 .DS_Store
 *.pem
+/tmp/
+
+# one-off secret exports (passwords, etc.)
+tmp/
 
 # debug
 npm-debug.log*

@@ -120,11 +120,15 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     };
   }, [tab, tf, notAllowed, pushToasts]);
 
-  // Live list: Supabase Realtime → refetch (tables must be in supabase_realtime publication)
+  // Live list: Supabase Realtime → refetch.
+  // Publication must include only pipeline tables (sql/12_realtime_publication.sql):
+  // leads, qa_records, sql_assignments, closer_deals, ops_verifications,
+  // msp_onboarding, fulfillment, leasing, retention — not comments/profiles/attachments.
   useEffect(() => {
     if (notAllowed) return;
     const table = TAB_TABLE[tab];
-    if (!table) return;
+    // teamsetup uses profiles but has its own page — skip Realtime here
+    if (!table || table === "profiles") return;
 
     const supabase = createClient();
     let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -203,6 +207,20 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     if (tab === "closer" && draft.stage === "Closed Lost" && isBlank(draft.lost_reason)) {
       app.pushToasts(["Closed Lost needs a reason."]);
       return;
+    }
+    if (
+      tab === "closer" &&
+      (draft.stage === "Docs Received" || draft.stage === "Closed" || draft.stage === "Closed Won")
+    ) {
+      const atts = Array.isArray(draft.attachments) ? (draft.attachments as { doc_type?: string }[]) : [];
+      const hasDl = atts.some((a) => a.doc_type === "driving_license");
+      const hasVoid = atts.some((a) => a.doc_type === "voided_cheque");
+      if (!hasDl || !hasVoid) {
+        app.pushToasts([
+          "Driving License and Voided Cheque are required before Docs Received or Closed.",
+        ]);
+        return;
+      }
     }
 
     const values: Record<string, unknown> = { ...draft };

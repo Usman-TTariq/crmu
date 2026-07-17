@@ -15,12 +15,12 @@ export default function PresenceBadge() {
   const [alerts, setAlerts] = useState(0);
 
   const load = useCallback(() => {
-    if (!app.canSeeCeo) return;
+    if (!app.canSeeMonitor) return;
     fetchPresenceBoard().then((res) => {
       const n = (res.rows || []).filter((r) => r.status === "idle" || r.status === "away").length;
       setAlerts(n);
     });
-  }, [app.canSeeCeo]);
+  }, [app.canSeeMonitor]);
 
   useEffect(() => {
     load();
@@ -28,7 +28,7 @@ export default function PresenceBadge() {
     return () => window.clearInterval(t);
   }, [load]);
 
-  if (!app.canSeeCeo) return null;
+  if (!app.canSeeMonitor) return null;
 
   return (
     <button

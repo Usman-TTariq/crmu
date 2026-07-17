@@ -3,7 +3,16 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { Profile, SessionInfo } from "@/lib/types";
 import type { Timeframe } from "@/lib/format";
-import { roleByKey, resolveTabs, type RoleDef, type TabKey, CEO_ROLES, MGR_ROLES, DELETE_ROLES } from "@/lib/constants";
+import {
+  roleByKey,
+  resolveTabs,
+  type RoleDef,
+  type TabKey,
+  CEO_ROLES,
+  MGR_ROLES,
+  DELETE_ROLES,
+  MONITOR_ROLES,
+} from "@/lib/constants";
 import type { OptsCtx } from "@/lib/schemas";
 
 export interface Toast {
@@ -25,6 +34,7 @@ interface AppCtx {
   viewTabs: TabKey[];
   editTabs: TabKey[];
   canSeeCeo: boolean;
+  canSeeMonitor: boolean;
   isManager: boolean;
   canDelete: boolean;
   opts: OptsCtx;
@@ -123,6 +133,7 @@ export function AppProvider({
       viewTabs: resolveTabs(role.view),
       editTabs: resolveTabs(role.edit),
       canSeeCeo: CEO_ROLES.includes(role.key),
+      canSeeMonitor: MONITOR_ROLES.includes(role.key),
       isManager: MGR_ROLES.includes(role.key),
       canDelete: DELETE_ROLES.includes(role.key),
       opts,

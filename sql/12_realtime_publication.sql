@@ -1,14 +1,69 @@
--- Enable Supabase Realtime (postgres_changes) for pipeline tables.
--- Run once in SQL Editor if Dashboard → Database → Publications →
--- supabase_realtime still shows 0 tables.
--- Safe to re-run: errors on "already member" can be ignored per table.
+-- ============================================================================
+-- TGT Nexus CRM — 12_realtime_publication.sql
+-- Enable Supabase Realtime (postgres_changes) for pipeline list tabs ONLY.
+-- App listens in PipelinePage via TAB_TABLE — one channel per open tab.
+--
+-- INCLUDE (9):
+--   leads, qa_records, sql_assignments, closer_deals, ops_verifications,
+--   msp_onboarding, fulfillment, leasing, retention
+--
+-- DO NOT add (no client subscriber; wastes Realtime fan-out):
+--   lead_comments, retention_comments, attachments, profiles, teams
+--
+-- Safe to re-run. Paste into Supabase SQL editor.
+-- ============================================================================
 
-alter publication supabase_realtime add table public.leads;
-alter publication supabase_realtime add table public.qa_records;
-alter publication supabase_realtime add table public.sql_assignments;
-alter publication supabase_realtime add table public.closer_deals;
-alter publication supabase_realtime add table public.ops_verifications;
-alter publication supabase_realtime add table public.msp_onboarding;
-alter publication supabase_realtime add table public.fulfillment;
-alter publication supabase_realtime add table public.leasing;
-alter publication supabase_realtime add table public.retention;
+do $$
+declare
+  t text;
+  pipeline text[] := array[
+    'leads',
+    'qa_records',
+    'sql_assignments',
+    'closer_deals',
+    'ops_verifications',
+    'msp_onboarding',
+    'fulfillment',
+    'leasing',
+    'retention'
+  ];
+  skip text[] := array[
+    'lead_comments',
+    'retention_comments',
+    'attachments',
+    'profiles',
+    'teams'
+  ];
+begin
+  foreach t in array pipeline loop
+    if exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = t
+    ) then
+      continue;
+    end if;
+    if to_regclass('public.' || t) is null then
+      raise notice 'skip add % — table missing', t;
+      continue;
+    end if;
+    execute format('alter publication supabase_realtime add table public.%I', t);
+    raise notice 'added % to supabase_realtime', t;
+  end loop;
+
+  -- Keep publication lean if these were added by mistake
+  foreach t in array skip loop
+    if exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime drop table public.%I', t);
+      raise notice 'removed % from supabase_realtime (not used by app)', t;
+    end if;
+  end loop;
+end $$;

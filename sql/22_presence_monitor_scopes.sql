@@ -1,8 +1,10 @@
 -- ============================================================================
--- TGT Nexus CRM — 10_presence_hours.sql
--- Adds weekly work totals + per-day breakdown for Employee Monitor.
--- Run after 09_presence.sql. Safe to re-run.
--- Scoped access: see 22_presence_monitor_scopes.sql (same filters).
+-- TGT Nexus CRM — 22_presence_monitor_scopes.sql
+-- Employee Monitor scopes:
+--   ceo / super_admin → full board (exclude ceo/super_admin rows)
+--   sales_head        → lg_agent, lg_sup, closer, floor_manager
+--   ops_manager       → dept = OPS
+-- Safe to re-run. Paste into Supabase SQL editor after 09/10 presence.
 -- ============================================================================
 
 create or replace function private.can_view_presence()
@@ -43,7 +45,6 @@ as $$
   );
 $$;
 
--- Live board: selected day totals + Mon–Sun week (Asia/Karachi) that contains that day
 create or replace function public.dash_presence(p_day date default null)
 returns jsonb
 language plpgsql
@@ -136,7 +137,53 @@ $$;
 
 grant execute on function public.dash_presence(date) to authenticated;
 
--- Day-by-day rows for one employee for the Mon–Sun week containing p_day
+create or replace function public.dash_presence_events(
+  p_user_id uuid,
+  p_day date default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  day_local date := coalesce(p_day, (now() at time zone 'Asia/Karachi')::date);
+  day_start timestamptz;
+  day_end timestamptz;
+begin
+  if not private.can_view_presence() then
+    raise exception 'Presence events are restricted.';
+  end if;
+  if not private.presence_target_ok(p_user_id) then
+    raise exception 'Not allowed to view this employee.';
+  end if;
+
+  day_start := (day_local::timestamp at time zone 'Asia/Karachi');
+  day_end   := day_start + interval '1 day';
+
+  return (
+    select coalesce(jsonb_agg(row_to_json(e)::jsonb order by e.created_at), '[]'::jsonb)
+    from (
+      select
+        id,
+        status,
+        prev_status,
+        current_tab,
+        created_at
+      from public.presence_events
+      where user_id = p_user_id
+        and created_at >= day_start
+        and created_at < day_end
+      order by created_at
+      limit 500
+    ) e
+  );
+end;
+$$;
+
+grant execute on function public.dash_presence_events(uuid, date) to authenticated;
+
 create or replace function public.dash_presence_week(
   p_user_id uuid,
   p_day date default null

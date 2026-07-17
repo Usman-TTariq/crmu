@@ -304,10 +304,48 @@ $$;
 grant execute on function public.presence_offline() to authenticated;
 
 -- ---------------------------------------------------------------------------
--- Admin live board + day totals + Mon–Sun week totals (Asia/Karachi).
--- Offline if no heartbeat for 90s (stale row treated as offline).
--- Full week upgrade also in 10_presence_hours.sql (safe re-run).
+-- Scoped live board (CEO full; sales_head → LG/closer/SQL; ops_manager → OPS).
+-- Offline if no heartbeat for 90s. Week totals also in 10_presence_hours.sql.
+-- Full replace also in 22_presence_monitor_scopes.sql (safe re-run).
 -- ---------------------------------------------------------------------------
+create or replace function private.can_view_presence()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select private.is_admin()
+      or private.role_key() in ('sales_head', 'ops_manager');
+$$;
+
+create or replace function private.presence_target_ok(p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.user_id = p_user_id
+      and p.is_active = true
+      and p.role_key not in ('ceo', 'super_admin')
+      and (
+        private.is_admin()
+        or (
+          private.role_key() = 'sales_head'
+          and p.role_key in ('lg_agent', 'lg_sup', 'closer', 'floor_manager')
+        )
+        or (
+          private.role_key() = 'ops_manager'
+          and p.dept = 'OPS'
+        )
+      )
+  );
+$$;
+
 create or replace function public.dash_presence(p_day date default null)
 returns jsonb
 language plpgsql
@@ -320,8 +358,8 @@ declare
   week_start date := day_local - ((extract(dow from day_local)::int + 6) % 7);
   week_end date := week_start + 6;
 begin
-  if not private.is_admin() then
-    raise exception 'Presence monitor is restricted to admins.';
+  if not private.can_view_presence() then
+    raise exception 'Presence monitor is restricted.';
   end if;
 
   return (
@@ -382,6 +420,17 @@ begin
       where p.is_active = true
         and p.user_id is not null
         and p.role_key not in ('ceo', 'super_admin')
+        and (
+          private.is_admin()
+          or (
+            private.role_key() = 'sales_head'
+            and p.role_key in ('lg_agent', 'lg_sup', 'closer', 'floor_manager')
+          )
+          or (
+            private.role_key() = 'ops_manager'
+            and p.dept = 'OPS'
+          )
+        )
     ) x
   );
 end;
@@ -389,7 +438,6 @@ $$;
 
 grant execute on function public.dash_presence(date) to authenticated;
 
--- Timeline for one employee on a day (admin)
 create or replace function public.dash_presence_events(
   p_user_id uuid,
   p_day date default null
@@ -405,8 +453,11 @@ declare
   day_start timestamptz;
   day_end timestamptz;
 begin
-  if not private.is_admin() then
-    raise exception 'Presence events are restricted to admins.';
+  if not private.can_view_presence() then
+    raise exception 'Presence events are restricted.';
+  end if;
+  if not private.presence_target_ok(p_user_id) then
+    raise exception 'Not allowed to view this employee.';
   end if;
 
   day_start := (day_local::timestamp at time zone 'Asia/Karachi');
@@ -434,7 +485,6 @@ $$;
 
 grant execute on function public.dash_presence_events(uuid, date) to authenticated;
 
--- Day-by-day for one employee (Mon–Sun week containing p_day)
 create or replace function public.dash_presence_week(
   p_user_id uuid,
   p_day date default null
@@ -449,8 +499,11 @@ declare
   day_local date := coalesce(p_day, (now() at time zone 'Asia/Karachi')::date);
   week_start date := day_local - ((extract(dow from day_local)::int + 6) % 7);
 begin
-  if not private.is_admin() then
-    raise exception 'Presence week is restricted to admins.';
+  if not private.can_view_presence() then
+    raise exception 'Presence week is restricted.';
+  end if;
+  if not private.presence_target_ok(p_user_id) then
+    raise exception 'Not allowed to view this employee.';
   end if;
 
   return (

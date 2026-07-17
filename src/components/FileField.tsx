@@ -6,7 +6,117 @@ import { C, TONES } from "@/lib/theme";
 import { IMG_EXT, MAX_FILE_BYTES, OK_EXT, extOf, fileSizeLabel } from "@/lib/format";
 import { deleteAttachment } from "@/actions/files";
 import { createClient } from "@/lib/supabase/client";
-import type { Attachment } from "@/lib/types";
+import type { Attachment, AttachmentDocType } from "@/lib/types";
+
+const CLOSER_SLOTS: { docType: AttachmentDocType; title: string }[] = [
+  { docType: "driving_license", title: "Driving License" },
+  { docType: "voided_cheque", title: "Voided Cheque" },
+];
+
+function AttachmentRow({
+  a,
+  readOnly,
+  onRemove,
+}: {
+  a: Attachment;
+  readOnly: boolean;
+  onRemove: (a: Attachment) => void;
+}) {
+  const isImg = IMG_EXT.includes(a.file_ext);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        background: C.lineSoft,
+        border: `1px solid ${C.line}`,
+        borderRadius: 10,
+        padding: "8px 10px",
+      }}
+    >
+      <a href={a.signed_url} target="_blank" rel="noreferrer" style={{ flexShrink: 0, display: "block" }}>
+        {isImg && a.signed_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={a.signed_url}
+            alt={a.file_name}
+            style={{ width: 42, height: 42, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.line}` }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 8,
+              background: C.blueSoft,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: C.blueDeep,
+            }}
+          >
+            <FileText size={20} />
+          </div>
+        )}
+      </a>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: C.ink,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {a.file_name}
+        </div>
+        <div className="mono" style={{ fontSize: 11, color: C.inkSoft }}>
+          {a.file_ext.toUpperCase()} &middot; {fileSizeLabel(a.file_size)}
+        </div>
+      </div>
+      {a.signed_url ? (
+        <a
+          href={a.signed_url}
+          target="_blank"
+          rel="noreferrer"
+          title="View"
+          style={{ color: C.inkSoft, flexShrink: 0, display: "flex", padding: 5 }}
+        >
+          <Eye size={16} />
+        </a>
+      ) : null}
+      <a
+        href={a.signed_url}
+        download={a.file_name}
+        title="Download"
+        style={{ color: C.inkSoft, flexShrink: 0, display: "flex", padding: 5 }}
+      >
+        <Download size={16} />
+      </a>
+      {!readOnly ? (
+        <button
+          type="button"
+          onClick={() => onRemove(a)}
+          title="Remove"
+          style={{
+            border: "none",
+            background: "transparent",
+            color: TONES.bad.fg,
+            cursor: "pointer",
+            flexShrink: 0,
+            padding: 5,
+            display: "flex",
+          }}
+        >
+          <X size={16} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 export default function FileField({
   leadId,
@@ -26,6 +136,62 @@ export default function FileField({
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const slotInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [activeDocType, setActiveDocType] = useState<AttachmentDocType | null>(null);
+
+  const uploadOne = async (
+    file: File,
+    docType: AttachmentDocType | null,
+    replace?: Attachment | null
+  ): Promise<{ added?: Attachment; error?: string }> => {
+    const ext = extOf(file.name);
+    if (!OK_EXT.includes(ext)) {
+      return { error: `"${file.name}" was skipped: only PDF, JPG, JPEG, PNG, GIF or WEBP are allowed.` };
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      return { error: `"${file.name}" is ${fileSizeLabel(file.size)}, over the 10 MB limit.` };
+    }
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not signed in." };
+
+    if (replace) {
+      const del = await deleteAttachment({ id: replace.id, storagePath: replace.storage_path });
+      if (del.error) return { error: del.error };
+    }
+
+    const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+    const path = `${leadId}/${stage}/${Date.now()}_${safeName}`;
+    const { error: upErr } = await supabase.storage
+      .from("documents")
+      .upload(path, file, { contentType: file.type || undefined });
+    if (upErr) return { error: upErr.message };
+
+    const insertRow: Record<string, unknown> = {
+      lead_id: leadId,
+      stage,
+      storage_path: path,
+      file_name: file.name,
+      file_size: file.size,
+      file_ext: ext,
+      uploaded_by: user.id,
+    };
+    if (docType) insertRow.doc_type = docType;
+
+    const { data: row, error: insErr } = await supabase
+      .from("attachments")
+      .insert(insertRow)
+      .select("*")
+      .single();
+    if (insErr) {
+      await supabase.storage.from("documents").remove([path]);
+      return { error: insErr.message };
+    }
+    const { data: signed } = await supabase.storage.from("documents").createSignedUrl(path, 3600);
+    return { added: { ...(row as Attachment), signed_url: signed?.signedUrl } };
+  };
 
   const onFiles = async (fl: FileList | null) => {
     const files = Array.from(fl || []);
@@ -34,59 +200,33 @@ export default function FileField({
     setBusy(true);
     let msg = "";
     const added: Attachment[] = [];
-    // Direct browser → Supabase Storage (no Next.js proxy; much faster for multi‑MB files)
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setErr("Not signed in.");
-      setBusy(false);
-      return;
-    }
     for (const file of files) {
-      const ext = extOf(file.name);
-      if (!OK_EXT.includes(ext)) {
-        msg = `"${file.name}" was skipped: only PDF, JPG, JPEG, PNG, GIF or WEBP are allowed.`;
-        continue;
-      }
-      if (file.size > MAX_FILE_BYTES) {
-        msg = `"${file.name}" is ${fileSizeLabel(file.size)}, over the 10 MB limit.`;
-        continue;
-      }
-      const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-      const path = `${leadId}/${stage}/${Date.now()}_${safeName}`;
-      const { error: upErr } = await supabase.storage
-        .from("documents")
-        .upload(path, file, { contentType: file.type || undefined });
-      if (upErr) {
-        msg = upErr.message;
-        continue;
-      }
-      const { data: row, error: insErr } = await supabase
-        .from("attachments")
-        .insert({
-          lead_id: leadId,
-          stage,
-          storage_path: path,
-          file_name: file.name,
-          file_size: file.size,
-          file_ext: ext,
-          uploaded_by: user.id,
-        })
-        .select("*")
-        .single();
-      if (insErr) {
-        await supabase.storage.from("documents").remove([path]);
-        msg = insErr.message;
-        continue;
-      }
-      const { data: signed } = await supabase.storage.from("documents").createSignedUrl(path, 3600);
-      added.push({ ...(row as Attachment), signed_url: signed?.signedUrl });
+      const res = await uploadOne(file, null);
+      if (res.error) msg = res.error;
+      if (res.added) added.push(res.added);
     }
     if (added.length) onChange([...list, ...added]);
     setErr(msg);
     setBusy(false);
+  };
+
+  const onSlotFile = async (docType: AttachmentDocType, fl: FileList | null) => {
+    const file = fl?.[0];
+    if (!file) return;
+    setErr("");
+    setBusy(true);
+    setActiveDocType(docType);
+    const existing = list.find((a) => a.doc_type === docType) || null;
+    const res = await uploadOne(file, docType, existing);
+    if (res.error) setErr(res.error);
+    if (res.added) {
+      const without = list.filter((a) => a.id !== existing?.id && a.doc_type !== docType);
+      onChange([...without, res.added]);
+    } else if (existing && res.error) {
+      // keep list if replace failed after delete — refresh parent on next load
+    }
+    setBusy(false);
+    setActiveDocType(null);
   };
 
   const remove = async (a: Attachment) => {
@@ -95,6 +235,110 @@ export default function FileField({
     else onChange(list.filter((x) => x.id !== a.id));
   };
 
+  if (stage === "closer") {
+    const hasDl = list.some((a) => a.doc_type === "driving_license");
+    const hasVoid = list.some((a) => a.doc_type === "voided_cheque");
+    const extras = list.filter(
+      (a) => a.doc_type !== "driving_license" && a.doc_type !== "voided_cheque"
+    );
+
+    return (
+      <div>
+        {label}
+        <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 10, fontWeight: 600 }}>
+          Required for Docs Received / Closed:{" "}
+          <span style={{ color: hasDl ? TONES.good.fg : TONES.bad.fg }}>
+            Driving License{hasDl ? " ✓" : " ✗"}
+          </span>
+          {" · "}
+          <span style={{ color: hasVoid ? TONES.good.fg : TONES.bad.fg }}>
+            Voided Cheque{hasVoid ? " ✓" : " ✗"}
+          </span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {CLOSER_SLOTS.map((slot) => {
+            const file = list.find((a) => a.doc_type === slot.docType);
+            const slotBusy = busy && activeDocType === slot.docType;
+            return (
+              <div key={slot.docType}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
+                  {slot.title} <span style={{ color: TONES.bad.fg }}>*</span>
+                </div>
+                {file ? (
+                  <AttachmentRow a={file} readOnly={readOnly} onRemove={remove} />
+                ) : (
+                  <div style={{ fontSize: 13, color: C.inkFaint, marginBottom: 6 }}>Not uploaded yet.</div>
+                )}
+                {!readOnly ? (
+                  <div style={{ marginTop: 8 }}>
+                    <input
+                      ref={(el) => {
+                        slotInputRefs.current[slot.docType] = el;
+                      }}
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
+                      onChange={(e) => {
+                        void onSlotFile(slot.docType, e.target.files);
+                        e.target.value = "";
+                      }}
+                      style={{ display: "none" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => slotInputRefs.current[slot.docType]?.click()}
+                      disabled={busy}
+                      style={{
+                        border: `1px dashed ${C.blue}`,
+                        background: C.blueSoft,
+                        color: C.blueDeep,
+                        borderRadius: 9,
+                        padding: "8px 12px",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: busy ? "default" : "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 7,
+                        opacity: busy ? 0.7 : 1,
+                      }}
+                    >
+                      <Paperclip size={15} />{" "}
+                      {slotBusy ? "Uploading..." : file ? `Replace ${slot.title}` : `Upload ${slot.title}`}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+          {extras.length ? (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 6 }}>Other files</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {extras.map((a) => (
+                  <AttachmentRow key={a.id} a={a} readOnly={readOnly} onRemove={remove} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        {err ? (
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              color: TONES.bad.fg,
+              background: TONES.bad.bg,
+              borderRadius: 8,
+              padding: "6px 10px",
+            }}
+          >
+            {err}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div>
       {label}
@@ -102,102 +346,7 @@ export default function FileField({
         {list.length === 0 ? (
           <div style={{ fontSize: 13, color: C.inkFaint }}>No documents attached.</div>
         ) : (
-          list.map((a) => {
-            const isImg = IMG_EXT.includes(a.file_ext);
-            return (
-              <div
-                key={a.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  background: C.lineSoft,
-                  border: `1px solid ${C.line}`,
-                  borderRadius: 10,
-                  padding: "8px 10px",
-                }}
-              >
-                <a href={a.signed_url} target="_blank" rel="noreferrer" style={{ flexShrink: 0, display: "block" }}>
-                  {isImg && a.signed_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={a.signed_url}
-                      alt={a.file_name}
-                      style={{ width: 42, height: 42, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.line}` }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: 42,
-                        height: 42,
-                        borderRadius: 8,
-                        background: C.blueSoft,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: C.blueDeep,
-                      }}
-                    >
-                      <FileText size={20} />
-                    </div>
-                  )}
-                </a>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: C.ink,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {a.file_name}
-                  </div>
-                  <div className="mono" style={{ fontSize: 11, color: C.inkSoft }}>
-                    {a.file_ext.toUpperCase()} &middot; {fileSizeLabel(a.file_size)}
-                  </div>
-                </div>
-                {a.signed_url ? (
-                  <a
-                    href={a.signed_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    title="View"
-                    style={{ color: C.inkSoft, flexShrink: 0, display: "flex", padding: 5 }}
-                  >
-                    <Eye size={16} />
-                  </a>
-                ) : null}
-                <a
-                  href={a.signed_url}
-                  download={a.file_name}
-                  title="Download"
-                  style={{ color: C.inkSoft, flexShrink: 0, display: "flex", padding: 5 }}
-                >
-                  <Download size={16} />
-                </a>
-                {!readOnly ? (
-                  <button
-                    onClick={() => remove(a)}
-                    title="Remove"
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      color: TONES.bad.fg,
-                      cursor: "pointer",
-                      flexShrink: 0,
-                      padding: 5,
-                      display: "flex",
-                    }}
-                  >
-                    <X size={16} />
-                  </button>
-                ) : null}
-              </div>
-            );
-          })
+          list.map((a) => <AttachmentRow key={a.id} a={a} readOnly={readOnly} onRemove={remove} />)
         )}
       </div>
       {!readOnly ? (
@@ -208,12 +357,13 @@ export default function FileField({
             multiple
             accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
             onChange={(e) => {
-              onFiles(e.target.files);
+              void onFiles(e.target.files);
               e.target.value = "";
             }}
             style={{ display: "none" }}
           />
           <button
+            type="button"
             onClick={() => inputRef.current?.click()}
             disabled={busy}
             style={{
