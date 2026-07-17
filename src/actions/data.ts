@@ -127,7 +127,7 @@ async function markLeadDuplicates(
   const phones = new Set<string>();
   const emails = new Set<string>();
   for (const r of rows) {
-    const { phone, email } = leadMatchKeys(r);
+    const { phone, email } = leadMatchKeys({ phone: r.phone, email: r.email });
     if (phone) phones.add(phone);
     if (email) emails.add(email);
   }
@@ -165,7 +165,7 @@ async function markLeadDuplicates(
   for (const lead of candidates) {
     const id = String(lead.lead_id || "");
     if (!id) continue;
-    const { phone, email } = leadMatchKeys(lead);
+    const { phone, email } = leadMatchKeys({ phone: lead.phone, email: lead.email });
     const trackPhone = !!(phone && phones.has(phone));
     const trackEmail = !!(email && emails.has(email));
     if (!trackPhone && !trackEmail) continue;
