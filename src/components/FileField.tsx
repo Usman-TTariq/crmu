@@ -4,7 +4,8 @@ import React, { useRef, useState } from "react";
 import { Download, Eye, FileText, Paperclip, X } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { IMG_EXT, MAX_FILE_BYTES, OK_EXT, extOf, fileSizeLabel } from "@/lib/format";
-import { uploadAttachment, deleteAttachment } from "@/actions/files";
+import { deleteAttachment } from "@/actions/files";
+import { createClient } from "@/lib/supabase/client";
 import type { Attachment } from "@/lib/types";
 
 export default function FileField({
@@ -33,6 +34,16 @@ export default function FileField({
     setBusy(true);
     let msg = "";
     const added: Attachment[] = [];
+    // Direct browser → Supabase Storage (no Next.js proxy; much faster for multi‑MB files)
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setErr("Not signed in.");
+      setBusy(false);
+      return;
+    }
     for (const file of files) {
       const ext = extOf(file.name);
       if (!OK_EXT.includes(ext)) {
@@ -43,13 +54,35 @@ export default function FileField({
         msg = `"${file.name}" is ${fileSizeLabel(file.size)}, over the 10 MB limit.`;
         continue;
       }
-      const fd = new FormData();
-      fd.set("file", file);
-      fd.set("leadId", leadId);
-      fd.set("stage", stage);
-      const res = await uploadAttachment(fd);
-      if (res.error) msg = res.error;
-      else if (res.attachment) added.push(res.attachment);
+      const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+      const path = `${leadId}/${stage}/${Date.now()}_${safeName}`;
+      const { error: upErr } = await supabase.storage
+        .from("documents")
+        .upload(path, file, { contentType: file.type || undefined });
+      if (upErr) {
+        msg = upErr.message;
+        continue;
+      }
+      const { data: row, error: insErr } = await supabase
+        .from("attachments")
+        .insert({
+          lead_id: leadId,
+          stage,
+          storage_path: path,
+          file_name: file.name,
+          file_size: file.size,
+          file_ext: ext,
+          uploaded_by: user.id,
+        })
+        .select("*")
+        .single();
+      if (insErr) {
+        await supabase.storage.from("documents").remove([path]);
+        msg = insErr.message;
+        continue;
+      }
+      const { data: signed } = await supabase.storage.from("documents").createSignedUrl(path, 3600);
+      added.push({ ...(row as Attachment), signed_url: signed?.signedUrl });
     }
     if (added.length) onChange([...list, ...added]);
     setErr(msg);

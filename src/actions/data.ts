@@ -12,6 +12,9 @@ import { TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import type { Rec, Attachment, RetentionComment } from "@/lib/types";
 import type { Timeframe } from "@/lib/format";
 
+/** Roster profiles linked to these auth emails stay hidden from Team Setup. */
+const HIDDEN_ROSTER_LOGIN_EMAILS = new Set(["yasal.khan@tgtnexus.net"]);
+
 // ---------------------------------------------------------------------------
 // Timeframe boundaries (blank dates always pass, like the prototype)
 // ---------------------------------------------------------------------------
@@ -69,7 +72,7 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
     query = applyTf(query, DATE_FIELD[payload.tab], payload.tf);
 
     if (payload.tab === "teamsetup") {
-      query = supabase.from("profiles").select("*").neq("title", "CEO").order("full_name");
+      query = supabase.from("profiles").select("*").order("full_name");
     }
 
     const { data, error } = await query;
@@ -164,11 +167,16 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
         closed_month: closedMo.get(String(r.full_name)) || 0,
       }));
 
-      // Login emails are visible to user admins only
+      // Login emails are visible to user admins only; always hide selected accounts from roster
+      const { data: usersData } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      const emailById = new Map((usersData?.users || []).map((u) => [u.id, (u.email || "").toLowerCase()]));
+      rows = rows.filter((r) => {
+        if (!r.user_id) return true;
+        const email = emailById.get(String(r.user_id)) || "";
+        return !HIDDEN_ROSTER_LOGIN_EMAILS.has(email);
+      });
       const session = await getSession();
       if (session && USER_ADMIN_ROLES.includes(session.profile.role_key)) {
-        const { data: usersData } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-        const emailById = new Map((usersData?.users || []).map((u) => [u.id, u.email || ""]));
         rows = rows.map((r) => ({
           ...r,
           login_email: r.user_id ? emailById.get(String(r.user_id)) || "" : "",
@@ -373,7 +381,6 @@ export async function fetchTabCounts(payload: { tf: Timeframe }): Promise<Record
       const table = TAB_TABLE[t.k];
       if (!table) return;
       let q = supabase.from(table).select("id", { count: "exact", head: true });
-      if (t.k === "teamsetup") q = q.neq("title", "CEO") as typeof q;
       q = applyTf(q, t.dated ? DATE_FIELD[t.k] : undefined, payload.tf) as typeof q;
       const { count } = await q;
       counts[t.k] = count || 0;

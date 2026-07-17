@@ -43,7 +43,7 @@ const TITLE_ORDER = [
   "Customer Success Head", "Customer Success Lead", "Customer Success Agent",
 ];
 
-const LEADERSHIP_ROLES = new Set(["sales_head", "avp_sales", "floor_manager"]);
+const LEADERSHIP_ROLES = new Set(["ceo", "super_admin", "sales_head", "avp_sales", "floor_manager"]);
 
 function rosterGroup(r: Rec): string {
   if (r.dept === "ALL" || LEADERSHIP_ROLES.has(String(r.role_key))) return "Leadership";
