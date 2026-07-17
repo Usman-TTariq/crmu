@@ -122,8 +122,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
 
   // Live list: Supabase Realtime → refetch.
   // Publication must include only pipeline tables (sql/12_realtime_publication.sql):
-  // leads, qa_records, sql_assignments, closer_deals, ops_verifications,
-  // msp_onboarding, fulfillment, leasing, retention — not comments/profiles/attachments.
+  // leads … closer_deals, documentation_reviews, ops_verifications … retention.
   useEffect(() => {
     if (notAllowed) return;
     const table = TAB_TABLE[tab];
@@ -206,6 +205,10 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     }
     if (tab === "closer" && draft.stage === "Closed Lost" && isBlank(draft.lost_reason)) {
       app.pushToasts(["Closed Lost needs a reason."]);
+      return;
+    }
+    if (tab === "documentation" && draft.decision === "Fail" && isBlank(draft.fail_reason)) {
+      app.pushToasts(["Fail needs a reason."]);
       return;
     }
     if (

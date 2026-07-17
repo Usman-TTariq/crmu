@@ -13,12 +13,19 @@ export interface Profile {
   notes: string;
 }
 
-export type AttachmentDocType = "driving_license" | "voided_cheque" | "other";
+export type AttachmentDocType =
+  | "driving_license"
+  | "voided_cheque"
+  | "bank_statement"
+  | "business_license"
+  | "proof_of_address"
+  | "processing_statement"
+  | "other";
 
 export interface Attachment {
   id: string;
   lead_id: string;
-  stage: "closer" | "ops";
+  stage: "closer" | "ops" | "documentation";
   storage_path: string;
   file_name: string;
   file_size: number;

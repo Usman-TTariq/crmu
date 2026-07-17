@@ -27,7 +27,7 @@ create table if not exists public.profiles (
   user_id     uuid unique references auth.users (id) on delete set null,
   full_name   text not null unique,
   title       text not null default '',
-  dept        text not null default 'SALES' check (dept in ('SALES','OPS','ALL')),
+  dept        text not null default 'SALES' check (dept in ('SALES','OPS','ALL','DOCUMENTATION')),
   team        text not null default '',
   role_key    text not null default 'lg_agent',
   target      text not null default '',
@@ -152,7 +152,30 @@ create table if not exists public.closer_deals (
 );
 
 -- ---------------------------------------------------------------------------
--- Stage 5: OPS verification
+-- Stage 5: Documentation review (Project Manager) — between Closer and OPS
+-- ---------------------------------------------------------------------------
+create table if not exists public.documentation_reviews (
+  id              uuid primary key default gen_random_uuid(),
+  lead_id         text not null unique references public.leads (lead_id) on delete cascade,
+  business_name   text not null default '',
+  owner_name      text not null default '',
+  phone           text not null default '',
+  state           text not null default '',
+  monthly_volume  numeric,
+  closer          text not null default '',
+  closed_date     date,
+  pm_name         text not null default '',
+  decision        text not null default 'Pending'
+                    check (decision in ('Pending', 'Pass', 'Fail')),
+  fail_reason     text not null default '',
+  review_date     date,
+  notes           text not null default '',
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Stage 6: OPS verification
 -- ---------------------------------------------------------------------------
 create table if not exists public.ops_verifications (
   id                    uuid primary key default gen_random_uuid(),
@@ -296,19 +319,25 @@ create table if not exists public.lead_comments (
 create table if not exists public.attachments (
   id            uuid primary key default gen_random_uuid(),
   lead_id       text not null references public.leads (lead_id) on delete cascade,
-  stage         text not null check (stage in ('closer','ops')),
+  stage         text not null check (stage in ('closer','ops','documentation')),
   storage_path  text not null unique,
   file_name     text not null,
   file_size     bigint not null,
   file_ext      text not null,
-  doc_type      text check (doc_type is null or doc_type in ('driving_license', 'voided_cheque', 'other')),
+  doc_type      text check (doc_type is null or doc_type in (
+    'driving_license', 'voided_cheque', 'bank_statement', 'business_license',
+    'proof_of_address', 'processing_statement', 'other'
+  )),
   uploaded_by   uuid references auth.users (id),
   created_at    timestamptz not null default now()
 );
 
 create unique index if not exists idx_attachments_lead_stage_doctype
   on public.attachments (lead_id, stage, doc_type)
-  where doc_type in ('driving_license', 'voided_cheque');
+  where doc_type in (
+    'driving_license', 'voided_cheque', 'bank_statement', 'business_license',
+    'proof_of_address', 'processing_statement'
+  );
 
 -- ---------------------------------------------------------------------------
 -- updated_at maintenance
@@ -328,7 +357,7 @@ declare t text;
 begin
   foreach t in array array[
     'profiles','leads','qa_records','sql_assignments','closer_deals',
-    'ops_verifications','msp_onboarding','fulfillment','leasing','retention'
+    'documentation_reviews','ops_verifications','msp_onboarding','fulfillment','leasing','retention'
   ] loop
     execute format('drop trigger if exists trg_touch_%I on public.%I', t, t);
     execute format(

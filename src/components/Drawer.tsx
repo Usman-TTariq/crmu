@@ -77,7 +77,11 @@ export default function Drawer({
   const effFields = fields.map((f) =>
     isNew && f.readOnly && f.k !== "lead_id" ? { ...f, readOnly: false } : f
   );
-  const visible = effFields.filter((f) => !(f.k === "lost_reason" && draft.stage !== "Closed Lost"));
+  const visible = effFields.filter(
+    (f) =>
+      !(f.k === "lost_reason" && draft.stage !== "Closed Lost") &&
+      !(f.k === "fail_reason" && draft.decision !== "Fail")
+  );
   const fullFields = visible.filter((f) => !f.long && f.type !== "thread" && f.type !== "files");
   const longFields = visible.filter((f) => f.long || f.type === "thread" || f.type === "files");
   const firstEdit = readOnly
@@ -93,7 +97,8 @@ export default function Drawer({
         ) || ({} as FieldDef)
       ).k;
 
-  const fileStage = tab.k === "ops" ? "ops" : "closer";
+  const fileStage =
+    tab.k === "ops" ? "ops" : tab.k === "documentation" ? "documentation" : "closer";
 
   if (!mounted) return null;
 

@@ -38,6 +38,7 @@ const TEAM_ORDER = ["Olympus", "Phoenix", "Spartan", "Titans"];
 const TITLE_ORDER = [
   "CEO", "Super Admin", "Sales Head & QA", "AVP Sales", "Floor Manager",
   "Lead Gen Supervisor", "Lead Gen Agent", "Closer", "Tier 3", "QA Agent",
+  "Project Manager",
   "Manager", "Assistant Manager", "QA & Funding Lead", "Quality Assurance",
   "Onboarding Lead", "Onboarding Agent",
   "Customer Success Head", "Customer Success Lead", "Customer Success Agent",
@@ -48,6 +49,7 @@ const LEADERSHIP_ROLES = new Set(["ceo", "super_admin", "sales_head", "avp_sales
 function rosterGroup(r: Rec): string {
   if (r.dept === "ALL" || LEADERSHIP_ROLES.has(String(r.role_key))) return "Leadership";
   if (r.dept === "SALES") return r.team ? `Sales · Team ${r.team}` : "Sales · QA";
+  if (r.dept === "DOCUMENTATION" || r.role_key === "project_manager") return "Documentation";
   return "Operations";
 }
 
@@ -60,7 +62,10 @@ function rosterGroupRank(r: Rec): number {
     }
     return 1 + TEAM_ORDER.length + 1; // Sales · QA
   }
-  return 1 + TEAM_ORDER.length + 2; // Operations
+  if (r.dept === "DOCUMENTATION" || r.role_key === "project_manager") {
+    return 1 + TEAM_ORDER.length + 2;
+  }
+  return 1 + TEAM_ORDER.length + 3; // Operations
 }
 
 function titleRank(r: Rec): number {

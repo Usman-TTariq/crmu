@@ -20,6 +20,7 @@ const PIPELINE_COMMENT_TABS: TabKey[] = [
   "qa",
   "sqlassign",
   "closer",
+  "documentation",
   "ops",
   "msp",
   "fulfillment",
@@ -204,11 +205,14 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
       }));
     }
 
-    if ((payload.tab === "closer" || payload.tab === "ops") && leadIds.length) {
+    if ((payload.tab === "closer" || payload.tab === "ops" || payload.tab === "documentation") && leadIds.length) {
+      // Documentation reviews closer docs; also allow documentation-stage uploads
+      const stageFilter =
+        payload.tab === "documentation" ? ["closer", "documentation"] : [payload.tab];
       const { data: atts } = await supabase
         .from("attachments")
         .select("*")
-        .eq("stage", payload.tab)
+        .in("stage", stageFilter)
         .in("lead_id", leadIds);
       const byLead = new Map<string, Attachment[]>();
       for (const a of (atts || []) as Attachment[]) {
@@ -308,7 +312,8 @@ export async function fetchJourney(payload: { leadId: string }): Promise<{
   const stages: Record<string, string | null> = {};
   const checks: [string, string][] = [
     ["leadgen", "leads"], ["qa", "qa_records"], ["sqlassign", "sql_assignments"],
-    ["closer", "closer_deals"], ["ops", "ops_verifications"], ["msp", "msp_onboarding"],
+    ["closer", "closer_deals"], ["documentation", "documentation_reviews"],
+    ["ops", "ops_verifications"], ["msp", "msp_onboarding"],
     ["fulfillment", "fulfillment"], ["leasing", "leasing"], ["retention", "retention"],
   ];
   await Promise.all(
@@ -437,11 +442,15 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
     if (payload.tab === "sqlassign" && v.sql_status === "Assigned" && v.assigned_closer)
       messages.push(`${biz} assigned to ${v.assigned_closer}. Progressed to Closer Pipeline.`);
     if (payload.tab === "closer" && (v.stage === "Closed" || v.stage === "Closed Won"))
-      messages.push(`${biz} closed. Progressed to OPS.`);
+      messages.push(`${biz} closed. Progressed to Documentation.`);
     if (payload.tab === "closer" && v.stage === "Closed Lost")
       messages.push(`${biz} closed lost. Recorded and kept in history.`);
     if (payload.tab === "closer" && v.stage === "Not Interested")
       messages.push(`${biz} marked not interested. Recorded and kept in history.`);
+    if (payload.tab === "documentation" && v.decision === "Pass")
+      messages.push(`${biz} documentation passed. Progressed to OPS.`);
+    if (payload.tab === "documentation" && v.decision === "Fail")
+      messages.push(`${biz} documentation failed. Returned to Closer (Docs Pending).`);
     if (payload.tab === "ops" && v.ops_status === "Approved")
       messages.push(`${biz} OPS-approved. Progressed to Onboarding.`);
     if (payload.tab === "ops" && v.ops_status === "Disapproved")

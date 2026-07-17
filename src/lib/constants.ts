@@ -26,21 +26,25 @@ export const OPS_STATUS = ["Pending", "Approved", "Disapproved"];
 export const QA_DECISIONS = ["Pending", "Qualified", "Disqualified"];
 export const SQL_STATUS = ["Pending", "Assigned"];
 export const FUNDING_STATUS = ["Pending", "Submitted", "Funded", "Declined"];
-export const DEPTS = ["SALES", "OPS", "ALL"];
+export const DEPTS = ["SALES", "OPS", "DOCUMENTATION", "ALL"];
+export const DOC_DECISIONS = ["Pending", "Pass", "Fail"];
 
 export type TabKey =
   | "ceo" | "monitor" | "leadgen" | "qa" | "sqlassign" | "closer" | "saleskpi"
+  | "documentation"
   | "ops" | "msp" | "fulfillment" | "leasing" | "retention" | "opskpi"
   | "teamsetup";
 
 export const PIPE: [TabKey, string][] = [
   ["leadgen", "Lead"], ["qa", "QA"], ["sqlassign", "SQL"], ["closer", "Closer"],
+  ["documentation", "Docs"],
   ["ops", "OPS QA"], ["msp", "Onboard"], ["fulfillment", "Fulfill"], ["leasing", "Lease"], ["retention", "CS"],
 ];
 
 export const NAV_GROUPS: { label: string; keys: TabKey[] }[] = [
   { label: "Overview", keys: ["ceo", "monitor"] },
   { label: "Sales", keys: ["leadgen", "qa", "sqlassign", "closer", "saleskpi"] },
+  { label: "Documentation", keys: ["documentation"] },
   { label: "Operations", keys: ["ops", "msp", "fulfillment", "leasing", "retention", "opskpi"] },
   { label: "Admin", keys: ["teamsetup"] },
 ];
@@ -53,7 +57,7 @@ export interface TabDef {
   label: string;
   emoji: string;
   kind?: "dashboard" | "kpi";
-  div: "ALL" | "SALES" | "OPS";
+  div: "ALL" | "SALES" | "OPS" | "DOCUMENTATION";
   dated?: boolean;
   singular?: string;
   note?: string;
@@ -65,8 +69,9 @@ export const TABS: TabDef[] = [
   { k: "leadgen", label: "Lead Gen", emoji: "\u{1F4DD}", div: "SALES", dated: true, singular: "Lead", note: "Saving a lead instantly creates its QA record. The QA Outcome column shows whether QA later qualified or rejected it." },
   { k: "qa", label: "QA", emoji: "\u2705", div: "SALES", dated: true, note: "Qualify only when the 6 checks are Yes and volume is over $5k. Qualifying creates the SQL. Disqualifying is recorded and kept in history." },
   { k: "sqlassign", label: "SQL Assignment", emoji: "\u{1F3AF}", div: "SALES", dated: true, note: "Pick a closer (load shown) and set Status to Assigned to push it to the Closer Pipeline." },
-  { k: "closer", label: "Closer Pipeline", emoji: "\u{1F91D}", div: "SALES", dated: true, note: "Closed sends it to OPS. Closed Lost needs a reason and stays in history. Not Interested closes the deal without OPS." },
+  { k: "closer", label: "Closer Pipeline", emoji: "\u{1F91D}", div: "SALES", dated: true, note: "Closed sends it to Documentation. Closed Lost needs a reason and stays in history. Not Interested closes the deal without Documentation/OPS." },
   { k: "saleskpi", label: "Sales KPIs", emoji: "\u{1F4C8}", kind: "kpi", div: "SALES" },
+  { k: "documentation", label: "Documentation", emoji: "\u{1F4C1}", div: "DOCUMENTATION", dated: true, singular: "Review", note: "Project Manager reviews closer docs. Pass sends the deal to OPS QA. Fail returns it to Closer as Docs Pending for Sales/AVP to fix." },
   { k: "ops", label: "OPS QA", emoji: "\u{1F50E}", div: "OPS", dated: true, singular: "Lead", note: "OPS QA verifies documents and records a reasoning for every decision. Approving with anything unverified auto-disapproves. Approved sends it to Onboarding." },
   { k: "msp", label: "Onboarding", emoji: "\u{1F6E0}\uFE0F", div: "OPS", dated: true, note: "Up to 3 MSP attempts, each Yes or No. Any Yes makes Final Status Approved and moves it to Fulfillment. All No keeps it Pending (never auto-rejected). Use Archived to close it out. A 2nd or 3rd attempt later than 24h after a failure is a fatal error and turns the row red." },
   { k: "fulfillment", label: "Fulfillment", emoji: "\u{1F4E6}", div: "OPS", dated: true, note: "Deploy equipment and set the merchant live." },
@@ -103,19 +108,34 @@ export const ROLES: RoleDef[] = [
   { key: "avp_sales", label: "AVP Sales [SALES]", view: "sales", edit: "sales", home: "leadgen", scope: "Full access to every Sales tab (Lead Gen through Team Setup). No OPS or CEO dashboard." },
   { key: "floor_manager", label: "Floor Manager [SALES]", view: ["sqlassign"], edit: [], home: "sqlassign", scope: "View only: every SQL across all teams. Cannot assign or edit — only Sales Head and AVP Sales can assign." },
   {
+    key: "project_manager",
+    label: "Project Manager [DOCUMENTATION]",
+    view: ["documentation"],
+    edit: ["documentation"],
+    home: "documentation",
+    scope: "Reviews closer documents. Pass sends the deal to OPS QA; Fail returns it to Closer Docs Pending.",
+  },
+  {
     key: "ops_manager",
     label: "Manager [OPS]",
-    view: [...OPS_TABS, "monitor"],
+    view: [...OPS_TABS, "documentation", "monitor"],
     edit: "ops",
     home: "ops",
-    scope: "Manager. Edits and assigns every lead and OPS QA record across OPS, runs QA accuracy audit, and monitors OPS employee presence.",
+    scope: "Manager. Edits and assigns every lead and OPS QA record across OPS, runs QA accuracy audit, and monitors OPS employee presence. Can view Documentation.",
   },
-  { key: "ops_am", label: "Assistant Manager [OPS]", view: "ops", edit: "ops", home: "ops", scope: "Assistant Manager. Edits and assigns every lead and OPS QA record across OPS, and can run the QA accuracy audit." },
+  {
+    key: "ops_am",
+    label: "Assistant Manager [OPS]",
+    view: [...OPS_TABS, "documentation"],
+    edit: "ops",
+    home: "ops",
+    scope: "Assistant Manager. Edits and assigns every lead and OPS QA record across OPS, and can run the QA accuracy audit. Can view Documentation.",
+  },
   { key: "lg_agent", label: "Lead Gen Agent [SALES]", view: ["leadgen"], edit: ["leadgen"], home: "leadgen", row: { leadgen: "ownLeadGen" }, scope: "Create new leads and view your own. After create, fields are locked — you can only add comments. Cannot delete." },
   { key: "lg_sup", label: "Lead Gen Supervisor [SALES]", view: ["sqlassign"], edit: [], home: "sqlassign", row: { sqlassign: "teamSQL" }, scope: "View only: the SQLs generated by your team." },
   { key: "qa_agent", label: "QA Agent [SALES]", view: ["qa"], edit: ["qa"], home: "qa", row: { qa: "ownQA" }, scope: "Only the leads assigned to you for QA." },
   { key: "closer", label: "Closer [SALES]", view: ["closer"], edit: ["closer"], home: "closer", row: { closer: "ownCloser" }, scope: "Only the deals assigned to you." },
-  { key: "ops_verifier", label: "QA & Funding Lead [OPS]", view: ["ops"], edit: ["ops"], home: "ops", scope: "Leads OPS QA. Sees, edits, assigns and revokes all OPS verification." },
+  { key: "ops_verifier", label: "QA & Funding Lead [OPS]", view: ["ops", "documentation"], edit: ["ops"], home: "ops", scope: "Leads OPS QA. Sees, edits, assigns and revokes all OPS verification. Can view Documentation." },
   { key: "ops_qa_agent", label: "Quality Assurance [OPS]", view: ["ops"], edit: ["ops"], home: "ops", row: { ops: "ownOps" }, scope: "Only the OPS leads assigned to you for verification." },
   { key: "onboarding_lead", label: "Onboarding Lead [OPS]", view: ["msp", "fulfillment", "leasing"], edit: ["msp", "fulfillment", "leasing"], home: "msp", scope: "Leads onboarding. Edits and assigns the whole team's submissions, plus Fulfillment and Leasing." },
   { key: "onb_agent", label: "Onboarding Agent [OPS]", view: ["msp"], edit: ["msp"], home: "msp", row: { msp: "ownOnb" }, scope: "End-to-end ownership: only the submissions assigned to you, and only you chase them." },
@@ -162,6 +182,7 @@ export const TITLE_ROLE_MAP: Record<string, string> = {
   "Sales Head & QA": "sales_head",
   "AVP Sales": "avp_sales",
   "Floor Manager": "floor_manager",
+  "Project Manager": "project_manager",
   "Lead Gen Supervisor": "lg_sup",
   "Lead Gen Agent": "lg_agent",
   Closer: "closer",

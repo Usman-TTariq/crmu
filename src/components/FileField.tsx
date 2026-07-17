@@ -8,10 +8,16 @@ import { deleteAttachment } from "@/actions/files";
 import { createClient } from "@/lib/supabase/client";
 import type { Attachment, AttachmentDocType } from "@/lib/types";
 
-const CLOSER_SLOTS: { docType: AttachmentDocType; title: string }[] = [
-  { docType: "driving_license", title: "Driving License" },
-  { docType: "voided_cheque", title: "Voided Cheque" },
+const CLOSER_SLOTS: { docType: AttachmentDocType; title: string; required?: boolean }[] = [
+  { docType: "driving_license", title: "Driving License", required: true },
+  { docType: "voided_cheque", title: "Voided Cheque", required: true },
+  { docType: "bank_statement", title: "Bank Statement" },
+  { docType: "business_license", title: "Business License / EIN" },
+  { docType: "proof_of_address", title: "Proof of Address" },
+  { docType: "processing_statement", title: "Processing Statement" },
 ];
+
+const CLOSER_TYPED = new Set(CLOSER_SLOTS.map((s) => s.docType));
 
 function AttachmentRow({
   a,
@@ -127,7 +133,7 @@ export default function FileField({
   label,
 }: {
   leadId: string;
-  stage: "closer" | "ops";
+  stage: "closer" | "ops" | "documentation";
   list: Attachment[];
   readOnly: boolean;
   onChange: (next: Attachment[]) => void;
@@ -238,9 +244,7 @@ export default function FileField({
   if (stage === "closer") {
     const hasDl = list.some((a) => a.doc_type === "driving_license");
     const hasVoid = list.some((a) => a.doc_type === "voided_cheque");
-    const extras = list.filter(
-      (a) => a.doc_type !== "driving_license" && a.doc_type !== "voided_cheque"
-    );
+    const extras = list.filter((a) => !a.doc_type || !CLOSER_TYPED.has(a.doc_type as AttachmentDocType));
 
     return (
       <div>
@@ -254,6 +258,10 @@ export default function FileField({
           <span style={{ color: hasVoid ? TONES.good.fg : TONES.bad.fg }}>
             Voided Cheque{hasVoid ? " ✓" : " ✗"}
           </span>
+          <span style={{ fontWeight: 500, color: C.inkFaint }}>
+            {" "}
+            · 4 more optional below
+          </span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {CLOSER_SLOTS.map((slot) => {
@@ -262,7 +270,12 @@ export default function FileField({
             return (
               <div key={slot.docType}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
-                  {slot.title} <span style={{ color: TONES.bad.fg }}>*</span>
+                  {slot.title}
+                  {slot.required ? (
+                    <span style={{ color: TONES.bad.fg }}> *</span>
+                  ) : (
+                    <span style={{ color: C.inkFaint, fontWeight: 500 }}> (optional)</span>
+                  )}
                 </div>
                 {file ? (
                   <AttachmentRow a={file} readOnly={readOnly} onRemove={remove} />

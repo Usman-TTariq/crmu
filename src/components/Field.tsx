@@ -91,7 +91,7 @@ export default function Field({
   autoFocus?: boolean;
   locked?: boolean;
   lockedValue?: string;
-  fileStage?: "closer" | "ops";
+  fileStage?: "closer" | "ops" | "documentation";
   /** Allow appending comments even when the drawer is read-only */
   allowComment?: boolean;
 }) {

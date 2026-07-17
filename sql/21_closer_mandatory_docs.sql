@@ -15,13 +15,19 @@ begin
   ) then
     alter table public.attachments
       add constraint attachments_doc_type_check
-      check (doc_type is null or doc_type in ('driving_license', 'voided_cheque', 'other'));
+      check (doc_type is null or doc_type in (
+        'driving_license', 'voided_cheque', 'bank_statement', 'business_license',
+        'proof_of_address', 'processing_statement', 'other'
+      ));
   end if;
 end $$;
 
 create unique index if not exists idx_attachments_lead_stage_doctype
   on public.attachments (lead_id, stage, doc_type)
-  where doc_type in ('driving_license', 'voided_cheque');
+  where doc_type in (
+    'driving_license', 'voided_cheque', 'bank_statement', 'business_license',
+    'proof_of_address', 'processing_statement'
+  );
 
 create or replace function private.before_closer_change()
 returns trigger

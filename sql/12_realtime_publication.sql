@@ -3,9 +3,9 @@
 -- Enable Supabase Realtime (postgres_changes) for pipeline list tabs ONLY.
 -- App listens in PipelinePage via TAB_TABLE — one channel per open tab.
 --
--- INCLUDE (9):
---   leads, qa_records, sql_assignments, closer_deals, ops_verifications,
---   msp_onboarding, fulfillment, leasing, retention
+-- INCLUDE (10):
+--   leads, qa_records, sql_assignments, closer_deals, documentation_reviews,
+--   ops_verifications, msp_onboarding, fulfillment, leasing, retention
 --
 -- DO NOT add (no client subscriber; wastes Realtime fan-out):
 --   lead_comments, retention_comments, attachments, profiles, teams
@@ -21,6 +21,7 @@ declare
     'qa_records',
     'sql_assignments',
     'closer_deals',
+    'documentation_reviews',
     'ops_verifications',
     'msp_onboarding',
     'fulfillment',

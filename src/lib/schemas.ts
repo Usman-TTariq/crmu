@@ -5,7 +5,7 @@
 import {
   LEAD_SOURCES, PROCESSORS, MSP_PROVIDERS, LEASING_COS, ONB_BRANDS,
   ONB_FINAL, CS_STATUS, YN, CLOSER_STAGES, FULFILLMENT_STAGES, OPS_STATUS,
-  QA_DECISIONS, SQL_STATUS, FUNDING_STATUS, DEPTS, SALES_TEAMS,
+  DOC_DECISIONS, QA_DECISIONS, SQL_STATUS, FUNDING_STATUS, DEPTS, SALES_TEAMS,
   TITLE_ROLE_MAP, roleByKey, type TabKey,
 } from "@/lib/constants";
 
@@ -21,6 +21,7 @@ export interface OptsCtx {
   onboarders: string[];
   csAgents: string[];
   assigners: string[];
+  projectManagers: string[];
 }
 
 export interface FieldDef {
@@ -164,7 +165,30 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "closed_date", label: "Closed Date", type: "date" },
     {
       k: "attachments",
-      label: "Documents (Driving License + Voided Cheque required)",
+      label: "Documents (DL + Voided Cheque required; 4 optional)",
+      type: "files",
+      long: true,
+      hideTable: true,
+    },
+    { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+    { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
+  ],
+  documentation: [
+    { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "closed_date", label: "Closed Date", type: "date", readOnly: true },
+    { k: "business_name", label: "Business Name", type: "text", readOnly: true },
+    { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
+    { k: "phone", label: "Phone", type: "phone", mono: true, readOnly: true },
+    { k: "state", label: "State", type: "text", readOnly: true },
+    { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
+    { k: "closer", label: "Closer", type: "text", readOnly: true },
+    { k: "pm_name", label: "Project Manager", type: "select", opts: (c) => c.projectManagers },
+    { k: "decision", label: "Decision", type: "select", opts: DOC_DECISIONS, isPill: true },
+    { k: "fail_reason", label: "Fail Reason", type: "text", long: true, hideTable: true },
+    { k: "review_date", label: "Review Date", type: "date" },
+    {
+      k: "attachments",
+      label: "Documents (from Closer — DL + Voided Cheque)",
       type: "files",
       long: true,
       hideTable: true,
@@ -301,6 +325,7 @@ export const EDITABLE_COLUMNS: Record<string, string[]> = {
     "assigned_date", "stage", "lost_reason", "connected_date", "docs_pending_date",
     "docs_recd_date", "closed_date", "notes",
   ],
+  documentation: ["pm_name", "decision", "fail_reason", "review_date", "notes"],
   ops: [
     "brand", "dl_recd", "voided_check", "bank_stmt", "owner_name_verified",
     "owner_phone_verified", "business_verified", "ops_status", "reasoning",
@@ -328,6 +353,7 @@ export const TAB_TABLE: Record<string, string> = {
   qa: "qa_records",
   sqlassign: "sql_assignments",
   closer: "closer_deals",
+  documentation: "documentation_reviews",
   ops: "ops_verifications",
   msp: "msp_onboarding",
   fulfillment: "fulfillment",
@@ -341,6 +367,7 @@ export const DATE_FIELD: Partial<Record<TabKey, string>> = {
   qa: "qa_date",
   sqlassign: "assignment_date",
   closer: "assigned_date",
+  documentation: "review_date",
   ops: "ops_date",
   msp: "ops_approved_date",
   fulfillment: "funded_date",
