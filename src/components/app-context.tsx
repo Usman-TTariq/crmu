@@ -122,7 +122,12 @@ export function AppProvider({
       csAgents: byTitle("Customer Success Head", "Customer Success Lead", "Customer Success Agent"),
       projectManagers: byTitle("Project Manager"),
       // SQL Assigned By: Arish (Sales Head), Ubaid (AVP), Roshaan (Floor Manager)
-      assigners: byTitle("Sales Head & QA", "AVP Sales", "Floor Manager"),
+      assigners: byTitle(
+        "Sales Head & QA",
+        "Head of Workforce Performance and Quality",
+        "AVP Sales",
+        "Floor Manager"
+      ),
     };
   }, [profiles]);
 

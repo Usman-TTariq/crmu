@@ -180,6 +180,7 @@ export const TITLE_ROLE_MAP: Record<string, string> = {
   CEO: "ceo",
   "Super Admin": "super_admin",
   "Sales Head & QA": "sales_head",
+  "Head of Workforce Performance and Quality": "sales_head",
   "AVP Sales": "avp_sales",
   "Floor Manager": "floor_manager",
   "Project Manager": "project_manager",
