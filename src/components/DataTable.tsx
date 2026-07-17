@@ -68,6 +68,8 @@ export default function DataTable({
   onAdd,
   addLabel,
   groupOf,
+  rowActions,
+  rowActionsLabel = "Actions",
 }: {
   fields: FieldDef[];
   rows: Rec[];
@@ -77,8 +79,12 @@ export default function DataTable({
   addLabel?: string;
   /** When set, a section header row is rendered every time the label changes */
   groupOf?: (r: Rec) => string;
+  /** Extra column (e.g. View as). Click handlers should stopPropagation. */
+  rowActions?: (r: Rec) => React.ReactNode;
+  rowActionsLabel?: string;
 }) {
   const cols = fields.filter((f) => !f.hideTable);
+  const colSpan = cols.length + (rowActions ? 1 : 0);
   if (rows.length === 0) {
     return (
       <div
@@ -143,6 +149,27 @@ export default function DataTable({
                 {f.label}
               </th>
             ))}
+            {rowActions ? (
+              <th
+                style={{
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 1,
+                  background: C.lineSoft,
+                  color: C.inkSoft,
+                  textAlign: "left",
+                  padding: "9px 14px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  whiteSpace: "nowrap",
+                  borderBottom: `1px solid ${C.line}`,
+                }}
+              >
+                {rowActionsLabel}
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -154,7 +181,7 @@ export default function DataTable({
               group && group !== prevGroup ? (
                 <tr key={"group-" + group}>
                   <td
-                    colSpan={cols.length}
+                    colSpan={colSpan}
                     style={{
                       padding: "10px 14px 6px",
                       background: C.bg,
@@ -194,6 +221,18 @@ export default function DataTable({
                       {cellContent(f, r)}
                     </td>
                   ))}
+                  {rowActions ? (
+                    <td
+                      style={{
+                        padding: "9px 14px",
+                        whiteSpace: "nowrap",
+                        borderBottom: `1px solid ${C.lineSoft}`,
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {rowActions(r)}
+                    </td>
+                  ) : null}
                 </tr>
               </React.Fragment>
             );

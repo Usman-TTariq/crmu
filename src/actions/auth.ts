@@ -1,5 +1,6 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -26,5 +27,9 @@ export async function signOut(): Promise<void> {
     // Presence SQL may not be applied yet; never block logout.
   }
   await supabase.auth.signOut();
+  // Drop View-as restore cookies so a later login is clean.
+  const jar = await cookies();
+  jar.delete("crm_impersonator_user_id");
+  jar.delete("crm_view_as_name");
   redirect("/login");
 }

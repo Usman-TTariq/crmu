@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
+import { getViewAsName } from "@/actions/impersonate";
 import { AppProvider } from "@/components/app-context";
 import AppShell from "@/components/AppShell";
 import type { Profile } from "@/lib/types";
@@ -23,13 +24,17 @@ export default async function AppLayout({
   }
 
   const supabase = await createClient();
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("*")
-    .order("full_name");
+  const [{ data: profiles }, viewAsName] = await Promise.all([
+    supabase.from("profiles").select("*").order("full_name"),
+    getViewAsName(),
+  ]);
 
   return (
-    <AppProvider session={session} profiles={(profiles || []) as Profile[]}>
+    <AppProvider
+      session={session}
+      profiles={(profiles || []) as Profile[]}
+      viewAsName={viewAsName}
+    >
       <AppShell>{children}</AppShell>
     </AppProvider>
   );

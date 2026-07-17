@@ -37,6 +37,8 @@ interface AppCtx {
   canSeeMonitor: boolean;
   isManager: boolean;
   canDelete: boolean;
+  /** When set, CEO/Super Admin is signed in as this person (View as). */
+  viewAsName: string | null;
   opts: OptsCtx;
   tf: Timeframe;
   setTf: (tf: Timeframe) => void;
@@ -66,10 +68,12 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 export function AppProvider({
   session,
   profiles,
+  viewAsName = null,
   children,
 }: {
   session: SessionInfo;
   profiles: Profile[];
+  viewAsName?: string | null;
   children: React.ReactNode;
 }) {
   const [tf, setTf] = useState<Timeframe>("All time");
@@ -142,6 +146,7 @@ export function AppProvider({
       canSeeMonitor: MONITOR_ROLES.includes(role.key),
       isManager: MGR_ROLES.includes(role.key),
       canDelete: DELETE_ROLES.includes(role.key),
+      viewAsName,
       opts,
       tf,
       setTf,
@@ -157,7 +162,7 @@ export function AppProvider({
       jumpTo,
       clearPendingOpen,
     }),
-    [session, profiles, role, opts, tf, query, toasts, pushToasts, requestAdd, onAdd, counts, setCounts, pendingOpen, jumpTo, clearPendingOpen]
+    [session, profiles, role, viewAsName, opts, tf, query, toasts, pushToasts, requestAdd, onAdd, counts, setCounts, pendingOpen, jumpTo, clearPendingOpen]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

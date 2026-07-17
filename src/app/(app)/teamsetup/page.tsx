@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Download, KeyRound, Plus, ShieldOff } from "lucide-react";
+import { Download, KeyRound, Loader2, Plus, ShieldOff } from "lucide-react";
 import { C, TONES, NEUTRAL_CHIP } from "@/lib/theme";
 import { isBlank, num, numfmt } from "@/lib/format";
 import { SCHEMAS, type FieldDef } from "@/lib/schemas";
@@ -14,6 +14,7 @@ import { Panel, LBRow, type Badge } from "@/components/dash";
 import { fetchRows, saveRecord, deleteRecord } from "@/actions/data";
 import { fetchBoards, type BoardCloserRow, type BoardLeadRow, type BoardTeamRow } from "@/actions/dashboard";
 import { createUserForProfile, setProfileActive, revokeLogin, setUserPassword } from "@/actions/admin";
+import { startViewAs } from "@/actions/impersonate";
 
 function closerBadges(rows: BoardCloserRow[]): (r: BoardCloserRow) => Badge | null {
   const maxW = Math.max(0, ...rows.map((r) => r.w));
@@ -134,10 +135,13 @@ export default function TeamSetupPage() {
   const isAdmin = USER_ADMIN_ROLES.includes(app.role.key);
   // roster writes are admin-only, matching the profiles RLS policies
   const canEdit = app.editTabs.includes("teamsetup") && isAdmin;
+  const canViewAs = isAdmin && !app.viewAsName;
+  const [viewAsBusy, setViewAsBusy] = useState<string | null>(null);
 
-  const [rows, setRows] = useState<Rec[]>([]);
+  const [rows, setRows] = useState<Rec[] | null>(null);
   const [boards, setBoards] = useState<{ closers: BoardCloserRow[]; leadgen: BoardLeadRow[]; teams: BoardTeamRow[] } | null>(null);
   const [drawer, setDrawer] = useState<{ record: Rec; isNew: boolean } | null>(null);
+  const rosterLoading = rows === null;
 
   // user creation form
   const [selProfile, setSelProfile] = useState("");
@@ -153,20 +157,24 @@ export default function TeamSetupPage() {
   const pushToasts = app.pushToasts;
 
   const load = useCallback(() => {
-    return Promise.all([fetchRows({ tab: "teamsetup", tf: app.tf }), fetchBoards({ tf: app.tf })]).then(([r, b]) => {
+    // Roster first — boards (leaderboards) load separately so the table isn't blocked.
+    return fetchRows({ tab: "teamsetup", tf: app.tf }).then((r) => {
       if (r.error) pushToasts([r.error]);
       setRows(r.rows);
-      setBoards(b);
+      fetchBoards({ tf: app.tf }).then(setBoards);
     });
   }, [app.tf, pushToasts]);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([fetchRows({ tab: "teamsetup", tf: app.tf }), fetchBoards({ tf: app.tf })]).then(([r, b]) => {
+    setRows(null);
+    fetchRows({ tab: "teamsetup", tf: app.tf }).then((r) => {
       if (!alive) return;
       if (r.error) pushToasts([r.error]);
       setRows(r.rows);
-      setBoards(b);
+    });
+    fetchBoards({ tf: app.tf }).then((b) => {
+      if (alive) setBoards(b);
     });
     return () => {
       alive = false;
@@ -236,7 +244,8 @@ export default function TeamSetupPage() {
     load();
   };
 
-  const accSelected = rows.find((r) => String(r.id) === accProfile) || null;
+  const roster = rows || [];
+  const accSelected = roster.find((r) => String(r.id) === accProfile) || null;
 
   const toggleActive = async () => {
     if (!accSelected) return;
@@ -283,13 +292,13 @@ export default function TeamSetupPage() {
   const q = app.query.trim().toLowerCase();
   const filtered = sortRoster(
     q
-      ? rows.filter((r) =>
+      ? roster.filter((r) =>
           Object.values(r).some((v) => v != null && typeof v !== "object" && String(v).toLowerCase().includes(q))
         )
-      : rows
+      : roster
   );
 
-  const noLogin = rows.filter((r) => !r.user_id);
+  const noLogin = roster.filter((r) => !r.user_id);
   const tb = boards?.teams || [];
   const lb = boards?.leadgen || [];
   const cb = boards?.closers || [];
@@ -446,7 +455,7 @@ export default function TeamSetupPage() {
               <ShieldOff size={16} style={{ color: TONES.bad.fg, flexShrink: 0 }} />
               <select value={accProfile} onChange={(e) => setAccProfile(e.target.value)} style={{ ...inputStyle, minWidth: 240 }}>
                 <option value="">Pick a team member&hellip;</option>
-                {rows.map((p) => (
+                {roster.map((p) => (
                   <option key={String(p.id)} value={String(p.id)}>
                     {String(p.full_name)} — {p.is_active === false ? "inactive" : "active"}
                     {p.user_id ? ", has login" : ", no login"}
@@ -551,12 +560,13 @@ export default function TeamSetupPage() {
         }}
       >
         <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
-          Team roster{filtered.length ? ` · ${filtered.length}` : ""}
+          Team roster
+          {rosterLoading ? "" : filtered.length ? ` · ${filtered.length}` : ""}
         </div>
         <button
           type="button"
           onClick={() => downloadRosterCsv(filtered, fields)}
-          disabled={!filtered.length}
+          disabled={rosterLoading || !filtered.length}
           style={{
             border: `1px solid ${C.line}`,
             background: C.surface,
@@ -565,8 +575,8 @@ export default function TeamSetupPage() {
             padding: "8px 14px",
             fontSize: 13,
             fontWeight: 700,
-            cursor: filtered.length ? "pointer" : "default",
-            opacity: filtered.length ? 1 : 0.5,
+            cursor: !rosterLoading && filtered.length ? "pointer" : "default",
+            opacity: !rosterLoading && filtered.length ? 1 : 0.5,
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
@@ -585,7 +595,86 @@ export default function TeamSetupPage() {
           boxShadow: "0 12px 34px rgba(46,4,10,0.30)",
         }}
       >
-        <DataTable fields={fields} rows={filtered} onRow={(r) => setDrawer({ record: r, isNew: false })} groupOf={rosterGroup} />
+        {rosterLoading ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 14,
+              padding: "72px 24px",
+              color: C.inkSoft,
+            }}
+          >
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 14,
+                background: "linear-gradient(180deg,#f8ecec,#fff)",
+                border: `1px solid ${C.line}`,
+                display: "grid",
+                placeItems: "center",
+                boxShadow: "0 8px 20px rgba(46,4,10,0.08)",
+              }}
+            >
+              <Loader2 size={22} className="spin" style={{ color: C.blue }} />
+            </div>
+            <div style={{ fontWeight: 700, color: C.ink, fontSize: 14 }}>Loading team roster…</div>
+            <div style={{ fontSize: 12.5, color: C.inkFaint }}>Fetching members and login status</div>
+          </div>
+        ) : (
+          <DataTable
+            fields={fields}
+            rows={filtered}
+            onRow={(r) => setDrawer({ record: r, isNew: false })}
+            groupOf={rosterGroup}
+            rowActionsLabel="View as"
+            rowActions={
+              canViewAs
+                ? (r) => {
+                    const can =
+                      !!r.user_id &&
+                      r.is_active !== false &&
+                      String(r.id) !== app.session.profile.id;
+                    if (!can) {
+                      return <span style={{ color: C.inkFaint, fontSize: 12 }}>—</span>;
+                    }
+                    const busy = viewAsBusy === String(r.id);
+                    return (
+                      <button
+                        type="button"
+                        disabled={!!viewAsBusy}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          setViewAsBusy(String(r.id));
+                          const res = await startViewAs({ profileId: String(r.id) });
+                          if (res?.error) {
+                            pushToasts([res.error]);
+                            setViewAsBusy(null);
+                          }
+                        }}
+                        style={{
+                          border: `1px solid ${C.line}`,
+                          background: C.surface,
+                          color: C.ink,
+                          borderRadius: 8,
+                          padding: "5px 10px",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: viewAsBusy ? "default" : "pointer",
+                          opacity: busy ? 0.7 : 1,
+                        }}
+                      >
+                        {busy ? "Opening…" : "View as"}
+                      </button>
+                    );
+                  }
+                : undefined
+            }
+          />
+        )}
       </div>
 
       {drawer ? (

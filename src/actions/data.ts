@@ -15,6 +15,37 @@ import { isDayTimeframe, phoneDigits, type Timeframe } from "@/lib/format";
 /** Roster profiles linked to these auth emails stay hidden from Team Setup. */
 const HIDDEN_ROSTER_LOGIN_EMAILS = new Set(["yasal.khan@tgtnexus.net"]);
 
+/** Map auth user id → email. Prefer direct auth.users read; fall back to listUsers. */
+async function loadAuthEmailsById(
+  admin: ReturnType<typeof createAdminClient>,
+  userIds: string[]
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (!userIds.length) return map;
+
+  try {
+    const { data, error } = await admin
+      .schema("auth")
+      .from("users")
+      .select("id, email")
+      .in("id", userIds);
+    if (!error && data?.length) {
+      for (const u of data) {
+        if (u.id && u.email) map.set(String(u.id), String(u.email).toLowerCase());
+      }
+      return map;
+    }
+  } catch {
+    // auth schema may be blocked via PostgREST — fall through
+  }
+
+  const { data: usersData } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  for (const u of usersData?.users || []) {
+    if (u.id && u.email) map.set(u.id, u.email.toLowerCase());
+  }
+  return map;
+}
+
 const PIPELINE_COMMENT_TABS: TabKey[] = [
   "leadgen",
   "qa",
@@ -257,13 +288,21 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
     }
 
     if (payload.tab === "teamsetup") {
-      const { data: deals } = await admin
-        .from("closer_deals")
-        .select("closer, stage, closed_date");
+      const userIds = [
+        ...new Set(rows.map((r) => r.user_id).filter(Boolean).map(String)),
+      ];
+
+      // Deals + auth emails + session in parallel (listUsers was the slow path).
+      const [dealsRes, session, emailById] = await Promise.all([
+        admin.from("closer_deals").select("closer, stage, closed_date"),
+        getSession(),
+        loadAuthEmailsById(admin, userIds),
+      ]);
+
       const monthStart = tfRange("Monthly")!.start;
       const open = new Map<string, number>();
       const closedMo = new Map<string, number>();
-      (deals || []).forEach((d) => {
+      (dealsRes.data || []).forEach((d) => {
         if (!d.closer) return;
         if (d.stage !== "Closed" && d.stage !== "Closed Won" && d.stage !== "Closed Lost" && d.stage !== "Not Interested") {
           open.set(d.closer, (open.get(d.closer) || 0) + 1);
@@ -278,15 +317,12 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
         closed_month: closedMo.get(String(r.full_name)) || 0,
       }));
 
-      // Login emails are visible to user admins only; always hide selected accounts from roster
-      const { data: usersData } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-      const emailById = new Map((usersData?.users || []).map((u) => [u.id, (u.email || "").toLowerCase()]));
+      // Always hide selected accounts from roster; login emails for admins only
       rows = rows.filter((r) => {
         if (!r.user_id) return true;
         const email = emailById.get(String(r.user_id)) || "";
         return !HIDDEN_ROSTER_LOGIN_EMAILS.has(email);
       });
-      const session = await getSession();
       if (session && USER_ADMIN_ROLES.includes(session.profile.role_key)) {
         rows = rows.map((r) => ({
           ...r,

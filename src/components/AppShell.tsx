@@ -12,6 +12,7 @@ import PresenceBadge from "@/components/PresenceBadge";
 import PresenceTracker from "@/components/PresenceTracker";
 import { fetchTabCounts } from "@/actions/data";
 import { signOut } from "@/actions/auth";
+import { stopViewAs } from "@/actions/impersonate";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const app = useApp();
@@ -162,6 +163,52 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </nav>
 
       <main className="app-main">
+        {app.viewAsName ? (
+          <div
+            role="status"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+              padding: "10px 16px",
+              background: "linear-gradient(90deg,#7a1f12,#5c160e)",
+              color: "#fff",
+              fontSize: 13,
+              fontWeight: 600,
+              borderBottom: "1px solid rgba(255,255,255,0.12)",
+            }}
+          >
+            <span>
+              Viewing as <strong style={{ fontWeight: 800 }}>{app.viewAsName}</strong>
+              <span style={{ fontWeight: 500, opacity: 0.85 }}>
+                {" "}
+                — you see their dashboard and data. Changes save as them.
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={async () => {
+                const res = await stopViewAs();
+                if (res?.error) app.pushToasts([res.error]);
+              }}
+              style={{
+                border: "1px solid rgba(255,255,255,0.35)",
+                background: "rgba(255,255,255,0.12)",
+                color: "#fff",
+                borderRadius: 8,
+                padding: "6px 12px",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Exit view as
+            </button>
+          </div>
+        ) : null}
         <header className="app-header">
           <button
             type="button"
