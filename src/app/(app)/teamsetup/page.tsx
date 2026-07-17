@@ -39,7 +39,7 @@ const TITLE_ORDER = [
   "CEO", "Super Admin",   "Sales Head & QA", "Head of Workforce Performance and Quality", "AVP Sales", "Floor Manager",
   "Lead Gen Supervisor", "Lead Gen Agent", "Closer", "Tier 3", "QA Agent",
   "Project Manager",
-  "Manager", "Assistant Manager", "QA & Funding Lead", "Quality Assurance",
+  "Manager", "Assistant Manager", "QA & Funding Lead", "OPS QA & Onboarding", "Quality Assurance",
   "Onboarding Lead", "Onboarding Agent",
   "Customer Success Head", "Customer Success Lead", "Customer Success Agent",
 ];

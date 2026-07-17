@@ -117,8 +117,8 @@ export function AppProvider({
       leadgenAgents: byTitle("Lead Gen Agent", "Lead Gen Supervisor"),
       qaAgents: byTitle("QA Agent"),
       closers: byTitle("Closer", "Tier 3"),
-      opsVerifiers: byTitle("QA & Funding Lead", "Quality Assurance"),
-      onboarders: byTitle("Onboarding Lead", "Onboarding Agent"),
+      opsVerifiers: byTitle("QA & Funding Lead", "OPS QA & Onboarding", "Quality Assurance"),
+      onboarders: byTitle("Onboarding Lead", "OPS QA & Onboarding", "Onboarding Agent"),
       csAgents: byTitle("Customer Success Head", "Customer Success Lead", "Customer Success Agent"),
       projectManagers: byTitle("Project Manager"),
       // SQL Assigned By: Arish (Sales Head), Ubaid (AVP), Roshaan (Floor Manager)

@@ -58,7 +58,7 @@ create policy documentation_select on public.documentation_reviews
     private.is_admin()
     or private.role_key() in (
       'project_manager', 'sales_head', 'avp_sales',
-      'ops_manager', 'ops_am', 'ops_verifier'
+      'ops_manager', 'ops_am', 'ops_verifier', 'ops_qa_onb'
     )
   );
 
@@ -216,7 +216,7 @@ as $$
       or private.sales_reader()
       or private.is_ops_manager()
       or private.role_key() in (
-        'floor_manager', 'ops_verifier', 'onboarding_lead', 'cs_head', 'cs_lead',
+        'floor_manager', 'ops_verifier', 'ops_qa_onb', 'onboarding_lead', 'cs_head', 'cs_lead',
         'project_manager'
       )
       or (

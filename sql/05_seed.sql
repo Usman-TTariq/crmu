@@ -109,7 +109,7 @@ insert into public.profiles (full_name, title, dept, team, role_key, target) val
   ('Abdul Sami',              'Customer Success Agent',  'OPS',   '',        'cs_agent',        ''),
   ('Muhammad Wahaj',          'Customer Success Agent',  'OPS',   '',        'cs_agent',        ''),
   ('Affan Salman',            'Customer Success Agent',  'OPS',   '',        'cs_agent',        ''),
-  ('Rida Waseem',             'QA & Funding Lead',       'OPS',   '',        'ops_verifier',    ''),
+  ('Rida Waseem',             'OPS QA & Onboarding',     'OPS',   '',        'ops_qa_onb',      ''),
   ('Takchand Das',            'Quality Assurance',       'OPS',   '',        'ops_qa_agent',    '')
 on conflict (full_name) do update
 set title = excluded.title,

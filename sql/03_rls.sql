@@ -148,7 +148,7 @@ create policy leads_insert on public.leads
   with check (
     private.sales_writer()
     or private.ops_writer()          -- manual OPS additions create their lead
-    or private.role_key() = 'ops_verifier'
+    or private.role_key() in ('ops_verifier', 'ops_qa_onb')
     or (private.role_key() = 'lg_agent' and lead_gen_agent = private.identity())
   );
 
@@ -251,33 +251,33 @@ create policy closer_delete on public.closer_deals
 
 -- ---------------------------------------------------------------------------
 -- ops_verifications
--- sales_head: read-only. ops_verifier: full. ops_qa_agent: own rows.
+-- sales_head: read-only. ops_verifier / ops_qa_onb: full. ops_qa_agent: own rows.
 -- ---------------------------------------------------------------------------
 drop policy if exists ops_select on public.ops_verifications;
 create policy ops_select on public.ops_verifications
   for select to authenticated
   using (
     private.is_manager()
-    or private.role_key() in ('sales_head','ops_verifier')
+    or private.role_key() in ('sales_head','ops_verifier','ops_qa_onb')
     or (private.role_key() = 'ops_qa_agent' and (ops_agent = private.identity() or ops_agent = ''))
   );
 
 drop policy if exists ops_insert on public.ops_verifications;
 create policy ops_insert on public.ops_verifications
   for insert to authenticated
-  with check (private.ops_writer() or private.role_key() = 'ops_verifier');
+  with check (private.ops_writer() or private.role_key() in ('ops_verifier','ops_qa_onb'));
 
 drop policy if exists ops_update on public.ops_verifications;
 create policy ops_update on public.ops_verifications
   for update to authenticated
   using (
     private.ops_writer()
-    or private.role_key() = 'ops_verifier'
+    or private.role_key() in ('ops_verifier','ops_qa_onb')
     or (private.role_key() = 'ops_qa_agent' and (ops_agent = private.identity() or ops_agent = ''))
   )
   with check (
     private.ops_writer()
-    or private.role_key() = 'ops_verifier'
+    or private.role_key() in ('ops_verifier','ops_qa_onb')
     or (private.role_key() = 'ops_qa_agent' and ops_agent = private.identity())
   );
 
@@ -321,7 +321,7 @@ create policy msp_select on public.msp_onboarding
   for select to authenticated
   using (
     private.is_manager()
-    or private.role_key() in ('sales_head','onboarding_lead')
+    or private.role_key() in ('sales_head','onboarding_lead','ops_qa_onb')
     or (private.role_key() = 'onb_agent' and (onboarding_sp = private.identity() or onboarding_sp = ''))
   );
 
@@ -330,12 +330,12 @@ create policy msp_update on public.msp_onboarding
   for update to authenticated
   using (
     private.ops_writer()
-    or private.role_key() = 'onboarding_lead'
+    or private.role_key() in ('onboarding_lead','ops_qa_onb')
     or (private.role_key() = 'onb_agent' and (onboarding_sp = private.identity() or onboarding_sp = ''))
   )
   with check (
     private.ops_writer()
-    or private.role_key() = 'onboarding_lead'
+    or private.role_key() in ('onboarding_lead','ops_qa_onb')
     or (private.role_key() = 'onb_agent' and onboarding_sp = private.identity())
   );
 
@@ -349,7 +349,7 @@ create policy msp_delete on public.msp_onboarding
 drop policy if exists fulfillment_select on public.fulfillment;
 create policy fulfillment_select on public.fulfillment
   for select to authenticated
-  using (private.is_manager() or private.role_key() in ('sales_head','onboarding_lead'));
+  using (private.is_manager() or private.role_key() in ('sales_head','onboarding_lead','ops_qa_onb'));
 
 drop policy if exists fulfillment_update on public.fulfillment;
 create policy fulfillment_update on public.fulfillment
@@ -364,7 +364,7 @@ create policy fulfillment_delete on public.fulfillment
 drop policy if exists leasing_select on public.leasing;
 create policy leasing_select on public.leasing
   for select to authenticated
-  using (private.is_manager() or private.role_key() in ('sales_head','onboarding_lead'));
+  using (private.is_manager() or private.role_key() in ('sales_head','onboarding_lead','ops_qa_onb'));
 
 drop policy if exists leasing_update on public.leasing;
 create policy leasing_update on public.leasing
@@ -384,7 +384,7 @@ create policy retention_select on public.retention
   for select to authenticated
   using (
     private.is_manager()
-    or private.role_key() in ('sales_head','cs_head','cs_lead')
+    or private.role_key() in ('sales_head','cs_head','cs_lead','ops_qa_onb')
     or (
       private.role_key() = 'cs_agent'
       and (
@@ -455,7 +455,7 @@ as $$
       or private.sales_reader()
       or private.is_ops_manager()
       or private.role_key() in (
-        'floor_manager', 'ops_verifier', 'onboarding_lead', 'cs_head', 'cs_lead'
+        'floor_manager', 'ops_verifier', 'ops_qa_onb', 'onboarding_lead', 'cs_head', 'cs_lead'
       )
       or (
         private.role_key() = 'lg_agent'

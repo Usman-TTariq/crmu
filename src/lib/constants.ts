@@ -136,6 +136,14 @@ export const ROLES: RoleDef[] = [
   { key: "qa_agent", label: "QA Agent [SALES]", view: ["qa"], edit: ["qa"], home: "qa", row: { qa: "ownQA" }, scope: "Only the leads assigned to you for QA." },
   { key: "closer", label: "Closer [SALES]", view: ["closer"], edit: ["closer"], home: "closer", row: { closer: "ownCloser" }, scope: "Only the deals assigned to you." },
   { key: "ops_verifier", label: "QA & Funding Lead [OPS]", view: ["ops", "documentation"], edit: ["ops"], home: "ops", scope: "Leads OPS QA. Sees, edits, assigns and revokes all OPS verification. Can view Documentation." },
+  {
+    key: "ops_qa_onb",
+    label: "OPS QA & Onboarding [OPS]",
+    view: [...OPS_TABS, "documentation"],
+    edit: ["ops", "msp"],
+    home: "ops",
+    scope: "Edits OPS QA and Onboarding across all rows. Fulfillment, Leasing, Customer Success, and OPS KPIs are view-only.",
+  },
   { key: "ops_qa_agent", label: "Quality Assurance [OPS]", view: ["ops"], edit: ["ops"], home: "ops", row: { ops: "ownOps" }, scope: "Only the OPS leads assigned to you for verification." },
   { key: "onboarding_lead", label: "Onboarding Lead [OPS]", view: ["msp", "fulfillment", "leasing"], edit: ["msp", "fulfillment", "leasing"], home: "msp", scope: "Leads onboarding. Edits and assigns the whole team's submissions, plus Fulfillment and Leasing." },
   { key: "onb_agent", label: "Onboarding Agent [OPS]", view: ["msp"], edit: ["msp"], home: "msp", row: { msp: "ownOnb" }, scope: "End-to-end ownership: only the submissions assigned to you, and only you chase them." },
@@ -197,6 +205,7 @@ export const TITLE_ROLE_MAP: Record<string, string> = {
   "Customer Success Lead": "cs_lead",
   "Customer Success Agent": "cs_agent",
   "QA & Funding Lead": "ops_verifier",
+  "OPS QA & Onboarding": "ops_qa_onb",
   "Quality Assurance": "ops_qa_agent",
 };
 

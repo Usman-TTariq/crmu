@@ -60,7 +60,7 @@ as $$
       or private.sales_reader()
       or private.is_ops_manager()
       or private.role_key() in (
-        'floor_manager', 'ops_verifier', 'onboarding_lead', 'cs_head', 'cs_lead'
+        'floor_manager', 'ops_verifier', 'ops_qa_onb', 'onboarding_lead', 'cs_head', 'cs_lead'
       )
       or (
         private.role_key() = 'lg_agent'
