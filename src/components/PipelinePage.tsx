@@ -340,7 +340,13 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
             fields={fields}
             rows={filtered}
             onRow={(r) => setDrawer({ record: r, isNew: false })}
-            rowTone={tab === "msp" ? (r) => (mspIsFatal(r) ? TONES.bad.bg : null) : undefined}
+            rowTone={
+              tab === "msp"
+                ? (r) => (mspIsFatal(r) ? TONES.bad.bg : null)
+                : tab === "leadgen"
+                  ? (r) => (r.duplicate_of ? TONES.dup.bg : null)
+                  : undefined
+            }
             onAdd={canEdit && ADDABLE.includes(tab) ? openAdd : undefined}
             addLabel={"Add " + (tabDef.singular || "Row")}
           />

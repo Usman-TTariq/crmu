@@ -3,7 +3,7 @@
 import React from "react";
 import { Paperclip, Plus } from "lucide-react";
 import { C } from "@/lib/theme";
-import { isBlank, money, pct, numfmt } from "@/lib/format";
+import { isBlank, money, pct, numfmt, stamp, formatUsPhone } from "@/lib/format";
 import type { FieldDef } from "@/lib/schemas";
 import type { Rec } from "@/lib/types";
 import Pill from "@/components/Pill";
@@ -12,7 +12,8 @@ function cellContent(f: FieldDef, r: Rec) {
   if (f.type === "computed") {
     const v = f.compute ? f.compute(r) : r[f.k];
     if (f.isPill) return <Pill value={v} />;
-    const txt = f.fmt === "money" ? money(v) : f.fmt === "pct" ? pct(v) : numfmt(v);
+    const txt =
+      f.fmt === "money" ? money(v) : f.fmt === "pct" ? pct(v) : f.fmt === "stamp" ? stamp(v) : numfmt(v);
     return (
       <span className="mono" style={{ color: C.ink, fontWeight: 600 }}>
         {txt}
@@ -40,6 +41,13 @@ function cellContent(f: FieldDef, r: Rec) {
   if (f.type === "select") return <Pill value={r[f.k]} />;
   const v = r[f.k];
   if (isBlank(v)) return <span style={{ color: C.inkFaint }}>-</span>;
+  if (f.type === "phone") {
+    return (
+      <span className="mono" style={{ fontWeight: 600 }}>
+        {formatUsPhone(v) || String(v)}
+      </span>
+    );
+  }
   const txt =
     f.fmt === "money" ? money(v) : f.fmt === "pct" ? pct(v) : f.fmt === "num" ? numfmt(v) : String(v);
   return (

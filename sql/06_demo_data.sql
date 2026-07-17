@@ -122,19 +122,19 @@ begin
   -- -------------------------------------------------------------------------
   -- Closer pipeline
   -- l4 No Answer (default) · l5 Follow Up · l6 Docs Pending · l7 Closed Lost
-  -- l8..l14 Closed Won (creates OPS verifications)
+  -- l8..l14 Closed (creates OPS verifications)
   -- -------------------------------------------------------------------------
   update public.closer_deals set stage = 'Follow Up', connected_date = current_date - 6 where lead_id = l5;
   update public.closer_deals set stage = 'Docs Pending', connected_date = current_date - 7, docs_pending_date = current_date - 6 where lead_id = l6;
   update public.closer_deals set stage = 'Closed Lost', lost_reason = 'Signed a 2-year contract with current processor.', connected_date = current_date - 10, closed_date = current_date - 9 where lead_id = l7;
 
-  update public.closer_deals set stage = 'Closed Won', connected_date = current_date - 12, docs_pending_date = current_date - 11, docs_recd_date = current_date - 10, closed_date = current_date - 9 where lead_id = l8;
-  update public.closer_deals set stage = 'Closed Won', connected_date = current_date - 14, docs_recd_date = current_date - 12, closed_date = current_date - 11 where lead_id = l9;
-  update public.closer_deals set stage = 'Closed Won', connected_date = current_date - 16, docs_recd_date = current_date - 14, closed_date = current_date - 13 where lead_id = l10;
-  update public.closer_deals set stage = 'Closed Won', connected_date = current_date - 19, docs_recd_date = current_date - 17, closed_date = current_date - 16 where lead_id = l11;
-  update public.closer_deals set stage = 'Closed Won', connected_date = current_date - 23, docs_recd_date = current_date - 21, closed_date = current_date - 20 where lead_id = l12;
-  update public.closer_deals set stage = 'Closed Won', connected_date = current_date - 25, docs_recd_date = current_date - 23, closed_date = current_date - 22 where lead_id = l13;
-  update public.closer_deals set stage = 'Closed Won', connected_date = current_date - 27, docs_recd_date = current_date - 25, closed_date = current_date - 24 where lead_id = l14;
+  update public.closer_deals set stage = 'Closed', connected_date = current_date - 12, docs_pending_date = current_date - 11, docs_recd_date = current_date - 10, closed_date = current_date - 9 where lead_id = l8;
+  update public.closer_deals set stage = 'Closed', connected_date = current_date - 14, docs_recd_date = current_date - 12, closed_date = current_date - 11 where lead_id = l9;
+  update public.closer_deals set stage = 'Closed', connected_date = current_date - 16, docs_recd_date = current_date - 14, closed_date = current_date - 13 where lead_id = l10;
+  update public.closer_deals set stage = 'Closed', connected_date = current_date - 19, docs_recd_date = current_date - 17, closed_date = current_date - 16 where lead_id = l11;
+  update public.closer_deals set stage = 'Closed', connected_date = current_date - 23, docs_recd_date = current_date - 21, closed_date = current_date - 20 where lead_id = l12;
+  update public.closer_deals set stage = 'Closed', connected_date = current_date - 25, docs_recd_date = current_date - 23, closed_date = current_date - 22 where lead_id = l13;
+  update public.closer_deals set stage = 'Closed', connected_date = current_date - 27, docs_recd_date = current_date - 25, closed_date = current_date - 24 where lead_id = l14;
 
   -- -------------------------------------------------------------------------
   -- OPS verification

@@ -10,7 +10,7 @@ import { getSession, requireAuth, requireSession } from "@/lib/session";
 import { EDITABLE_COLUMNS, TAB_TABLE, DATE_FIELD } from "@/lib/schemas";
 import { TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import type { Rec, Attachment, RetentionComment } from "@/lib/types";
-import type { Timeframe } from "@/lib/format";
+import { phoneDigits, type Timeframe } from "@/lib/format";
 
 /** Roster profiles linked to these auth emails stay hidden from Team Setup. */
 const HIDDEN_ROSTER_LOGIN_EMAILS = new Set(["yasal.khan@tgtnexus.net"]);
@@ -48,6 +48,80 @@ function applyTf<T extends { or: (filters: string) => T }>(
   const range = tfRange(tf);
   if (!range) return q;
   return q.or(`${field}.is.null,and(${field}.gte.${range.start},${field}.lte.${range.end})`);
+}
+
+
+/** Match key for duplicate detection — full 10-digit US phone, or normalized email. */
+function leadMatchKeys(r: { phone?: unknown; email?: unknown }): { phone: string; email: string } {
+  const phone = phoneDigits(r.phone);
+  const email = String(r.email || "")
+    .trim()
+    .toLowerCase();
+  return {
+    phone: phone.length === 10 ? phone : "",
+    email: email.includes("@") ? email : "",
+  };
+}
+
+/**
+ * Oldest lead wins. Newer leads with the same phone or email get duplicate_of = original lead_id.
+ * Scans all leads (not just the current timeframe) so older originals still match.
+ */
+async function markLeadDuplicates(
+  rows: Rec[],
+  admin: ReturnType<typeof createAdminClient>
+): Promise<Rec[]> {
+  const { data: all } = await admin
+    .from("leads")
+    .select("lead_id, phone, email, created_at")
+    .order("created_at", { ascending: true });
+
+  const firstPhone = new Map<string, string>();
+  const firstEmail = new Map<string, string>();
+  const dupOf = new Map<string, string>();
+
+  for (const lead of all || []) {
+    const id = String(lead.lead_id || "");
+    if (!id) continue;
+    const { phone, email } = leadMatchKeys(lead);
+    let original: string | null = null;
+    if (phone && firstPhone.has(phone)) original = firstPhone.get(phone)!;
+    else if (email && firstEmail.has(email)) original = firstEmail.get(email)!;
+
+    if (original) dupOf.set(id, original);
+    if (phone && !firstPhone.has(phone)) firstPhone.set(phone, id);
+    if (email && !firstEmail.has(email)) firstEmail.set(email, id);
+  }
+
+  return rows.map((r) => {
+    const id = String(r.lead_id || "");
+    const original = dupOf.get(id) || "";
+    return { ...r, duplicate_of: original || null };
+  });
+}
+
+async function enrichAuditNames(
+  rows: Rec[],
+  admin: ReturnType<typeof createAdminClient>
+): Promise<Rec[]> {
+  const ids = new Set<string>();
+  for (const r of rows) {
+    if (r.created_by) ids.add(String(r.created_by));
+    if (r.updated_by) ids.add(String(r.updated_by));
+  }
+  if (!ids.size) {
+    return rows.map((r) => ({ ...r, created_by_name: "", updated_by_name: "" }));
+  }
+  const { data: profiles } = await admin
+    .from("profiles")
+    .select("user_id, full_name")
+    .in("user_id", [...ids]);
+  const map = new Map((profiles || []).map((p) => [String(p.user_id), String(p.full_name)]));
+  return rows.map((r) => ({
+    ...r,
+    created_by_name: r.created_by ? map.get(String(r.created_by)) || "" : "",
+    updated_by_name: r.updated_by ? map.get(String(r.updated_by)) || "" : "",
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -97,13 +171,18 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
         .in("lead_id", leadIds);
       const map = new Map((qa || []).map((q) => [q.lead_id, q.qa_decision]));
       rows = rows.map((r) => ({ ...r, qa_outcome: map.get(r.lead_id as string) || "Not in QA" }));
+      rows = await markLeadDuplicates(rows, admin);
+    }
+
+    if (payload.tab === "leadgen" || payload.tab === "closer") {
+      rows = await enrichAuditNames(rows, admin);
     }
 
     if (payload.tab === "sqlassign") {
       const { data: open } = await admin
         .from("closer_deals")
         .select("closer")
-        .not("stage", "in", '("Closed Won","Closed Lost")');
+        .not("stage", "in", '("Closed","Closed Won","Closed Lost","Not Interested")');
       const loads = new Map<string, number>();
       (open || []).forEach((d) => loads.set(d.closer, (loads.get(d.closer) || 0) + 1));
       rows = rows.map((r) => ({
@@ -154,10 +233,10 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
       const closedMo = new Map<string, number>();
       (deals || []).forEach((d) => {
         if (!d.closer) return;
-        if (d.stage !== "Closed Won" && d.stage !== "Closed Lost") {
+        if (d.stage !== "Closed" && d.stage !== "Closed Won" && d.stage !== "Closed Lost" && d.stage !== "Not Interested") {
           open.set(d.closer, (open.get(d.closer) || 0) + 1);
         }
-        if (d.stage === "Closed Won" && d.closed_date && d.closed_date >= monthStart) {
+        if ((d.stage === "Closed" || d.stage === "Closed Won") && d.closed_date && d.closed_date >= monthStart) {
           closedMo.set(d.closer, (closedMo.get(d.closer) || 0) + 1);
         }
       });
@@ -251,14 +330,26 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
 
     const messages: string[] = [];
 
-    if (payload.id) {
-      const { error } = await supabase.from(table).update(values).eq("id", payload.id);
-      if (error) return { error: error.message };
-    } else {
-      const { error } = await supabase.from(table).insert(values);
-      if (error) return { error: error.message };
-      if (payload.tab === "leadgen") messages.push("Lead created and sent to QA.");
+    if (payload.tab === "leadgen" || payload.tab === "closer") {
+      if (payload.id) values.updated_by = session.userId;
+      else values.created_by = session.userId;
     }
+
+    const write = async (vals: Record<string, unknown>) =>
+      payload.id
+        ? supabase.from(table).update(vals).eq("id", payload.id)
+        : supabase.from(table).insert(vals);
+
+    let { error } = await write(values);
+    // Older DBs may not have audit columns yet — retry without them
+    if (error && /updated_by|created_by/i.test(error.message)) {
+      const fallback = { ...values };
+      delete fallback.updated_by;
+      delete fallback.created_by;
+      ({ error } = await write(fallback));
+    }
+    if (error) return { error: error.message };
+    if (!payload.id && payload.tab === "leadgen") messages.push("Lead created and sent to QA.");
 
     // Retention: append-only comment
     if (payload.tab === "retention" && payload.newComment?.trim()) {
@@ -281,10 +372,12 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       messages.push(`${biz} disqualified by QA. Recorded and kept in history.`);
     if (payload.tab === "sqlassign" && v.sql_status === "Assigned" && v.assigned_closer)
       messages.push(`${biz} assigned to ${v.assigned_closer}. Progressed to Closer Pipeline.`);
-    if (payload.tab === "closer" && v.stage === "Closed Won")
-      messages.push(`${biz} closed won. Progressed to OPS.`);
+    if (payload.tab === "closer" && (v.stage === "Closed" || v.stage === "Closed Won"))
+      messages.push(`${biz} closed. Progressed to OPS.`);
     if (payload.tab === "closer" && v.stage === "Closed Lost")
       messages.push(`${biz} closed lost. Recorded and kept in history.`);
+    if (payload.tab === "closer" && v.stage === "Not Interested")
+      messages.push(`${biz} marked not interested. Recorded and kept in history.`);
     if (payload.tab === "ops" && v.ops_status === "Approved")
       messages.push(`${biz} OPS-approved. Progressed to Onboarding.`);
     if (payload.tab === "ops" && v.ops_status === "Disapproved")

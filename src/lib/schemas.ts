@@ -26,14 +26,14 @@ export interface OptsCtx {
 export interface FieldDef {
   k: string;
   label: string;
-  type: "text" | "date" | "num" | "select" | "computed" | "thread" | "files";
+  type: "text" | "date" | "num" | "select" | "computed" | "thread" | "files" | "phone" | "address";
   opts?: string[] | ((ctx: OptsCtx) => string[]);
   readOnly?: boolean;
   mono?: boolean;
   long?: boolean;
   hideTable?: boolean;
   isPill?: boolean;
-  fmt?: "money" | "pct" | "num";
+  fmt?: "money" | "pct" | "num" | "stamp";
   managerOnly?: boolean;
   compute?: (r: Rec) => unknown;
 }
@@ -69,14 +69,25 @@ export const mspIsFatal = (r: Rec): boolean => {
 export const SCHEMAS: Record<string, FieldDef[]> = {
   leadgen: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
-    { k: "date_created", label: "Date Created", type: "date" },
+    {
+      k: "duplicate_mark",
+      label: "Duplicate",
+      type: "computed",
+      isPill: true,
+      compute: (r) => (r.duplicate_of ? `Duplicate · ${r.duplicate_of}` : ""),
+    },
+    { k: "created_at", label: "Created At", type: "computed", mono: true, fmt: "stamp", compute: (r) => r.created_at },
+    { k: "date_created", label: "Date Created", type: "date", hideTable: true },
+    { k: "updated_at", label: "Last Edited", type: "computed", mono: true, fmt: "stamp", compute: (r) => r.updated_at },
+    { k: "updated_by_name", label: "Edited By", type: "computed", isPill: true, compute: (r) => r.updated_by_name || "-" },
+    { k: "created_by_name", label: "Created By", type: "computed", isPill: true, compute: (r) => r.created_by_name || "-" },
     { k: "lead_gen_agent", label: "Lead Gen Agent", type: "select", opts: (c) => c.leadgenAgents },
     { k: "lead_source", label: "Lead Source", type: "select", opts: LEAD_SOURCES },
     { k: "business_name", label: "Business Name", type: "text" },
     { k: "owner_name", label: "Owner Name", type: "text" },
-    { k: "phone", label: "Phone", type: "text", mono: true },
+    { k: "phone", label: "Phone", type: "phone", mono: true },
     { k: "email", label: "Email", type: "text" },
-    { k: "business_address", label: "Business Address", type: "text" },
+    { k: "business_address", label: "Business Address", type: "address" },
     { k: "city", label: "City", type: "text" },
     { k: "zip_code", label: "Zip Code", type: "text" },
     { k: "state", label: "State", type: "text" },
@@ -93,7 +104,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "lead_gen_agent", label: "Lead Gen Agent", type: "text", readOnly: true },
     { k: "business_name", label: "Business Name", type: "text" },
     { k: "owner_name", label: "Owner Name", type: "text" },
-    { k: "phone", label: "Phone", type: "text", mono: true },
+    { k: "phone", label: "Phone", type: "phone", mono: true },
     { k: "state", label: "State", type: "text" },
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money" },
     { k: "us_business", label: "US Business?", type: "select", opts: YN },
@@ -111,21 +122,33 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "qa_date", label: "QA Date", type: "date", readOnly: true },
     { k: "business_name", label: "Business Name", type: "text", readOnly: true },
     { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
-    { k: "phone", label: "Phone", type: "text", mono: true, readOnly: true },
+    { k: "phone", label: "Phone", type: "phone", mono: true, readOnly: true },
     { k: "state", label: "State", type: "text", readOnly: true },
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
     { k: "closer_open_load", label: "Closer Open Load", type: "computed", fmt: "num", compute: (r) => r.closer_open_load ?? 0 },
     { k: "assigned_closer", label: "Assigned Closer", type: "select", opts: (c) => c.closers },
-    { k: "assignment_date", label: "Assignment Date", type: "date" },
+    { k: "assignment_date", label: "Assignment Date", type: "date", hideTable: true },
+    {
+      k: "assigned_at",
+      label: "Assigned At",
+      type: "computed",
+      mono: true,
+      fmt: "stamp",
+      compute: (r) => r.assigned_at || (r.sql_status === "Assigned" ? r.updated_at : null),
+    },
     { k: "assigned_by", label: "Assigned By", type: "select", opts: (c) => c.assigners },
     { k: "sql_status", label: "SQL Status", type: "select", opts: SQL_STATUS },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
   ],
   closer: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    { k: "created_at", label: "Created At", type: "computed", mono: true, fmt: "stamp", compute: (r) => r.created_at },
+    { k: "updated_at", label: "Last Edited", type: "computed", mono: true, fmt: "stamp", compute: (r) => r.updated_at },
+    { k: "updated_by_name", label: "Edited By", type: "computed", isPill: true, compute: (r) => r.updated_by_name || "-" },
+    { k: "created_by_name", label: "Created By", type: "computed", isPill: true, compute: (r) => r.created_by_name || "-" },
     { k: "business_name", label: "Business Name", type: "text", readOnly: true },
     { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
-    { k: "phone", label: "Phone", type: "text", mono: true, readOnly: true },
+    { k: "phone", label: "Phone", type: "phone", mono: true, readOnly: true },
     { k: "state", label: "State", type: "text", readOnly: true },
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
     { k: "assigned_date", label: "Assigned Date", type: "date" },
@@ -144,7 +167,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "closed_date", label: "Closed Date", type: "date", readOnly: true },
     { k: "business_name", label: "Business Name", type: "text", readOnly: true },
     { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
-    { k: "phone", label: "Phone", type: "text", mono: true, readOnly: true },
+    { k: "phone", label: "Phone", type: "phone", mono: true, readOnly: true },
     { k: "closer", label: "Closer", type: "text", readOnly: true },
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
     { k: "brand", label: "Brand", type: "select", opts: ONB_BRANDS },

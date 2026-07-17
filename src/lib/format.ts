@@ -43,6 +43,15 @@ export const nowStamp = (): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
+/** Local datetime stamp: 2026-07-17 22:15:03 */
+export const stamp = (v: unknown): string => {
+  if (isBlank(v)) return "-";
+  const d = new Date(String(v));
+  if (isNaN(d.getTime())) return String(v);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
+
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const OK_EXT = ["pdf", "jpg", "jpeg", "png", "gif", "webp"];
 export const IMG_EXT = ["jpg", "jpeg", "png", "gif", "webp"];
@@ -54,6 +63,22 @@ export const fileSizeLabel = (b: number): string =>
   b < 1024 * 1024
     ? Math.max(1, Math.round(b / 1024)) + " KB"
     : Math.round((b / 1024 / 1024) * 10) / 10 + " MB";
+
+/** Strip non-digits; drop a leading US country code 1 when present. */
+export const phoneDigits = (v: unknown): string => {
+  let d = String(v ?? "").replace(/\D/g, "");
+  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+  return d.slice(0, 10);
+};
+
+/** US national format: (555) 123-4567 */
+export const formatUsPhone = (v: unknown): string => {
+  const d = phoneDigits(v);
+  if (!d) return "";
+  if (d.length <= 3) return `(${d}`;
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+};
 
 export type Timeframe = "Daily" | "Weekly" | "Last 7 days" | "Monthly" | "All time";
 export const TIMEFRAMES: Timeframe[] = ["Daily", "Weekly", "Last 7 days", "Monthly", "All time"];

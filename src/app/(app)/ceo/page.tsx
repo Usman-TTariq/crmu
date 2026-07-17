@@ -154,7 +154,7 @@ export default function CeoDashboardPage() {
         <Stat label="QA Passed" value={n("qaQualified")} tone={TONES.good.fg} sub={qualRate + "% qual rate"} onClick={() => nav("qa")} />
         <Stat label="Rejected by QA" value={n("qaRejected")} tone={n("qaRejected") ? TONES.bad.fg : C.ink} sub="kept in history" onClick={() => nav("qa")} />
         <Stat label="SQLs Assigned" value={n("sqlsAssigned")} onClick={() => nav("sqlassign")} />
-        <Stat label="Closed Won" value={n("won")} tone={TONES.good.fg} onClick={() => nav("closer")} />
+        <Stat label="Closed" value={n("won")} tone={TONES.good.fg} onClick={() => nav("closer")} />
         <Stat label="Closed Lost" value={n("lost")} tone={n("lost") ? TONES.bad.fg : C.ink} onClick={() => nav("closer")} />
       </div>
 

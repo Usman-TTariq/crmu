@@ -110,7 +110,8 @@ export function AppProvider({
       opsVerifiers: byTitle("QA & Funding Lead", "Quality Assurance"),
       onboarders: byTitle("Onboarding Lead", "Onboarding Agent"),
       csAgents: byTitle("Customer Success Head", "Customer Success Lead", "Customer Success Agent"),
-      assigners: byTitle("Sales Head & QA", "AVP Sales", "Floor Manager", "Manager", "Assistant Manager"),
+      // SQL Assigned By: Arish (Sales Head), Ubaid (AVP), Roshaan (Floor Manager)
+      assigners: byTitle("Sales Head & QA", "AVP Sales", "Floor Manager"),
     };
   }, [profiles]);
 

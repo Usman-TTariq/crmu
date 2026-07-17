@@ -2,10 +2,11 @@
 
 import React from "react";
 import { C, TONES } from "@/lib/theme";
-import { isBlank, money, pct, numfmt, today } from "@/lib/format";
+import { isBlank, money, pct, numfmt, stamp, today, formatUsPhone } from "@/lib/format";
 import type { FieldDef, OptsCtx } from "@/lib/schemas";
 import type { Attachment, Rec, RetentionComment } from "@/lib/types";
 import FileField from "@/components/FileField";
+import AddressField from "@/components/AddressField";
 
 const base: React.CSSProperties = {
   width: "100%",
@@ -18,6 +19,55 @@ const base: React.CSSProperties = {
   outline: "none",
   fontFamily: "inherit",
 };
+
+/** US flag — matches the +1 / (XXX) XXX-XXXX phone pattern used in this CRM. */
+function UsFlag({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={Math.round((size * 10) / 19)} viewBox="0 0 19 10" aria-hidden style={{ display: "block", borderRadius: 2, flexShrink: 0 }}>
+      <rect width="19" height="10" fill="#B22234" />
+      <path d="M0 1.1h19M0 3.3h19M0 5.5h19M0 7.7h19" stroke="#fff" strokeWidth="1.1" />
+      <rect width="7.6" height="5.4" fill="#3C3B6E" />
+    </svg>
+  );
+}
+
+function PhoneShell({
+  children,
+  muted,
+}: {
+  children: React.ReactNode;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        ...base,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "0 12px",
+        background: muted ? C.lineSoft : C.surface,
+        color: muted ? C.inkSoft : C.ink,
+      }}
+    >
+      <UsFlag />
+      <span
+        className="mono"
+        style={{
+          fontSize: 13,
+          fontWeight: 700,
+          color: muted ? C.inkFaint : C.inkSoft,
+          flexShrink: 0,
+          letterSpacing: "0.02em",
+        }}
+      >
+        +1
+      </span>
+      <span style={{ width: 1, alignSelf: "stretch", background: C.line, margin: "8px 0", flexShrink: 0 }} />
+      {children}
+    </div>
+  );
+}
 
 export default function Field({
   f,
@@ -101,6 +151,8 @@ export default function Field({
       ? money(v)
       : f.fmt === "pct"
       ? pct(v)
+      : f.fmt === "stamp"
+      ? stamp(v)
       : numfmt(v);
     return (
       <div>
@@ -182,6 +234,19 @@ export default function Field({
   }
 
   if (ro) {
+    if (f.type === "phone") {
+      const shown = isBlank(value[f.k]) ? "" : formatUsPhone(value[f.k]) || String(value[f.k]);
+      return (
+        <div>
+          {lbl}
+          <PhoneShell muted>
+            <span className="mono" style={{ flex: 1, minWidth: 0, padding: "10px 0", fontWeight: 600 }}>
+              {shown || "-"}
+            </span>
+          </PhoneShell>
+        </div>
+      );
+    }
     return (
       <div>
         {lbl}
@@ -189,6 +254,54 @@ export default function Field({
           {isBlank(value[f.k]) ? "-" : String(value[f.k])}
         </div>
       </div>
+    );
+  }
+
+  if (f.type === "phone") {
+    return (
+      <div>
+        {lbl}
+        <PhoneShell>
+          <input
+            autoFocus={autoFocus}
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel-national"
+            placeholder="(555) 123-4567"
+            value={formatUsPhone(value[f.k])}
+            onChange={(e) => onChange(f, formatUsPhone(e.target.value))}
+            className="mono"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              border: "none",
+              background: "transparent",
+              outline: "none",
+              padding: "10px 0",
+              fontSize: 14,
+              color: C.ink,
+              fontFamily: "inherit",
+            }}
+          />
+        </PhoneShell>
+      </div>
+    );
+  }
+
+  if (f.type === "address") {
+    return (
+      <AddressField
+        label={lbl}
+        autoFocus={autoFocus}
+        value={String(value[f.k] ?? "")}
+        onChange={(v) => onChange(f, v)}
+        onResolved={(parts) => {
+          onChange({ k: "business_address" }, parts.business_address);
+          onChange({ k: "city" }, parts.city);
+          onChange({ k: "state" }, parts.state);
+          onChange({ k: "zip_code" }, parts.zip_code);
+        }}
+      />
     );
   }
 

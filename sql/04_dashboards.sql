@@ -96,7 +96,7 @@ begin
     'qaRejected', (select count(*) from qa_records where qa_decision = 'Disqualified' and private.in_tf(qa_date, tf)),
     'qaTotal', (select count(*) from qa_records where private.in_tf(qa_date, tf)),
     'sqlsAssigned', (select count(*) from sql_assignments where sql_status = 'Assigned'),
-    'won', (select count(*) from closer_deals where stage = 'Closed Won'),
+    'won', (select count(*) from closer_deals where stage = 'Closed'),
     'lost', (select count(*) from closer_deals where stage = 'Closed Lost'),
     'fundedLeases', (select count(*) from leasing where funding_status = 'Funded'),
     'revenue', (select coalesce(sum(approved_funding), 0) from leasing where funding_status = 'Funded'),
@@ -116,7 +116,7 @@ begin
       jsonb_build_object('label', 'Leads Generated', 'count', (select count(*) from leads)),
       jsonb_build_object('label', 'QA Qualified', 'count', (select count(*) from qa_records where qa_decision = 'Qualified')),
       jsonb_build_object('label', 'SQL Assigned', 'count', (select count(*) from sql_assignments where sql_status = 'Assigned')),
-      jsonb_build_object('label', 'Closed Won', 'count', (select count(*) from closer_deals where stage = 'Closed Won')),
+      jsonb_build_object('label', 'Closed', 'count', (select count(*) from closer_deals where stage = 'Closed')),
       jsonb_build_object('label', 'Funded', 'count', (select count(*) from leasing where funding_status = 'Funded')),
       jsonb_build_object('label', 'Live Merchants', 'count', (select count(*) from fulfillment where fulfillment_stage = 'Live'))
     ),
@@ -185,8 +185,8 @@ as $$
   select jsonb_build_object(
     'qaTotal', (select count(*) from qa_records where private.in_tf(qa_date, tf)),
     'qualified', (select count(*) from qa_records where qa_decision = 'Qualified' and private.in_tf(qa_date, tf)),
-    'decided', (select count(*) from closer_deals where stage in ('Closed Won','Closed Lost')),
-    'won', (select count(*) from closer_deals where stage = 'Closed Won')
+    'decided', (select count(*) from closer_deals where stage in ('Closed','Closed Lost','Not Interested')),
+    'won', (select count(*) from closer_deals where stage = 'Closed')
   );
 $$;
 
@@ -234,18 +234,18 @@ as $$
     select
       closer as name,
       count(*) filter (where private.in_tf(assigned_date, tf)) as a,
-      count(*) filter (where stage = 'Closed Won' and private.in_tf(closed_date, tf)) as w,
-      count(*) filter (where stage = 'Closed Lost' and private.in_tf(closed_date, tf)) as l,
-      coalesce(sum(monthly_volume) filter (where stage = 'Closed Won' and private.in_tf(closed_date, tf)), 0) as vol,
+      count(*) filter (where stage = 'Closed' and private.in_tf(closed_date, tf)) as w,
+      count(*) filter (where stage in ('Closed Lost', 'Not Interested') and private.in_tf(closed_date, tf)) as l,
+      coalesce(sum(monthly_volume) filter (where stage = 'Closed' and private.in_tf(closed_date, tf)), 0) as vol,
       round(avg(closed_date - assigned_date) filter (
-        where stage = 'Closed Won' and private.in_tf(closed_date, tf)
+        where stage = 'Closed' and private.in_tf(closed_date, tf)
           and closed_date is not null and assigned_date is not null
       ) * 10) / 10 as avgd,
       case
-        when count(*) filter (where stage in ('Closed Won','Closed Lost') and private.in_tf(closed_date, tf)) > 0
+        when count(*) filter (where stage in ('Closed','Closed Lost','Not Interested') and private.in_tf(closed_date, tf)) > 0
         then round(
-          count(*) filter (where stage = 'Closed Won' and private.in_tf(closed_date, tf))::numeric * 100
-          / count(*) filter (where stage in ('Closed Won','Closed Lost') and private.in_tf(closed_date, tf)))
+          count(*) filter (where stage = 'Closed' and private.in_tf(closed_date, tf))::numeric * 100
+          / count(*) filter (where stage in ('Closed','Closed Lost','Not Interested') and private.in_tf(closed_date, tf)))
         else 0
       end as rate
     from closer_deals
@@ -318,12 +318,12 @@ as $$
       (select count(*) from closer_deals c
         join leads l on l.lead_id = c.lead_id
         join profiles p on p.full_name = l.lead_gen_agent
-        where p.team = t.name and c.stage = 'Closed Won'
+        where p.team = t.name and c.stage = 'Closed'
           and private.in_tf(c.closed_date, tf)) as won,
       (select count(*) from closer_deals c
         join leads l on l.lead_id = c.lead_id
         join profiles p on p.full_name = l.lead_gen_agent
-        where p.team = t.name and c.stage = 'Closed Lost'
+        where p.team = t.name and c.stage in ('Closed Lost', 'Not Interested')
           and private.in_tf(c.closed_date, tf)) as lost
     from teams t
   ) x;

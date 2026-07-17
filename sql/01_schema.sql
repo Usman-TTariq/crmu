@@ -73,6 +73,7 @@ create table if not exists public.leads (
   monthly_volume     numeric,
   notes              text not null default '',
   created_by         uuid references auth.users (id),
+  updated_by         uuid references auth.users (id),
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()
 );
@@ -116,6 +117,7 @@ create table if not exists public.sql_assignments (
   monthly_volume   numeric,
   assigned_closer  text not null default '',
   assignment_date  date,
+  assigned_at      timestamptz,
   assigned_by      text not null default '',
   sql_status       text not null default 'Pending' check (sql_status in ('Pending','Assigned')),
   notes            text not null default '',
@@ -136,13 +138,15 @@ create table if not exists public.closer_deals (
   monthly_volume     numeric,
   assigned_date      date,
   closer             text not null default '',
-  stage              text not null default 'No Answer' check (stage in ('No Answer','Follow Up','Docs Pending','Docs Received','Closed Won','Closed Lost')),
+  stage              text not null default 'No Answer' check (stage in ('No Answer','Follow Up','Docs Pending','Docs Received','Closed','Closed Lost','Not Interested')),
   lost_reason        text not null default '',
   connected_date     date,
   docs_pending_date  date,
   docs_recd_date     date,
   closed_date        date,
   notes              text not null default '',
+  created_by         uuid references auth.users (id),
+  updated_by         uuid references auth.users (id),
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()
 );

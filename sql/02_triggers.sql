@@ -94,8 +94,9 @@ after insert or update on public.sql_assignments
 for each row execute function private.on_sql_change();
 
 -- ---------------------------------------------------------------------------
--- Rule 4: Closer — Closed Lost needs a reason; Closed Won sets closed_date
---         and auto-creates the OPS verification record.
+-- Rule 4: Closer — Closed Lost needs a reason; Closed sets closed_date
+--         and auto-creates the OPS verification record. Not Interested
+--         is a terminal stage (no OPS).
 -- ---------------------------------------------------------------------------
 create or replace function private.before_closer_change()
 returns trigger
@@ -105,7 +106,7 @@ begin
   if new.stage = 'Closed Lost' and coalesce(new.lost_reason, '') = '' then
     raise exception 'Closed Lost needs a reason.';
   end if;
-  if new.stage = 'Closed Won' and new.closed_date is null then
+  if new.stage in ('Closed', 'Closed Won', 'Not Interested') and new.closed_date is null then
     new.closed_date := current_date;
   end if;
   return new;
@@ -124,7 +125,7 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.stage = 'Closed Won' then
+  if new.stage in ('Closed', 'Closed Won') then
     insert into public.ops_verifications
       (lead_id, closed_date, business_name, owner_name, phone, closer, monthly_volume, ops_status)
     values

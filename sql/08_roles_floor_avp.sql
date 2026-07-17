@@ -15,7 +15,7 @@ returns boolean language sql stable security definer set search_path = public as
   select private.is_admin() or private.role_key() in ('sales_head', 'avp_sales');
 $$;
 
--- Floor Manager: every SQL visible + assignable
+-- Floor Manager: every SQL visible, view only (cannot assign)
 drop policy if exists sql_select on public.sql_assignments;
 create policy sql_select on public.sql_assignments
   for select to authenticated
@@ -34,8 +34,8 @@ create policy sql_select on public.sql_assignments
 drop policy if exists sql_update on public.sql_assignments;
 create policy sql_update on public.sql_assignments
   for update to authenticated
-  using (private.sales_writer() or private.is_ops_manager() or private.role_key() = 'floor_manager')
-  with check (private.sales_writer() or private.is_ops_manager() or private.role_key() = 'floor_manager');
+  using (private.sales_writer() or private.is_ops_manager())
+  with check (private.sales_writer() or private.is_ops_manager());
 
 -- Roster rows (login still created from Team Setup → Create Login)
 insert into public.profiles (full_name, title, dept, team, role_key, target) values
