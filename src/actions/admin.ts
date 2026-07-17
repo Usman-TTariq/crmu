@@ -6,6 +6,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSession } from "@/lib/session";
 import { USER_ADMIN_ROLES } from "@/lib/constants";
+import { logActivity } from "@/lib/activity-log";
 
 export interface CreateUserPayload {
   profileId: string;
@@ -50,6 +51,14 @@ export async function createUserForProfile(payload: CreateUserPayload): Promise<
       return { error: linkErr.message };
     }
 
+    await logActivity({
+      action: "admin.create_login",
+      entityTab: "teamsetup",
+      entityId: payload.profileId,
+      summary: `Created login for ${profile.full_name}`,
+      meta: { email: payload.email.toLowerCase() },
+    });
+
     return { ok: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "User creation failed." };
@@ -74,11 +83,22 @@ export async function setProfileActive(payload: {
     }
 
     const admin = createAdminClient();
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("full_name")
+      .eq("id", payload.profileId)
+      .maybeSingle();
     const { error } = await admin
       .from("profiles")
       .update({ is_active: payload.active })
       .eq("id", payload.profileId);
     if (error) return { error: error.message };
+    await logActivity({
+      action: payload.active ? "admin.reactivate" : "admin.deactivate",
+      entityTab: "teamsetup",
+      entityId: payload.profileId,
+      summary: `${payload.active ? "Reactivated" : "Deactivated"} ${profile?.full_name || "member"}`,
+    });
     return { ok: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Update failed." };
@@ -115,6 +135,12 @@ export async function setUserPassword(payload: {
       password: payload.password,
     });
     if (error) return { error: error.message };
+    await logActivity({
+      action: "admin.set_password",
+      entityTab: "teamsetup",
+      entityId: payload.profileId,
+      summary: `Set password for ${profile.full_name}`,
+    });
     return { ok: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Password update failed." };
@@ -152,6 +178,13 @@ export async function revokeLogin(payload: {
 
     const { error: delErr } = await admin.auth.admin.deleteUser(profile.user_id);
     if (delErr) return { error: delErr.message };
+
+    await logActivity({
+      action: "admin.revoke_login",
+      entityTab: "teamsetup",
+      entityId: payload.profileId,
+      summary: `Revoked login for ${profile.full_name}`,
+    });
 
     return { ok: true };
   } catch (e) {

@@ -27,7 +27,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     (t) =>
       app.viewTabs.includes(t.k) &&
       (t.k !== "ceo" || app.canSeeCeo) &&
-      (t.k !== "monitor" || app.canSeeMonitor)
+      (t.k !== "monitor" || app.canSeeMonitor) &&
+      (t.k !== "logs" || USER_ADMIN_ROLES.includes(app.role.key))
   );
 
   const canEditTab = app.editTabs.includes(activeKey);

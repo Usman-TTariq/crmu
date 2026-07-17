@@ -1,12 +1,14 @@
 "use client";
 
 // Admin header badge: idle + away count, links to Employee Monitor.
+// Refreshes on Supabase Realtime user_presence changes (+ slow poll fallback).
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Activity } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { useApp } from "@/components/app-context";
+import { createClient } from "@/lib/supabase/client";
 import { fetchPresenceBoard } from "@/actions/presence";
 
 export default function PresenceBadge() {
@@ -24,9 +26,34 @@ export default function PresenceBadge() {
 
   useEffect(() => {
     load();
-    const t = window.setInterval(load, 30_000);
+    // Fallback if Realtime publication / SQL not applied yet
+    const t = window.setInterval(load, 60_000);
     return () => window.clearInterval(t);
   }, [load]);
+
+  useEffect(() => {
+    if (!app.canSeeMonitor) return;
+    const supabase = createClient();
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => load(), 400);
+    };
+
+    const channel = supabase
+      .channel("presence-badge-alerts")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_presence" },
+        schedule
+      )
+      .subscribe();
+
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      void supabase.removeChannel(channel);
+    };
+  }, [app.canSeeMonitor, load]);
 
   if (!app.canSeeMonitor) return null;
 

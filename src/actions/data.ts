@@ -11,6 +11,7 @@ import { EDITABLE_COLUMNS, TAB_TABLE, DATE_FIELD } from "@/lib/schemas";
 import { TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import type { Rec, Attachment, LeadComment, RetentionComment } from "@/lib/types";
 import { isDayTimeframe, phoneDigits, type Timeframe } from "@/lib/format";
+import { logActivity } from "@/lib/activity-log";
 
 /** Roster profiles linked to these auth emails stay hidden from Team Setup. */
 const HIDDEN_ROSTER_LOGIN_EMAILS = new Set(["yasal.khan@tgtnexus.net"]);
@@ -108,34 +109,74 @@ function leadMatchKeys(r: { phone?: unknown; email?: unknown }): { phone: string
   };
 }
 
+/** Escape a value for use inside a PostgREST `or=(...)` filter fragment. */
+function filterValue(raw: string): string {
+  return raw.replace(/[,()]/g, "").replace(/%/g, "").replace(/_/g, "");
+}
+
 /**
  * Oldest lead wins. Newer leads with the same phone or email get duplicate_of = original lead_id.
- * Scans all leads (not just the current timeframe) so older originals still match.
+ * Only loads candidates that share a phone/email with the current page (not the whole table).
  */
 async function markLeadDuplicates(
   rows: Rec[],
   admin: ReturnType<typeof createAdminClient>
 ): Promise<Rec[]> {
-  const { data: all } = await admin
-    .from("leads")
-    .select("lead_id, phone, email, created_at")
-    .order("created_at", { ascending: true });
+  if (!rows.length) return rows;
+
+  const phones = new Set<string>();
+  const emails = new Set<string>();
+  for (const r of rows) {
+    const { phone, email } = leadMatchKeys(r);
+    if (phone) phones.add(phone);
+    if (email) emails.add(email);
+  }
+  if (!phones.size && !emails.size) {
+    return rows.map((r) => ({ ...r, duplicate_of: null }));
+  }
+
+  const orParts: string[] = [];
+  for (const e of emails) {
+    const v = filterValue(e);
+    if (v) orParts.push(`email.ilike.${v}`);
+  }
+  for (const p of phones) {
+    // Match formatted US phones e.g. (555) 123-4567 via digit chunks
+    const a = p.slice(0, 3);
+    const b = p.slice(3, 6);
+    const c = p.slice(6);
+    orParts.push(`phone.ilike.%${a}%${b}%${c}%`);
+  }
+
+  let candidates: { lead_id: string; phone: unknown; email: unknown; created_at: string }[] = [];
+  if (orParts.length) {
+    const { data } = await admin
+      .from("leads")
+      .select("lead_id, phone, email, created_at")
+      .or(orParts.join(","))
+      .order("created_at", { ascending: true });
+    candidates = (data || []) as typeof candidates;
+  }
 
   const firstPhone = new Map<string, string>();
   const firstEmail = new Map<string, string>();
   const dupOf = new Map<string, string>();
 
-  for (const lead of all || []) {
+  for (const lead of candidates) {
     const id = String(lead.lead_id || "");
     if (!id) continue;
     const { phone, email } = leadMatchKeys(lead);
+    const trackPhone = !!(phone && phones.has(phone));
+    const trackEmail = !!(email && emails.has(email));
+    if (!trackPhone && !trackEmail) continue;
+
     let original: string | null = null;
-    if (phone && firstPhone.has(phone)) original = firstPhone.get(phone)!;
-    else if (email && firstEmail.has(email)) original = firstEmail.get(email)!;
+    if (trackPhone && firstPhone.has(phone)) original = firstPhone.get(phone)!;
+    else if (trackEmail && firstEmail.has(email)) original = firstEmail.get(email)!;
 
     if (original) dupOf.set(id, original);
-    if (phone && !firstPhone.has(phone)) firstPhone.set(phone, id);
-    if (email && !firstEmail.has(email)) firstEmail.set(email, id);
+    if (trackPhone && !firstPhone.has(phone)) firstPhone.set(phone, id);
+    if (trackEmail && !firstEmail.has(email)) firstEmail.set(email, id);
   }
 
   return rows.map((r) => {
@@ -143,6 +184,37 @@ async function markLeadDuplicates(
     const original = dupOf.get(id) || "";
     return { ...r, duplicate_of: original || null };
   });
+}
+
+/** Text columns used by header search (server-side ILIKE). */
+const SEARCH_FIELDS: Partial<Record<TabKey, string[]>> = {
+  leadgen: ["lead_id", "business_name", "owner_name", "phone", "email", "lead_gen_agent", "city", "state"],
+  qa: ["lead_id", "business_name", "owner_name", "phone", "qa_agent", "qa_decision"],
+  sqlassign: ["lead_id", "business_name", "owner_name", "phone", "assigned_closer", "assigned_by", "sql_status"],
+  closer: ["lead_id", "business_name", "owner_name", "phone", "closer", "stage"],
+  documentation: ["lead_id", "business_name", "owner_name", "phone", "pm_name", "decision"],
+  ops: ["lead_id", "business_name", "owner_name", "phone", "closer", "ops_agent", "ops_status", "brand"],
+  msp: ["lead_id", "business_name", "owner_name", "onboarding_sp", "final_status", "device", "tracking_number"],
+  fulfillment: ["lead_id", "business_name", "owner_name", "fulfillment_stage", "hardware", "serial"],
+  leasing: ["lead_id", "business_name", "owner_name", "leasing_company", "funding_status", "invoice_no"],
+  retention: ["lead_id", "business_name", "team", "agent_name", "substitute", "status"],
+};
+
+const DEFAULT_PAGE_SIZE = 50;
+
+function applySearch<T extends { or: (filters: string) => T }>(
+  q: T,
+  tab: TabKey,
+  search: string
+): T {
+  const term = filterValue(search.trim());
+  if (!term) return q;
+  const fields = SEARCH_FIELDS[tab];
+  if (!fields?.length) return q;
+  // Quote pattern so spaces / special chars are safe in PostgREST or=()
+  const pattern = `"%${term}%"`;
+  const parts = fields.map((f) => `${f}.ilike.${pattern}`);
+  return q.or(parts.join(","));
 }
 
 async function enrichAuditNames(
@@ -175,124 +247,128 @@ async function enrichAuditNames(
 export interface FetchRowsPayload {
   tab: TabKey;
   tf: Timeframe;
+  /** 1-based page; ignored for teamsetup (full roster). */
+  page?: number;
+  pageSize?: number;
+  /** Header search — server-side ILIKE across tab fields. */
+  q?: string;
+}
+
+async function enrichPipelineRows(
+  tab: TabKey,
+  rows: Rec[],
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  admin: ReturnType<typeof createAdminClient>
+): Promise<Rec[]> {
+  if (!rows.length) return rows;
+  let out = rows;
+  const leadIds = out.map((r) => r.lead_id).filter(Boolean) as string[];
+
+  if (tab === "leadgen" && leadIds.length) {
+    const { data: qa } = await admin
+      .from("qa_records")
+      .select("lead_id, qa_decision")
+      .in("lead_id", leadIds);
+    const map = new Map((qa || []).map((q) => [q.lead_id, q.qa_decision]));
+    out = out.map((r) => ({ ...r, qa_outcome: map.get(r.lead_id as string) || "Not in QA" }));
+    out = await markLeadDuplicates(out, admin);
+  }
+
+  if (tab === "leadgen" || tab === "closer") {
+    out = await enrichAuditNames(out, admin);
+  }
+
+  if (tab === "sqlassign") {
+    const { data: open } = await admin
+      .from("closer_deals")
+      .select("closer")
+      .not("stage", "in", '("Closed","Closed Won","Closed Lost","Not Interested")');
+    const loads = new Map<string, number>();
+    (open || []).forEach((d) => loads.set(d.closer, (loads.get(d.closer) || 0) + 1));
+    out = out.map((r) => ({
+      ...r,
+      closer_open_load: loads.get(String(r.assigned_closer || "")) || 0,
+    }));
+  }
+
+  if ((tab === "closer" || tab === "ops" || tab === "documentation") && leadIds.length) {
+    const stageFilter = tab === "documentation" ? ["closer", "documentation"] : [tab];
+    const { data: atts } = await supabase
+      .from("attachments")
+      .select("*")
+      .in("stage", stageFilter)
+      .in("lead_id", leadIds);
+    const byLead = new Map<string, Attachment[]>();
+    for (const a of (atts || []) as Attachment[]) {
+      const { data: signed } = await supabase.storage
+        .from("documents")
+        .createSignedUrl(a.storage_path, 3600);
+      const list = byLead.get(a.lead_id) || [];
+      list.push({ ...a, signed_url: signed?.signedUrl });
+      byLead.set(a.lead_id, list);
+    }
+    out = out.map((r) => ({ ...r, attachments: byLead.get(r.lead_id as string) || [] }));
+  }
+
+  if (PIPELINE_COMMENT_TABS.includes(tab) && leadIds.length) {
+    const { data: comments } = await supabase
+      .from("lead_comments")
+      .select("*")
+      .in("lead_id", leadIds)
+      .order("created_at", { ascending: true });
+    const byLead = new Map<string, LeadComment[]>();
+    ((comments || []) as LeadComment[]).forEach((c) => {
+      const list = byLead.get(c.lead_id) || [];
+      list.push(c);
+      byLead.set(c.lead_id, list);
+    });
+    out = out.map((r) => ({ ...r, lead_comments: byLead.get(r.lead_id as string) || [] }));
+  }
+
+  if (tab === "retention" && leadIds.length) {
+    const { data: comments } = await supabase
+      .from("retention_comments")
+      .select("*")
+      .in("lead_id", leadIds)
+      .order("created_at", { ascending: true });
+    const byLead = new Map<string, RetentionComment[]>();
+    ((comments || []) as RetentionComment[]).forEach((c) => {
+      const list = byLead.get(c.lead_id) || [];
+      list.push(c);
+      byLead.set(c.lead_id, list);
+    });
+    out = out.map((r) => ({ ...r, comments: byLead.get(r.lead_id as string) || [] }));
+  }
+
+  return out;
 }
 
 export async function fetchRows(payload: FetchRowsPayload): Promise<{
   rows: Rec[];
+  total: number;
+  page: number;
+  pageSize: number;
   error?: string;
 }> {
+  const page = Math.max(1, payload.page || 1);
+  const pageSize = Math.min(200, Math.max(1, payload.pageSize || DEFAULT_PAGE_SIZE));
+
   try {
     await requireAuth();
     const supabase = await createClient();
     const table = TAB_TABLE[payload.tab];
-    if (!table) return { rows: [], error: "Unknown tab." };
-
-    let query = supabase.from(table).select("*");
-    query = applyTf(query, DATE_FIELD[payload.tab], payload.tf);
-
-    if (payload.tab === "teamsetup") {
-      query = supabase.from("profiles").select("*").order("full_name");
-    }
-
-    const { data, error } = await query;
-    if (error) return { rows: [], error: error.message };
-
-    let rows = (data || []) as Rec[];
-
-    // sort newest first by the tab's date field
-    const df = DATE_FIELD[payload.tab];
-    if (df) {
-      rows = rows.sort((a, b) => String(b[df] || "").localeCompare(String(a[df] || "")));
-    }
+    if (!table) return { rows: [], total: 0, page, pageSize, error: "Unknown tab." };
 
     const admin = createAdminClient();
-    const leadIds = rows.map((r) => r.lead_id).filter(Boolean) as string[];
 
-    // Enrichments per tab
-    if (payload.tab === "leadgen" && leadIds.length) {
-      const { data: qa } = await admin
-        .from("qa_records")
-        .select("lead_id, qa_decision")
-        .in("lead_id", leadIds);
-      const map = new Map((qa || []).map((q) => [q.lead_id, q.qa_decision]));
-      rows = rows.map((r) => ({ ...r, qa_outcome: map.get(r.lead_id as string) || "Not in QA" }));
-      rows = await markLeadDuplicates(rows, admin);
-    }
-
-    if (payload.tab === "leadgen" || payload.tab === "closer") {
-      rows = await enrichAuditNames(rows, admin);
-    }
-
-    if (payload.tab === "sqlassign") {
-      const { data: open } = await admin
-        .from("closer_deals")
-        .select("closer")
-        .not("stage", "in", '("Closed","Closed Won","Closed Lost","Not Interested")');
-      const loads = new Map<string, number>();
-      (open || []).forEach((d) => loads.set(d.closer, (loads.get(d.closer) || 0) + 1));
-      rows = rows.map((r) => ({
-        ...r,
-        closer_open_load: loads.get(String(r.assigned_closer || "")) || 0,
-      }));
-    }
-
-    if ((payload.tab === "closer" || payload.tab === "ops" || payload.tab === "documentation") && leadIds.length) {
-      // Documentation reviews closer docs; also allow documentation-stage uploads
-      const stageFilter =
-        payload.tab === "documentation" ? ["closer", "documentation"] : [payload.tab];
-      const { data: atts } = await supabase
-        .from("attachments")
-        .select("*")
-        .in("stage", stageFilter)
-        .in("lead_id", leadIds);
-      const byLead = new Map<string, Attachment[]>();
-      for (const a of (atts || []) as Attachment[]) {
-        const { data: signed } = await supabase.storage
-          .from("documents")
-          .createSignedUrl(a.storage_path, 3600);
-        const list = byLead.get(a.lead_id) || [];
-        list.push({ ...a, signed_url: signed?.signedUrl });
-        byLead.set(a.lead_id, list);
-      }
-      rows = rows.map((r) => ({ ...r, attachments: byLead.get(r.lead_id as string) || [] }));
-    }
-
-    if (PIPELINE_COMMENT_TABS.includes(payload.tab) && leadIds.length) {
-      const { data: comments } = await supabase
-        .from("lead_comments")
-        .select("*")
-        .in("lead_id", leadIds)
-        .order("created_at", { ascending: true });
-      const byLead = new Map<string, LeadComment[]>();
-      ((comments || []) as LeadComment[]).forEach((c) => {
-        const list = byLead.get(c.lead_id) || [];
-        list.push(c);
-        byLead.set(c.lead_id, list);
-      });
-      rows = rows.map((r) => ({ ...r, lead_comments: byLead.get(r.lead_id as string) || [] }));
-    }
-
-    if (payload.tab === "retention" && leadIds.length) {
-      const { data: comments } = await supabase
-        .from("retention_comments")
-        .select("*")
-        .in("lead_id", leadIds)
-        .order("created_at", { ascending: true });
-      const byLead = new Map<string, RetentionComment[]>();
-      ((comments || []) as RetentionComment[]).forEach((c) => {
-        const list = byLead.get(c.lead_id) || [];
-        list.push(c);
-        byLead.set(c.lead_id, list);
-      });
-      rows = rows.map((r) => ({ ...r, comments: byLead.get(r.lead_id as string) || [] }));
-    }
-
+    // Team Setup: full roster (no pagination) — used by teamsetup page only.
     if (payload.tab === "teamsetup") {
-      const userIds = [
-        ...new Set(rows.map((r) => r.user_id).filter(Boolean).map(String)),
-      ];
+      let query = supabase.from("profiles").select("*").order("full_name");
+      const { data, error } = await query;
+      if (error) return { rows: [], total: 0, page: 1, pageSize, error: error.message };
 
-      // Deals + auth emails + session in parallel (listUsers was the slow path).
+      let rows = (data || []) as Rec[];
+      const userIds = [...new Set(rows.map((r) => r.user_id).filter(Boolean).map(String))];
       const [dealsRes, session, emailById] = await Promise.all([
         admin.from("closer_deals").select("closer, stage, closed_date"),
         getSession(),
@@ -316,8 +392,6 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
         open_opps: open.get(String(r.full_name)) || 0,
         closed_month: closedMo.get(String(r.full_name)) || 0,
       }));
-
-      // Always hide selected accounts from roster; login emails for admins only
       rows = rows.filter((r) => {
         if (!r.user_id) return true;
         const email = emailById.get(String(r.user_id)) || "";
@@ -329,11 +403,111 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
           login_email: r.user_id ? emailById.get(String(r.user_id)) || "" : "",
         }));
       }
+      return { rows, total: rows.length, page: 1, pageSize: rows.length || pageSize };
     }
 
-    return { rows };
+    const df = DATE_FIELD[payload.tab];
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    let query = supabase.from(table).select("*", { count: "exact" });
+    query = applyTf(query, df, payload.tf);
+    if (payload.q?.trim()) {
+      query = applySearch(query, payload.tab, payload.q);
+    }
+    // Newest date first; same day → newest created_at (time); then id.
+    if (df) {
+      query = query
+        .order(df, { ascending: false })
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false });
+    } else {
+      query = query.order("created_at", { ascending: false }).order("id", { ascending: false });
+    }
+    query = query.range(from, to);
+
+    const { data, error, count } = await query;
+    if (error) return { rows: [], total: 0, page, pageSize, error: error.message };
+
+    let rows = (data || []) as Rec[];
+    rows = await enrichPipelineRows(payload.tab, rows, supabase, admin);
+
+    return { rows, total: count ?? rows.length, page, pageSize };
   } catch (e) {
-    return { rows: [], error: e instanceof Error ? e.message : "Failed to load." };
+    return {
+      rows: [],
+      total: 0,
+      page,
+      pageSize,
+      error: e instanceof Error ? e.message : "Failed to load.",
+    };
+  }
+}
+
+/** Load one pipeline row by lead_id (deep-link / jumpTo when not on current page). */
+export async function fetchRowByLeadId(payload: {
+  tab: TabKey;
+  leadId: string;
+}): Promise<{ row: Rec | null; error?: string }> {
+  try {
+    await requireAuth();
+    if (payload.tab === "teamsetup") return { row: null, error: "Not a pipeline tab." };
+    const table = TAB_TABLE[payload.tab];
+    if (!table) return { row: null, error: "Unknown tab." };
+
+    const supabase = await createClient();
+    const admin = createAdminClient();
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .eq("lead_id", payload.leadId)
+      .maybeSingle();
+    if (error) return { row: null, error: error.message };
+    if (!data) return { row: null };
+
+    const [enriched] = await enrichPipelineRows(payload.tab, [data as Rec], supabase, admin);
+    return { row: enriched || null };
+  } catch (e) {
+    return { row: null, error: e instanceof Error ? e.message : "Failed to load." };
+  }
+}
+
+/** Global OPS accuracy stats for the banner (not limited to current page). */
+export async function fetchOpsAccuracyStats(payload: { tf: Timeframe }): Promise<{
+  reviewed: number;
+  passes: number;
+  fails: number;
+  acc: number | null;
+  met: boolean;
+  error?: string;
+}> {
+  try {
+    await requireAuth();
+    const supabase = await createClient();
+    let q = supabase
+      .from("ops_verifications")
+      .select("accuracy_review")
+      .in("accuracy_review", ["Pass", "Fail"]);
+    q = applyTf(q, DATE_FIELD.ops, payload.tf);
+    const { data, error } = await q;
+    if (error) {
+      return { reviewed: 0, passes: 0, fails: 0, acc: null, met: true, error: error.message };
+    }
+    const reviewed = (data || []).length;
+    const passes = (data || []).filter((r) => r.accuracy_review === "Pass").length;
+    const fails = reviewed - passes;
+    const acc = reviewed ? Math.round((passes / reviewed) * 1000) / 10 : null;
+    const met = acc === null || acc >= 95;
+    return { reviewed, passes, fails, acc, met };
+  } catch (e) {
+    return {
+      reviewed: 0,
+      passes: 0,
+      fails: 0,
+      acc: null,
+      met: true,
+      error: e instanceof Error ? e.message : "Failed to load.",
+    };
   }
 }
 
@@ -498,6 +672,25 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
     if (payload.tab === "leasing" && v.funding_status === "Funded")
       messages.push(`${biz} funded. Customer Success record opened.`);
 
+    const leadId = String(payload.values.lead_id || payload.values.id || "");
+    await logActivity({
+      action: payload.id ? "record.update" : "record.create",
+      entityTab: payload.tab,
+      entityId: leadId || payload.id || null,
+      summary: payload.id
+        ? `Updated ${payload.tab} · ${biz}`
+        : `Created ${payload.tab} · ${biz}`,
+      meta: { fields: Object.keys(values) },
+    });
+    if (payload.newComment?.trim()) {
+      await logActivity({
+        action: "comment.add",
+        entityTab: payload.tab,
+        entityId: leadId || null,
+        summary: `Comment on ${payload.tab} · ${biz}`,
+      });
+    }
+
     return { ok: true, messages };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Save failed." };
@@ -544,6 +737,13 @@ export async function createManualOpsRecord(payload: {
     const { error: opsErr } = await supabase.from("ops_verifications").insert(opsValues);
     if (opsErr) return { error: opsErr.message };
 
+    await logActivity({
+      action: "record.create",
+      entityTab: "ops",
+      entityId: lead.lead_id,
+      summary: `Manual OPS record · ${lead.lead_id} · ${String(v.business_name || "")}`,
+    });
+
     return { ok: true, messages: [`OPS record created as ${lead.lead_id}.`] };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Create failed." };
@@ -576,6 +776,12 @@ export async function addLeadComment(payload: {
       .select("*")
       .single();
     if (error) return { error: error.message };
+    await logActivity({
+      action: "comment.add",
+      entityTab: null,
+      entityId: leadId,
+      summary: `Comment on ${leadId}`,
+    });
     return { ok: true, comment: data as LeadComment };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not add comment." };
@@ -617,6 +823,12 @@ export async function deleteRecord(payload: { tab: TabKey; id: string }): Promis
     if (!table) return { error: "Unknown tab." };
     const { error } = await supabase.from(table).delete().eq("id", payload.id);
     if (error) return { error: error.message };
+    await logActivity({
+      action: "record.delete",
+      entityTab: payload.tab,
+      entityId: payload.id,
+      summary: `Deleted ${payload.tab} record`,
+    });
     return { ok: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Delete failed." };

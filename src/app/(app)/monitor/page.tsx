@@ -15,6 +15,7 @@ import {
   type PresenceStatus,
 } from "@/actions/presence";
 import { deviceOf, ago } from "@/components/ActiveLogins";
+import { createClient } from "@/lib/supabase/client";
 
 const DAY_TARGET_SEC = 8 * 3600;
 const WEEK_TARGET_SEC = 40 * 3600;
@@ -266,8 +267,29 @@ export default function MonitorPage() {
 
   useEffect(() => {
     load();
-    const t = window.setInterval(load, 15_000);
+    const t = window.setInterval(load, 60_000);
     return () => window.clearInterval(t);
+  }, [load]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => load(), 400);
+    };
+    const channel = supabase
+      .channel("monitor-presence-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_presence" },
+        schedule
+      )
+      .subscribe();
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      void supabase.removeChannel(channel);
+    };
   }, [load]);
 
   useEffect(() => {

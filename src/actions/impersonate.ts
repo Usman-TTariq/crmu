@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/session";
 import { roleByKey, USER_ADMIN_ROLES } from "@/lib/constants";
+import { logActivity, profileByUserId } from "@/lib/activity-log";
 
 const COOKIE_IMPERSONATOR = "crm_impersonator_user_id";
 const COOKIE_VIEW_AS_NAME = "crm_view_as_name";
@@ -83,6 +84,13 @@ export async function startViewAs(payload: {
       httpOnly: false, // readable by client banner if needed
     });
 
+    await logActivity({
+      action: "admin.view_as",
+      entityTab: "teamsetup",
+      entityId: profile.id,
+      summary: `View as ${profile.full_name}`,
+    });
+
     const swapped = await sessionFromEmail(authUser.user.email);
     if (swapped.error) {
       jar.delete(COOKIE_IMPERSONATOR);
@@ -110,10 +118,26 @@ export async function stopViewAs(): Promise<{ error?: string }> {
       return { error: "Could not restore admin session." };
     }
 
+    const adminProfile = await profileByUserId(adminUserId);
+    const viewAsName = jar.get(COOKIE_VIEW_AS_NAME)?.value || "user";
+
     const restored = await sessionFromEmail(authUser.user.email);
     jar.delete(COOKIE_IMPERSONATOR);
     jar.delete(COOKIE_VIEW_AS_NAME);
     if (restored.error) return { error: restored.error };
+
+    if (adminProfile) {
+      await logActivity({
+        action: "admin.view_as_exit",
+        entityTab: "teamsetup",
+        summary: `Exited view as ${viewAsName}`,
+        actorOverride: {
+          userId: adminUserId,
+          name: adminProfile.full_name,
+          role: adminProfile.role_key,
+        },
+      });
+    }
 
     redirect("/teamsetup");
   } catch (e) {

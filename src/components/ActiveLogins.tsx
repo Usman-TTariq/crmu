@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { Activity, LogOut, MonitorSmartphone, RefreshCw, ShieldAlert } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { useApp } from "@/components/app-context";
+import { createClient } from "@/lib/supabase/client";
 import {
   fetchActiveSessions,
   signOutUserEverywhere,
@@ -77,10 +78,34 @@ export default function ActiveLogins() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep the badge count fresh even while the dropdown is closed
+  // Keep the badge count fresh; Realtime presence changes → refetch sessions
   useEffect(() => {
     load();
+    const t = window.setInterval(load, 60_000);
+    return () => window.clearInterval(t);
   }, [load]);
+
+  useEffect(() => {
+    if (!app.canSeeCeo) return;
+    const supabase = createClient();
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => load(), 500);
+    };
+    const channel = supabase
+      .channel("active-logins-presence")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_presence" },
+        schedule
+      )
+      .subscribe();
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      void supabase.removeChannel(channel);
+    };
+  }, [app.canSeeCeo, load]);
 
   useEffect(() => {
     if (!open) return;

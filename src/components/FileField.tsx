@@ -4,7 +4,7 @@ import React, { useRef, useState } from "react";
 import { Download, Eye, FileText, Paperclip, X } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { IMG_EXT, MAX_FILE_BYTES, OK_EXT, extOf, fileSizeLabel } from "@/lib/format";
-import { deleteAttachment } from "@/actions/files";
+import { deleteAttachment, logAttachmentUpload } from "@/actions/files";
 import { createClient } from "@/lib/supabase/client";
 import type { Attachment, AttachmentDocType } from "@/lib/types";
 
@@ -196,6 +196,7 @@ export default function FileField({
       return { error: insErr.message };
     }
     const { data: signed } = await supabase.storage.from("documents").createSignedUrl(path, 3600);
+    void logAttachmentUpload({ leadId, stage, fileName: file.name });
     return { added: { ...(row as Attachment), signed_url: signed?.signedUrl } };
   };
 
