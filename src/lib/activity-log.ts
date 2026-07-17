@@ -18,7 +18,7 @@ export type ActivityLogInput = {
 };
 
 /**
- * Persist an activity log row. No-ops for CEO actors.
+ * Persist an activity log row.
  * Never throws — logging must not break business actions.
  */
 export async function logActivity(input: ActivityLogInput): Promise<void> {
@@ -38,9 +38,6 @@ export async function logActivity(input: ActivityLogInput): Promise<void> {
       name = session.profile.full_name;
       role = session.profile.role_key;
     }
-
-    // Plan: do not log CEO account actions
-    if (role === "ceo") return;
 
     const admin = createAdminClient();
     const { error } = await admin.from("activity_logs").insert({

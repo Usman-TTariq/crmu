@@ -111,7 +111,7 @@ export default function LogsPage() {
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Activity Logs</div>
           <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 2 }}>
-            Actions by all accounts except CEO. Use header timeframe and search to filter.
+            Every account action (creates, edits, logins, admin). Use header timeframe and search to filter.
           </div>
         </div>
         <select
