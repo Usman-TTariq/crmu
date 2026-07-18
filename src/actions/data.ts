@@ -254,27 +254,32 @@ export interface FetchRowsPayload {
   q?: string;
 }
 
+/** `list` skips drawer-only extras (comments / signed file URLs) for faster paging. */
 async function enrichPipelineRows(
   tab: TabKey,
   rows: Rec[],
   supabase: Awaited<ReturnType<typeof createClient>>,
-  admin: ReturnType<typeof createAdminClient>
+  admin: ReturnType<typeof createAdminClient>,
+  mode: "list" | "full" = "full"
 ): Promise<Rec[]> {
   if (!rows.length) return rows;
   let out = rows;
   const leadIds = out.map((r) => r.lead_id).filter(Boolean) as string[];
 
   if (tab === "leadgen" && leadIds.length) {
-    const { data: qa } = await admin
-      .from("qa_records")
-      .select("lead_id, qa_decision")
-      .in("lead_id", leadIds);
-    const map = new Map((qa || []).map((q) => [q.lead_id, q.qa_decision]));
-    out = out.map((r) => ({ ...r, qa_outcome: map.get(r.lead_id as string) || "Not in QA" }));
-    out = await markLeadDuplicates(out, admin);
-  }
-
-  if (tab === "leadgen" || tab === "closer") {
+    const [qaRes, withDups, audited] = await Promise.all([
+      admin.from("qa_records").select("lead_id, qa_decision").in("lead_id", leadIds),
+      markLeadDuplicates(out, admin),
+      enrichAuditNames(out, admin),
+    ]);
+    const map = new Map((qaRes.data || []).map((q) => [q.lead_id, q.qa_decision]));
+    out = withDups.map((r, i) => ({
+      ...r,
+      qa_outcome: map.get(r.lead_id as string) || "Not in QA",
+      created_by_name: audited[i]?.created_by_name || "",
+      updated_by_name: audited[i]?.updated_by_name || "",
+    }));
+  } else if (tab === "closer") {
     out = await enrichAuditNames(out, admin);
   }
 
@@ -299,18 +304,29 @@ async function enrichPipelineRows(
       .in("stage", stageFilter)
       .in("lead_id", leadIds);
     const byLead = new Map<string, Attachment[]>();
-    for (const a of (atts || []) as Attachment[]) {
-      const { data: signed } = await supabase.storage
-        .from("documents")
-        .createSignedUrl(a.storage_path, 3600);
-      const list = byLead.get(a.lead_id) || [];
-      list.push({ ...a, signed_url: signed?.signedUrl });
-      byLead.set(a.lead_id, list);
+    if (mode === "full") {
+      await Promise.all(
+        ((atts || []) as Attachment[]).map(async (a) => {
+          const { data: signed } = await supabase.storage
+            .from("documents")
+            .createSignedUrl(a.storage_path, 3600);
+          const list = byLead.get(a.lead_id) || [];
+          list.push({ ...a, signed_url: signed?.signedUrl });
+          byLead.set(a.lead_id, list);
+        })
+      );
+    } else {
+      for (const a of (atts || []) as Attachment[]) {
+        const list = byLead.get(a.lead_id) || [];
+        list.push(a);
+        byLead.set(a.lead_id, list);
+      }
     }
     out = out.map((r) => ({ ...r, attachments: byLead.get(r.lead_id as string) || [] }));
   }
 
-  if (PIPELINE_COMMENT_TABS.includes(tab) && leadIds.length) {
+  // Comments are drawer-only (hideTable) — skip on list pages for faster paging.
+  if (mode === "full" && PIPELINE_COMMENT_TABS.includes(tab) && leadIds.length) {
     const { data: comments } = await supabase
       .from("lead_comments")
       .select("*")
@@ -325,7 +341,7 @@ async function enrichPipelineRows(
     out = out.map((r) => ({ ...r, lead_comments: byLead.get(r.lead_id as string) || [] }));
   }
 
-  if (tab === "retention" && leadIds.length) {
+  if (mode === "full" && tab === "retention" && leadIds.length) {
     const { data: comments } = await supabase
       .from("retention_comments")
       .select("*")
@@ -430,7 +446,7 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
     if (error) return { rows: [], total: 0, page, pageSize, error: error.message };
 
     let rows = (data || []) as Rec[];
-    rows = await enrichPipelineRows(payload.tab, rows, supabase, admin);
+    rows = await enrichPipelineRows(payload.tab, rows, supabase, admin, "list");
 
     return { rows, total: count ?? rows.length, page, pageSize };
   } catch (e) {

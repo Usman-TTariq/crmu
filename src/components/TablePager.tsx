@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { C } from "@/lib/theme";
 
 export default function TablePager({
@@ -10,21 +10,25 @@ export default function TablePager({
   total,
   onPageChange,
   disabled,
+  loading,
 }: {
   page: number;
   pageSize: number;
   total: number;
   onPageChange: (page: number) => void;
   disabled?: boolean;
+  /** True while a page fetch is in flight — keeps page number visible. */
+  loading?: boolean;
 }) {
   const pageCount = Math.max(1, Math.ceil(total / pageSize) || 1);
   const safePage = Math.min(Math.max(1, page), pageCount);
   const from = total === 0 ? 0 : (safePage - 1) * pageSize + 1;
   const to = Math.min(safePage * pageSize, total);
-  const canPrev = safePage > 1 && !disabled;
-  const canNext = safePage < pageCount && !disabled;
+  const busy = !!disabled || !!loading;
+  const canPrev = safePage > 1 && !busy;
+  const canNext = safePage < pageCount && !busy;
 
-  if (total === 0 && !disabled) {
+  if (total === 0 && !busy) {
     return null;
   }
 
@@ -56,8 +60,11 @@ export default function TablePager({
       }}
     >
       <div style={{ fontSize: 12.5, color: C.inkSoft, fontWeight: 600 }}>
-        {disabled ? (
-          "Loading…"
+        {loading ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: C.ink }}>
+            <Loader2 size={14} className="spin" style={{ color: C.blue }} />
+            Loading page {safePage}…
+          </span>
         ) : (
           <>
             Showing {from}–{to} of {total}
@@ -68,7 +75,16 @@ export default function TablePager({
         <button type="button" disabled={!canPrev} onClick={() => onPageChange(safePage - 1)} style={btnStyle(canPrev)}>
           <ChevronLeft size={14} /> Prev
         </button>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, minWidth: 88, textAlign: "center" }}>
+        <span
+          style={{
+            fontSize: 12.5,
+            fontWeight: 800,
+            color: loading ? C.blue : C.ink,
+            minWidth: 96,
+            textAlign: "center",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
           Page {safePage} of {pageCount}
         </span>
         <button type="button" disabled={!canNext} onClick={() => onPageChange(safePage + 1)} style={btnStyle(canNext)}>

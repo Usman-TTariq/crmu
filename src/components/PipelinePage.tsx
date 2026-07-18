@@ -106,6 +106,8 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   /** 0 = not measured yet — wait before first fetch. */
   const [pageSize, setPageSize] = useState(0);
   const [searchQ, setSearchQ] = useState("");
+  /** True while a page/search fetch is in flight (keeps pager + page number visible). */
+  const [pageFetching, setPageFetching] = useState(false);
   const [opsBanner, setOpsBanner] = useState<{
     reviewed: number;
     passes: number;
@@ -115,11 +117,12 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   } | null>(null);
   const [drawer, setDrawer] = useState<{ record: Rec; isNew: boolean } | null>(null);
   const tableShellRef = useRef<HTMLDivElement>(null);
+  const fetchGen = useRef(0);
 
   const canEdit = app.editTabs.includes(tab);
   const notAllowed = !app.viewTabs.includes(tab);
   const pageSizeReady = pageSize > 0;
-  const loading = rows === null || !pageSizeReady;
+  const initialLoading = rows === null || !pageSizeReady;
 
   const pushToasts = app.pushToasts;
   const setCounts = app.setCounts;
@@ -181,10 +184,14 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
 
   const refresh = useCallback(async () => {
     if (!pageSizeReady) return;
+    const gen = ++fetchGen.current;
+    setPageFetching(true);
     const res = await fetchRows({ tab, tf, page, pageSize, q: searchQ || undefined });
+    if (gen !== fetchGen.current) return;
     if (res.error) pushToasts([res.error]);
     setRows(res.rows);
     setTotal(res.total);
+    setPageFetching(false);
     // If delete emptied the last page, step back
     const maxPage = Math.max(1, Math.ceil(res.total / pageSize) || 1);
     if (page > maxPage) setPage(maxPage);
@@ -200,24 +207,67 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
 
   useEffect(() => {
     if (notAllowed || !pageSizeReady) return;
-    let alive = true;
+    const gen = ++fetchGen.current;
+    setPageFetching(true);
+    // Clear rows so page change feels instant (no stale previous page).
+    setRows((prev) => (prev === null ? null : []));
     fetchRows({ tab, tf, page, pageSize, q: searchQ || undefined }).then((res) => {
-      if (!alive) return;
+      if (gen !== fetchGen.current) return;
       if (res.error) pushToasts([res.error]);
       setRows(res.rows);
       setTotal(res.total);
+      setPageFetching(false);
     });
     if (tab === "ops") {
       fetchOpsAccuracyStats({ tf }).then((s) => {
-        if (alive && !s.error) setOpsBanner(s);
+        if (gen === fetchGen.current && !s.error) setOpsBanner(s);
       });
     } else {
       setOpsBanner(null);
     }
-    return () => {
-      alive = false;
-    };
   }, [tab, tf, page, pageSize, pageSizeReady, searchQ, notAllowed, pushToasts]);
+
+  const changePage = useCallback((next: number) => {
+    setPage(next);
+    tableShellRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, []);
+
+  const openRecord = useCallback(
+    (r: Rec) => {
+      setDrawer({ record: { ...r, lead_comments: r.lead_comments || [] }, isNew: false });
+      const leadId = String(r.lead_id || "");
+      if (!leadId) return;
+
+      // List fetch is light — load drawer-only fields (comments / signed files) on open.
+      if (
+        tab === "closer" ||
+        tab === "ops" ||
+        tab === "documentation" ||
+        tab === "retention"
+      ) {
+        fetchRowByLeadId({ tab, leadId }).then((res) => {
+          if (!res.row) return;
+          setDrawer((d) =>
+            d && !d.isNew && String(d.record.lead_id) === leadId
+              ? { ...d, record: res.row! }
+              : d
+          );
+        });
+        return;
+      }
+
+      if (!PIPELINE_COMMENT_TABS.includes(tab)) return;
+      fetchLeadComments({ leadId }).then((c) => {
+        if (c.error) return;
+        setDrawer((d) =>
+          d && !d.isNew && String(d.record.lead_id) === leadId
+            ? { ...d, record: { ...d.record, lead_comments: c.comments } }
+            : d
+        );
+      });
+    },
+    [tab]
+  );
 
   // Live list: Supabase Realtime → refetch current page.
   useEffect(() => {
@@ -266,14 +316,14 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     const rec = rows.find((r) => r.lead_id === leadId);
     clearPendingOpen();
     if (rec) {
-      setDrawer({ record: rec, isNew: false });
+      openRecord(rec);
       return;
     }
     fetchRowByLeadId({ tab, leadId }).then((res) => {
-      if (res.row) setDrawer({ record: res.row, isNew: false });
+      if (res.row) openRecord(res.row);
       else pushToasts([`${leadId} is not visible on this tab.`]);
     });
-  }, [rows, pendingOpen, tab, clearPendingOpen, pushToasts]);
+  }, [rows, pendingOpen, tab, clearPendingOpen, pushToasts, openRecord]);
 
   const ownerScope = app.role.row?.[tab];
   const ownerLock =
@@ -498,7 +548,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
             : 240,
         }}
       >
-        {loading ? (
+        {initialLoading ? (
           <div
             style={{
               display: "flex",
@@ -532,11 +582,33 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           </div>
         ) : (
           <>
-            <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+            <div style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
+              {pageFetching ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 2,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 10,
+                    background: "rgba(255,255,255,0.82)",
+                    backdropFilter: "blur(1px)",
+                  }}
+                >
+                  <Loader2 size={22} className="spin" style={{ color: C.blue }} />
+                  <div style={{ fontWeight: 800, color: C.ink, fontSize: 14 }}>
+                    Page {page}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: C.inkFaint }}>Loading records…</div>
+                </div>
+              ) : null}
               <DataTable
                 fields={fields}
-                rows={pageRows}
-                onRow={(r) => setDrawer({ record: r, isNew: false })}
+                rows={pageFetching ? [] : pageRows}
+                onRow={openRecord}
                 rowTone={
                   tab === "msp"
                     ? (r) => (mspIsFatal(r) ? TONES.bad.bg : null)
@@ -552,8 +624,8 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
               page={page}
               pageSize={pageSize}
               total={total}
-              onPageChange={setPage}
-              disabled={loading}
+              onPageChange={changePage}
+              loading={pageFetching}
             />
           </>
         )}
