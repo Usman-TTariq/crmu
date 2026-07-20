@@ -108,6 +108,7 @@ create table if not exists public.qa_records (
   qa_agent           text not null default '',
   qa_decision        text not null default 'Pending' check (qa_decision in ('Pending','Qualified','Disqualified')),
   qa_notes           text not null default '',
+  returned_after_dispute boolean not null default false,
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()
 );

@@ -26,6 +26,8 @@ export default function Drawer({
   onDelete,
   allowComment,
   onAddComment,
+  canDispute,
+  onOpenDispute,
 }: {
   tab: TabDef;
   fields: FieldDef[];
@@ -43,12 +45,17 @@ export default function Drawer({
   /** Pipeline comments: compose even when the rest of the drawer is read-only */
   allowComment?: boolean;
   onAddComment?: (body: string) => Promise<void>;
+  /** Lead Gen: show Create dispute when lead is Disqualified and no open dispute */
+  canDispute?: boolean;
+  onOpenDispute?: (reason: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<Rec>(() =>
     ownerLock ? { ...record, [ownerLock.field]: ownerLock.value } : record
   );
   const [saving, setSaving] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [disputeReason, setDisputeReason] = useState("");
+  const [disputeBusy, setDisputeBusy] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -182,6 +189,111 @@ export default function Drawer({
           >
             <Zap size={15} style={{ color: C.blueDeep, marginTop: 1, flexShrink: 0 }} />
             <div style={{ fontSize: 12.5, color: C.blueDeep, lineHeight: 1.4 }}>{tab.note}</div>
+          </div>
+        ) : null}
+
+        {record.returned_after_dispute || record.after_dispute ? (
+          <div
+            style={{
+              margin: "14px 22px 0",
+              background: TONES.info.bg,
+              border: `1px solid ${TONES.info.fg}44`,
+              borderRadius: 10,
+              padding: "10px 12px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: TONES.info.fg,
+              lineHeight: 1.4,
+            }}
+          >
+            After dispute — supervisor approved a Lead Gen dispute on this lead.
+          </div>
+        ) : null}
+
+        {record.dispute_status === "disapproved" ? (
+          <div
+            style={{
+              margin: "14px 22px 0",
+              background: TONES.bad.bg,
+              border: `1px solid ${TONES.bad.fg}44`,
+              borderRadius: 10,
+              padding: "10px 12px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: TONES.bad.fg,
+              lineHeight: 1.4,
+            }}
+          >
+            Dispute disapproved
+            {record.dispute_review_note
+              ? ` — ${String(record.dispute_review_note)}`
+              : ". You may open a new dispute with a stronger reason."}
+          </div>
+        ) : null}
+
+        {record.dispute_status === "open" ? (
+          <div
+            style={{
+              margin: "14px 22px 0",
+              background: TONES.warn.bg,
+              border: `1px solid ${TONES.warn.fg}44`,
+              borderRadius: 10,
+              padding: "10px 12px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: TONES.warn.fg,
+              lineHeight: 1.4,
+            }}
+          >
+            Dispute open — waiting for your team supervisor.
+            {record.dispute_reason ? (
+              <div style={{ fontWeight: 600, marginTop: 4 }}>{String(record.dispute_reason)}</div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {canDispute && onOpenDispute ? (
+          <div
+            style={{
+              margin: "14px 22px 0",
+              background: C.bg,
+              border: `1px solid ${C.line}`,
+              borderRadius: 10,
+              padding: "12px 14px",
+            }}
+          >
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink, marginBottom: 8 }}>
+              This lead was disqualified. Create a dispute for your supervisor.
+            </div>
+            <textarea
+              value={disputeReason}
+              onChange={(e) => setDisputeReason(e.target.value)}
+              placeholder="Why should QA reverse this disqualification?"
+              rows={3}
+              className="app-control"
+              style={{ width: "100%", fontSize: 13, resize: "vertical", marginBottom: 8 }}
+            />
+            <button
+              type="button"
+              disabled={disputeBusy || !disputeReason.trim()}
+              className="app-cta"
+              style={{
+                fontSize: 12,
+                padding: "8px 12px",
+                opacity: disputeBusy || !disputeReason.trim() ? 0.5 : 1,
+              }}
+              onClick={async () => {
+                setDisputeBusy(true);
+                try {
+                  await onOpenDispute(disputeReason.trim());
+                  setDisputeReason("");
+                } finally {
+                  setDisputeBusy(false);
+                }
+              }}
+            >
+              {disputeBusy ? "Submitting…" : "Create dispute"}
+            </button>
           </div>
         ) : null}
 

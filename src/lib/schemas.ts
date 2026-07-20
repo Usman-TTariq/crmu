@@ -97,6 +97,18 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "current_rate", label: "Current Rate %", type: "text" },
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money" },
     { k: "qa_outcome", label: "QA Outcome", type: "computed", isPill: true, compute: (r) => r.qa_outcome ?? "Not in QA" },
+    {
+      k: "dispute_status_label",
+      label: "Dispute",
+      type: "computed",
+      isPill: true,
+      compute: (r) => {
+        if (r.dispute_status === "open") return "Dispute open";
+        if (r.dispute_status === "disapproved") return "Dispute disapproved";
+        if (r.dispute_status === "approved") return "Dispute approved → QA";
+        return "";
+      },
+    },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
     { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
@@ -118,6 +130,13 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "current_rate", label: "Current Rate %", type: "text", readOnly: true },
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
     { k: "notes", label: "Lead Notes", type: "text", long: true, hideTable: true, readOnly: true },
+    {
+      k: "after_dispute",
+      label: "Dispute return",
+      type: "computed",
+      isPill: true,
+      compute: (r) => (r.returned_after_dispute || r.after_dispute ? "After dispute" : ""),
+    },
     { k: "us_business", label: "US Business?", type: "select", opts: YN },
     { k: "owner_reached", label: "Owner Reached?", type: "select", opts: YN },
     { k: "interested", label: "Interested?", type: "select", opts: YN },

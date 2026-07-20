@@ -11,6 +11,7 @@ import { useApp } from "@/components/app-context";
 import DataTable from "@/components/DataTable";
 import Drawer from "@/components/Drawer";
 import TablePager from "@/components/TablePager";
+import DisputePanel from "@/components/DisputePanel";
 import { createClient } from "@/lib/supabase/client";
 import {
   fetchRows,
@@ -23,6 +24,7 @@ import {
   addLeadComment,
   fetchLeadComments,
 } from "@/actions/data";
+import { openDispute } from "@/actions/disputes";
 import type { LeadComment } from "@/lib/types";
 
 /** Match DataTable cell padding (~38–42px). */
@@ -436,41 +438,6 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     }
     if (res.messages?.length) app.pushToasts(res.messages);
 
-    // Keep drawer open on update; show new comment immediately (no reopen / wait for full table)
-    if (!isNew && drawer) {
-      const leadId = String(draft.lead_id || "");
-      const prev = Array.isArray(draft.lead_comments) ? (draft.lead_comments as LeadComment[]) : [];
-      let nextComments = prev;
-      if (newComment.trim() && leadId) {
-        nextComments = [
-          ...prev,
-          {
-            id: `local-${Date.now()}`,
-            lead_id: leadId,
-            author: app.session.profile.full_name,
-            body: newComment.trim(),
-            created_at: new Date().toISOString(),
-          },
-        ];
-      }
-      setDrawer({
-        record: { ...draft, lead_comments: nextComments, __newComment: "" },
-        isNew: false,
-      });
-      if (leadId && PIPELINE_COMMENT_TABS.includes(tab)) {
-        fetchLeadComments({ leadId }).then((c) => {
-          if (c.error || !c.comments) return;
-          setDrawer((d) =>
-            d && String(d.record.lead_id) === leadId
-              ? { ...d, record: { ...d.record, lead_comments: c.comments, __newComment: "" } }
-              : d
-          );
-        });
-      }
-      refresh();
-      return;
-    }
-
     setDrawer(null);
     refresh();
   };
@@ -565,6 +532,10 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
         </div>
       ) : null}
 
+      {tab === "leadgen" && app.role.key === "lg_sup" ? (
+        <DisputePanel onChanged={() => void refresh()} />
+      ) : null}
+
       <div
         ref={tableShellRef}
         style={{
@@ -643,7 +614,9 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
                     ? (r) => (mspIsFatal(r) ? TONES.bad.bg : null)
                     : tab === "leadgen"
                       ? (r) => (r.duplicate_of ? TONES.dup.bg : null)
-                      : undefined
+                      : tab === "qa"
+                        ? (r) => (r.returned_after_dispute ? TONES.info.bg : null)
+                        : undefined
                 }
                 onAdd={canEdit && ADDABLE.includes(tab) ? openAdd : undefined}
                 addLabel={"Add " + (tabDef.singular || "Row")}
@@ -687,6 +660,31 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           onClose={() => setDrawer(null)}
           onSave={onSave}
           onDelete={onDelete}
+          canDispute={
+            tab === "leadgen" &&
+            app.role.key === "lg_agent" &&
+            !drawer.isNew &&
+            String(drawer.record.qa_outcome || "") === "Disqualified" &&
+            String(drawer.record.dispute_status || "") !== "open"
+          }
+          onOpenDispute={async (reason) => {
+            const leadId = String(drawer.record.lead_id || "");
+            const res = await openDispute({ leadId, reason });
+            if (res.error) {
+              app.pushToasts([res.error]);
+              return;
+            }
+            app.pushToasts(["Dispute submitted to your supervisor."]);
+            setDrawer({
+              record: {
+                ...drawer.record,
+                dispute_status: "open",
+                dispute_reason: reason,
+              },
+              isNew: false,
+            });
+            refresh();
+          }}
           allowComment={
             PIPELINE_COMMENT_TABS.includes(tab) && !!drawer.record.lead_id && !drawer.isNew
           }

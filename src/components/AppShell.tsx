@@ -11,6 +11,7 @@ import ActiveLogins from "@/components/ActiveLogins";
 import PresenceBadge from "@/components/PresenceBadge";
 import PresenceTracker from "@/components/PresenceTracker";
 import BreakControl from "@/components/BreakControl";
+import LeadGenNotify from "@/components/LeadGenNotify";
 import { fetchTabCounts } from "@/actions/data";
 import { signOut } from "@/actions/auth";
 import { stopViewAs } from "@/actions/impersonate";
@@ -229,6 +230,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="app-header-actions">
+            <LeadGenNotify />
             <BreakControl />
             <PresenceBadge />
             <ActiveLogins />

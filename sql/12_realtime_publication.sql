@@ -28,7 +28,8 @@ declare
     'fulfillment',
     'leasing',
     'retention',
-    'user_presence'
+    'user_presence',
+    'crm_notifications'
   ];
   skip text[] := array[
     'lead_comments',

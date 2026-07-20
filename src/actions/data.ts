@@ -270,17 +270,47 @@ async function enrichPipelineRows(
   const leadIds = out.map((r) => r.lead_id).filter(Boolean) as string[];
 
   if (tab === "leadgen" && leadIds.length) {
-    const [qaRes, withDups, audited] = await Promise.all([
+    const [qaRes, dispRes, withDups, audited] = await Promise.all([
       admin.from("qa_records").select("lead_id, qa_decision").in("lead_id", leadIds),
+      admin
+        .from("qa_disputes")
+        .select("lead_id, status, reason, review_note, created_at")
+        .in("lead_id", leadIds)
+        .order("created_at", { ascending: false }),
       markLeadDuplicates(out, admin),
       enrichAuditNames(out, admin),
     ]);
     const map = new Map((qaRes.data || []).map((q) => [q.lead_id, q.qa_decision]));
-    out = withDups.map((r, i) => ({
+    const latestDispute = new Map<string, { status: string; reason: string; review_note: string }>();
+    // Ignore missing table until sql/33 is applied
+    if (!dispRes.error) {
+      for (const d of dispRes.data || []) {
+        if (!latestDispute.has(d.lead_id)) {
+          latestDispute.set(d.lead_id, {
+            status: d.status,
+            reason: d.reason || "",
+            review_note: d.review_note || "",
+          });
+        }
+      }
+    }
+    out = withDups.map((r, i) => {
+      const lid = r.lead_id as string;
+      const disp = latestDispute.get(lid);
+      return {
+        ...r,
+        qa_outcome: map.get(lid) || "Not in QA",
+        dispute_status: disp?.status || "",
+        dispute_reason: disp?.reason || "",
+        dispute_review_note: disp?.review_note || "",
+        created_by_name: audited[i]?.created_by_name || "",
+        updated_by_name: audited[i]?.updated_by_name || "",
+      };
+    });
+  } else if (tab === "qa" && leadIds.length) {
+    out = out.map((r) => ({
       ...r,
-      qa_outcome: map.get(r.lead_id as string) || "Not in QA",
-      created_by_name: audited[i]?.created_by_name || "",
-      updated_by_name: audited[i]?.updated_by_name || "",
+      after_dispute: r.returned_after_dispute ? "After dispute" : "",
     }));
   } else if (tab === "closer") {
     out = await enrichAuditNames(out, admin);
@@ -667,7 +697,9 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
     if (payload.tab === "qa" && v.qa_decision === "Qualified")
       messages.push(`${biz} qualified. Progressed to SQL Assignment.`);
     if (payload.tab === "qa" && v.qa_decision === "Disqualified")
-      messages.push(`${biz} disqualified by QA. Recorded and kept in history.`);
+      messages.push(
+        `${biz} disqualified by QA. Returned to Lead Gen for a possible dispute.`
+      );
     if (payload.tab === "sqlassign" && v.sql_status === "Assigned" && v.assigned_closer)
       messages.push(`${biz} assigned to ${v.assigned_closer}. Progressed to Closer Pipeline.`);
     if (payload.tab === "closer" && (v.stage === "Closed" || v.stage === "Closed Won"))
