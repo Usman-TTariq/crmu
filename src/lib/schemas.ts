@@ -12,6 +12,12 @@ import {
 const TITLES = Object.keys(TITLE_ROLE_MAP);
 import { num, isBlank } from "@/lib/format";
 import type { Rec } from "@/lib/types";
+import {
+  cityOptionsForState,
+  usStateCodes,
+  usStateLabel,
+  zipOptionsForCity,
+} from "@/lib/us-locations";
 
 export interface OptsCtx {
   leadgenAgents: string[];
@@ -28,7 +34,13 @@ export interface FieldDef {
   k: string;
   label: string;
   type: "text" | "date" | "num" | "select" | "computed" | "thread" | "files" | "phone" | "address";
-  opts?: string[] | ((ctx: OptsCtx) => string[]);
+  opts?: string[] | ((ctx: OptsCtx, record?: Rec) => string[]);
+  /** Optional display label for select option values */
+  optLabel?: (value: string) => string;
+  /** Select is a combobox: pick from list and/or type freely */
+  editable?: boolean;
+  /** Disable this select until the named record field is non-empty */
+  requires?: string;
   readOnly?: boolean;
   mono?: boolean;
   long?: boolean;
@@ -89,9 +101,30 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "phone", label: "Phone", type: "phone", mono: true },
     { k: "email", label: "Email", type: "text" },
     { k: "business_address", label: "Business Address", type: "address" },
-    { k: "city", label: "City", type: "text" },
-    { k: "zip_code", label: "Zip Code", type: "text" },
-    { k: "state", label: "State", type: "text" },
+    {
+      k: "state",
+      label: "State",
+      type: "select",
+      editable: true,
+      opts: () => usStateCodes(),
+      optLabel: usStateLabel,
+    },
+    {
+      k: "city",
+      label: "City",
+      type: "select",
+      editable: true,
+      requires: "state",
+      opts: (_c, r) => cityOptionsForState(r?.state, r?.city),
+    },
+    {
+      k: "zip_code",
+      label: "Zip Code",
+      type: "select",
+      editable: true,
+      requires: "city",
+      opts: (_c, r) => zipOptionsForCity(r?.state, r?.city, r?.zip_code),
+    },
     { k: "current_processor", label: "Current Processor", type: "select", opts: PROCESSORS },
     { k: "current_device", label: "Current Device", type: "text" },
     { k: "current_rate", label: "Current Rate %", type: "text" },

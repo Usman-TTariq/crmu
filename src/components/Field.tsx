@@ -7,6 +7,8 @@ import type { FieldDef, OptsCtx } from "@/lib/schemas";
 import type { Attachment, LeadComment, Rec } from "@/lib/types";
 import FileField from "@/components/FileField";
 import AddressField from "@/components/AddressField";
+import EditableSelect from "@/components/EditableSelect";
+import { normalizeStateCode } from "@/lib/us-locations";
 
 const base: React.CSSProperties = {
   width: "100%",
@@ -74,6 +76,7 @@ export default function Field({
   value,
   opts,
   onChange,
+  onPatch,
   readOnly,
   manager,
   autoFocus,
@@ -86,6 +89,7 @@ export default function Field({
   value: Rec;
   opts: OptsCtx;
   onChange: (f: { k: string }, v: unknown) => void;
+  onPatch?: (patch: Record<string, unknown>) => void;
   readOnly: boolean;
   manager: boolean;
   autoFocus?: boolean;
@@ -300,17 +304,27 @@ export default function Field({
         value={String(value[f.k] ?? "")}
         onChange={(v) => onChange(f, v)}
         onResolved={(parts) => {
-          onChange({ k: "business_address" }, parts.business_address);
-          onChange({ k: "city" }, parts.city);
-          onChange({ k: "state" }, parts.state);
-          onChange({ k: "zip_code" }, parts.zip_code);
+          const state = normalizeStateCode(parts.state);
+          const patch = {
+            business_address: parts.business_address,
+            state,
+            city: parts.city,
+            zip_code: parts.zip_code,
+          };
+          if (onPatch) onPatch(patch);
+          else {
+            onChange({ k: "business_address" }, patch.business_address);
+            onChange({ k: "state" }, patch.state);
+            onChange({ k: "city" }, patch.city);
+            onChange({ k: "zip_code" }, patch.zip_code);
+          }
         }}
       />
     );
   }
 
   if (f.type === "select") {
-    const list = typeof f.opts === "function" ? f.opts(opts) : f.opts || [];
+    const list = typeof f.opts === "function" ? f.opts(opts, value) : f.opts || [];
     const isYN = list.length === 2 && list[0] === "Yes" && list[1] === "No";
     if (isYN) {
       return (
@@ -346,19 +360,55 @@ export default function Field({
         </div>
       );
     }
+    const requiredOk = !f.requires || !!String(value[f.requires] ?? "").trim();
+    const disabled = !!ro || !requiredOk;
+    let selectValue = String(value[f.k] ?? "");
+    if (f.k === "state" && selectValue) {
+      selectValue = normalizeStateCode(selectValue);
+    }
+    const placeholder =
+      !requiredOk && f.requires ? `Select ${f.requires.replace(/_/g, " ")} first` : "-";
+    if (f.editable) {
+      return (
+        <div>
+          {lbl}
+          <EditableSelect
+            autoFocus={autoFocus}
+            value={selectValue}
+            options={list}
+            optLabel={f.optLabel}
+            disabled={disabled}
+            placeholder={placeholder}
+            onChange={(v) => onChange(f, f.k === "state" ? normalizeStateCode(v) || v : v)}
+            commit={f.k === "state" ? (raw) => normalizeStateCode(raw) || raw.trim() : undefined}
+          />
+        </div>
+      );
+    }
     return (
       <div>
         {lbl}
         <select
           autoFocus={autoFocus}
-          value={String(value[f.k] ?? "")}
+          value={selectValue}
+          disabled={disabled}
           onChange={(e) => onChange(f, e.target.value)}
-          style={base}
+          title={
+            !requiredOk && f.requires
+              ? `Select ${f.requires.replace(/_/g, " ")} first`
+              : undefined
+          }
+          style={{
+            ...base,
+            background: disabled ? C.lineSoft : C.surface,
+            color: disabled ? C.inkSoft : C.ink,
+            cursor: disabled ? "not-allowed" : "pointer",
+          }}
         >
-          <option value="">-</option>
+          <option value="">{placeholder}</option>
           {list.map((o) => (
             <option key={o} value={o}>
-              {o}
+              {f.optLabel ? f.optLabel(o) : o}
             </option>
           ))}
         </select>

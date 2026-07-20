@@ -9,6 +9,13 @@ import type { Rec } from "@/lib/types";
 import type { TabDef, TabKey } from "@/lib/constants";
 import Field from "@/components/Field";
 import Journey from "@/components/Journey";
+import { defaultZipForCity, normalizeStateCode } from "@/lib/us-locations";
+
+function withNormalizedState(rec: Rec): Rec {
+  if (!rec.state) return rec;
+  const code = normalizeStateCode(rec.state);
+  return code === rec.state ? rec : { ...rec, state: code };
+}
 
 export default function Drawer({
   tab,
@@ -49,9 +56,10 @@ export default function Drawer({
   canDispute?: boolean;
   onOpenDispute?: (reason: string) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<Rec>(() =>
-    ownerLock ? { ...record, [ownerLock.field]: ownerLock.value } : record
-  );
+  const [draft, setDraft] = useState<Rec>(() => {
+    const base = ownerLock ? { ...record, [ownerLock.field]: ownerLock.value } : { ...record };
+    return withNormalizedState(base);
+  });
   const [saving, setSaving] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
@@ -76,7 +84,23 @@ export default function Drawer({
     }));
   }, [record.lead_comments, record.comments, record.__newComment]);
 
-  const onChange = (f: { k: string }, v: unknown) => setDraft((d) => ({ ...d, [f.k]: v }));
+  const onChange = (f: { k: string }, v: unknown) =>
+    setDraft((d) => {
+      if (f.k === "state" && String(d.state || "") !== String(v || "")) {
+        return { ...d, state: v, city: "", zip_code: "" };
+      }
+      if (f.k === "city" && String(d.city || "") !== String(v || "")) {
+        return {
+          ...d,
+          city: v,
+          zip_code: defaultZipForCity(d.state, v, d.zip_code),
+        };
+      }
+      return { ...d, [f.k]: v };
+    });
+
+  const onPatch = (patch: Record<string, unknown>) =>
+    setDraft((d) => ({ ...d, ...patch }));
 
   const title = String(draft.business_name || draft.full_name || "Record");
   const idtag = String(draft.lead_id || "");
@@ -306,6 +330,7 @@ export default function Drawer({
                 value={draft}
                 opts={opts}
                 onChange={onChange}
+                onPatch={onPatch}
                 readOnly={readOnly}
                 manager={manager}
                 autoFocus={f.k === firstEdit}
@@ -325,6 +350,7 @@ export default function Drawer({
                   value={draft}
                   opts={opts}
                   onChange={onChange}
+                  onPatch={onPatch}
                   readOnly={readOnly}
                   manager={manager}
                   autoFocus={f.k === firstEdit}
