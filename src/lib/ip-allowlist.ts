@@ -57,9 +57,22 @@ function ipv4InCidr(ip: string, cidr: string): boolean {
   return (ipN & mask) === (baseN & mask);
 }
 
+function isLoopbackIp(ip: string): boolean {
+  const normalized = stripIpv6Mapped(ip.trim());
+  return (
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized === "localhost"
+  );
+}
+
 /** True if ip matches any exact entry or IPv4 CIDR in the allowlist. */
 export function isIpAllowed(ip: string, allowlist: string[]): boolean {
   if (!allowlist.length) return true;
+  // Local next dev often has loopback or missing IP headers — never lock out localhost.
+  if (process.env.NODE_ENV === "development") {
+    if (!ip || isLoopbackIp(ip)) return true;
+  }
   if (!ip) return false;
   const normalized = stripIpv6Mapped(ip.trim());
 

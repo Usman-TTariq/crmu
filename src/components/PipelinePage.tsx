@@ -32,6 +32,12 @@ const PAGER_PX = 56;
 const PAGE_SIZE_MIN = 8;
 const PAGE_SIZE_MAX = 100;
 const VIEWPORT_BOTTOM_PAD = 20;
+/** Ignore tiny ResizeObserver flaps that would re-fetch and flash the loader. */
+const PAGE_SIZE_DEBOUNCE_MS = 200;
+/** Don't hard-refresh on every window focus — only if data is this stale. */
+const FOCUS_REFRESH_MIN_MS = 30_000;
+/** Background (realtime) refetch debounce. */
+const LIVE_REFRESH_DEBOUNCE_MS = 800;
 
 const PIPELINE_COMMENT_TABS: TabKey[] = [
   "leadgen",
@@ -106,7 +112,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   /** 0 = not measured yet — wait before first fetch. */
   const [pageSize, setPageSize] = useState(0);
   const [searchQ, setSearchQ] = useState("");
-  /** True while a page/search fetch is in flight (keeps pager + page number visible). */
+  /** True only for intentional page/search/tf fetches — not silent live sync. */
   const [pageFetching, setPageFetching] = useState(false);
   const [opsBanner, setOpsBanner] = useState<{
     reviewed: number;
@@ -118,6 +124,9 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   const [drawer, setDrawer] = useState<{ record: Rec; isNew: boolean } | null>(null);
   const tableShellRef = useRef<HTMLDivElement>(null);
   const fetchGen = useRef(0);
+  const lastFetchAt = useRef(0);
+  const pageSizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pageSizeReadyRef = useRef(false);
 
   const canEdit = app.editTabs.includes(tab);
   const notAllowed = !app.viewTabs.includes(tab);
@@ -134,14 +143,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     const el = tableShellRef.current;
     if (!el) return;
 
-    const measure = () => {
-      const top = el.getBoundingClientRect().top;
-      const available = Math.max(0, window.innerHeight - top - VIEWPORT_BOTTOM_PAD);
-      const forRows = available - TABLE_HEAD_PX - PAGER_PX;
-      const next = Math.max(
-        PAGE_SIZE_MIN,
-        Math.min(PAGE_SIZE_MAX, Math.floor(forRows / TABLE_ROW_PX) || PAGE_SIZE_MIN)
-      );
+    const applySize = (next: number) => {
       setPageSize((prev) => {
         if (prev === next) return prev;
         if (prev > 0) {
@@ -150,8 +152,26 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
             return Math.floor(firstIdx / next) + 1;
           });
         }
+        pageSizeReadyRef.current = true;
         return next;
       });
+    };
+
+    const measure = () => {
+      const top = el.getBoundingClientRect().top;
+      const available = Math.max(0, window.innerHeight - top - VIEWPORT_BOTTOM_PAD);
+      const forRows = available - TABLE_HEAD_PX - PAGER_PX;
+      const next = Math.max(
+        PAGE_SIZE_MIN,
+        Math.min(PAGE_SIZE_MAX, Math.floor(forRows / TABLE_ROW_PX) || PAGE_SIZE_MIN)
+      );
+      if (pageSizeTimer.current) clearTimeout(pageSizeTimer.current);
+      // First paint: apply immediately so the initial fetch is not delayed.
+      if (!pageSizeReadyRef.current) {
+        applySize(next);
+        return;
+      }
+      pageSizeTimer.current = setTimeout(() => applySize(next), PAGE_SIZE_DEBOUNCE_MS);
     };
 
     measure();
@@ -161,6 +181,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     return () => {
       ro.disconnect();
       window.removeEventListener("resize", measure);
+      if (pageSizeTimer.current) clearTimeout(pageSizeTimer.current);
     };
   }, [notAllowed, tab, opsBanner]);
 
@@ -182,40 +203,50 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     setRows(null);
   }, [tab, tf]);
 
-  const refresh = useCallback(async () => {
-    if (!pageSizeReady) return;
-    const gen = ++fetchGen.current;
-    setPageFetching(true);
-    const res = await fetchRows({ tab, tf, page, pageSize, q: searchQ || undefined });
-    if (gen !== fetchGen.current) return;
-    if (res.error) pushToasts([res.error]);
-    setRows(res.rows);
-    setTotal(res.total);
-    setPageFetching(false);
-    // If delete emptied the last page, step back
-    const maxPage = Math.max(1, Math.ceil(res.total / pageSize) || 1);
-    if (page > maxPage) setPage(maxPage);
-    fetchTabCounts({ tf }).then((c) => setCounts(c));
-    if (tab === "ops") {
-      fetchOpsAccuracyStats({ tf }).then((s) => {
-        if (!s.error) setOpsBanner(s);
-      });
-    } else {
-      setOpsBanner(null);
-    }
-  }, [tab, tf, page, pageSize, pageSizeReady, searchQ, pushToasts, setCounts]);
+  const refresh = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!pageSizeReady) return;
+      const silent = !!opts?.silent;
+      const gen = ++fetchGen.current;
+      if (!silent) setPageFetching(true);
+      const res = await fetchRows({ tab, tf, page, pageSize, q: searchQ || undefined });
+      if (gen !== fetchGen.current) return;
+      if (res.error) {
+        if (!silent) pushToasts([res.error]);
+        // Always clear — a silent fetch may have superseded a hard one mid-flight.
+        setPageFetching(false);
+        return;
+      }
+      setRows(res.rows);
+      setTotal(res.total);
+      lastFetchAt.current = Date.now();
+      setPageFetching(false);
+      // If delete emptied the last page, step back
+      const maxPage = Math.max(1, Math.ceil(res.total / pageSize) || 1);
+      if (page > maxPage) setPage(maxPage);
+      fetchTabCounts({ tf }).then((c) => setCounts(c));
+      if (tab === "ops") {
+        fetchOpsAccuracyStats({ tf }).then((s) => {
+          if (!s.error) setOpsBanner(s);
+        });
+      } else {
+        setOpsBanner(null);
+      }
+    },
+    [tab, tf, page, pageSize, pageSizeReady, searchQ, pushToasts, setCounts]
+  );
 
   useEffect(() => {
     if (notAllowed || !pageSizeReady) return;
     const gen = ++fetchGen.current;
     setPageFetching(true);
-    // Clear rows so page change feels instant (no stale previous page).
-    setRows((prev) => (prev === null ? null : []));
+    // Keep previous rows visible (stale-while-revalidate) — clearing felt like a full reload.
     fetchRows({ tab, tf, page, pageSize, q: searchQ || undefined }).then((res) => {
       if (gen !== fetchGen.current) return;
       if (res.error) pushToasts([res.error]);
       setRows(res.rows);
       setTotal(res.total);
+      lastFetchAt.current = Date.now();
       setPageFetching(false);
     });
     if (tab === "ops") {
@@ -269,7 +300,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     [tab]
   );
 
-  // Live list: Supabase Realtime → refetch current page.
+  // Live list: silent refetch — no full-screen preloader flash.
   useEffect(() => {
     if (notAllowed) return;
     const table = TAB_TABLE[tab];
@@ -277,11 +308,11 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
 
     const supabase = createClient();
     let debounce: ReturnType<typeof setTimeout> | null = null;
-    const scheduleRefresh = () => {
+    const scheduleSilentRefresh = () => {
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => {
-        void refresh();
-      }, 350);
+        void refresh({ silent: true });
+      }, LIVE_REFRESH_DEBOUNCE_MS);
     };
 
     const channel = supabase
@@ -289,12 +320,14 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table },
-        scheduleRefresh
+        scheduleSilentRefresh
       )
       .subscribe();
 
     const onFocus = () => {
-      if (document.visibilityState === "visible") scheduleRefresh();
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastFetchAt.current < FOCUS_REFRESH_MIN_MS) return;
+      scheduleSilentRefresh();
     };
     document.addEventListener("visibilitychange", onFocus);
     window.addEventListener("focus", onFocus);
@@ -583,7 +616,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
         ) : (
           <>
             <div style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
-              {pageFetching ? (
+              {pageFetching && pageRows.length === 0 ? (
                 <div
                   style={{
                     position: "absolute",
@@ -594,20 +627,16 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
                     alignItems: "center",
                     justifyContent: "center",
                     gap: 10,
-                    background: "rgba(255,255,255,0.82)",
-                    backdropFilter: "blur(1px)",
+                    background: "rgba(255,255,255,0.55)",
                   }}
                 >
                   <Loader2 size={22} className="spin" style={{ color: C.blue }} />
-                  <div style={{ fontWeight: 800, color: C.ink, fontSize: 14 }}>
-                    Page {page}
-                  </div>
                   <div style={{ fontSize: 12.5, color: C.inkFaint }}>Loading records…</div>
                 </div>
               ) : null}
               <DataTable
                 fields={fields}
-                rows={pageFetching ? [] : pageRows}
+                rows={pageRows}
                 onRow={openRecord}
                 rowTone={
                   tab === "msp"
