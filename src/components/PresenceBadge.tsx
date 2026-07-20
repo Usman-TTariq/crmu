@@ -1,6 +1,6 @@
 "use client";
 
-// Admin header badge: idle + away count, links to Employee Monitor.
+// Admin header badge: Away count (or logged-in if none away).
 // Refreshes on Supabase Realtime user_presence changes (+ slow poll fallback).
 
 import React, { useCallback, useEffect, useState } from "react";
@@ -14,19 +14,22 @@ import { fetchPresenceBoard } from "@/actions/presence";
 export default function PresenceBadge() {
   const app = useApp();
   const router = useRouter();
-  const [alerts, setAlerts] = useState(0);
+  const [away, setAway] = useState(0);
+  const [online, setOnline] = useState(0);
 
   const load = useCallback(() => {
     if (!app.canSeeMonitor) return;
     fetchPresenceBoard().then((res) => {
-      const n = (res.rows || []).filter((r) => r.status === "idle" || r.status === "away").length;
-      setAlerts(n);
+      const rows = res.rows || [];
+      const onBreak = rows.filter((r) => r.status === "break").length;
+      const awayN = rows.filter((r) => r.status === "away" || r.status === "idle").length;
+      setAway(onBreak + awayN);
+      setOnline(rows.filter((r) => r.status === "working").length);
     });
   }, [app.canSeeMonitor]);
 
   useEffect(() => {
     load();
-    // Fallback if Realtime publication / SQL not applied yet
     const t = window.setInterval(load, 60_000);
     return () => window.clearInterval(t);
   }, [load]);
@@ -57,19 +60,24 @@ export default function PresenceBadge() {
 
   if (!app.canSeeMonitor) return null;
 
+  const alert = away > 0;
+  const count = alert ? away : online;
+  const label = alert ? "alerts" : "logged in";
+  const tone = alert ? TONES.warn : TONES.good;
+
   return (
     <button
       type="button"
       title="Open Employee Monitor"
       onClick={() => router.push("/monitor")}
       style={{
-        border: `1px solid ${alerts > 0 ? TONES.warn.fg : C.line}`,
+        border: `1px solid ${count > 0 ? tone.fg : C.line}`,
         borderRadius: 10,
         padding: "8px 12px",
         fontSize: 13,
         fontWeight: 700,
-        color: alerts > 0 ? TONES.warn.fg : C.ink,
-        background: alerts > 0 ? TONES.warn.bg : "#fff",
+        color: count > 0 ? tone.fg : C.ink,
+        background: count > 0 ? tone.bg : "#fff",
         cursor: "pointer",
         display: "flex",
         alignItems: "center",
@@ -81,7 +89,7 @@ export default function PresenceBadge() {
       <span
         className="mono"
         style={{
-          background: alerts > 0 ? TONES.bad.fg : C.inkSoft,
+          background: count > 0 ? tone.fg : C.inkSoft,
           color: "#fff",
           borderRadius: 20,
           padding: "0px 7px",
@@ -89,10 +97,10 @@ export default function PresenceBadge() {
           fontWeight: 800,
         }}
       >
-        {alerts}
+        {count}
       </span>
       <span className="app-seat-label" style={{ fontSize: 12, fontWeight: 700 }}>
-        seat alerts
+        {label}
       </span>
     </button>
   );

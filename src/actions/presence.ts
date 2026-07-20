@@ -5,7 +5,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/session";
 
-export type PresenceStatus = "working" | "idle" | "away" | "offline";
+export type PresenceStatus = "working" | "idle" | "away" | "offline" | "break";
+export type BreakType = "tea" | "lunch" | "smoke";
 
 export interface PresenceRow {
   user_id: string;
@@ -25,15 +26,19 @@ export interface PresenceRow {
   keys_1m: number;
   scrolls_1m: number;
   user_agent: string;
+  break_type?: string;
+  break_started_at?: string | null;
   working_seconds: number;
   idle_seconds_today: number;
   away_seconds: number;
+  break_seconds?: number;
   interactions: number;
   heartbeats: number;
   tabs: Record<string, number>;
   week_working_seconds?: number;
   week_idle_seconds?: number;
   week_away_seconds?: number;
+  week_break_seconds?: number;
   week_interactions?: number;
   week_start?: string;
   week_end?: string;
@@ -94,6 +99,82 @@ export async function markPresenceOffline(): Promise<{ error?: string }> {
     return {};
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Offline mark failed." };
+  }
+}
+
+export async function fetchMyPresence(): Promise<{
+  status?: PresenceStatus;
+  breakType?: string;
+  breakStartedAt?: string | null;
+  error?: string;
+}> {
+  try {
+    const userId = await requireAuth();
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("user_presence")
+      .select("status, break_type, break_started_at, last_heartbeat_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) return { error: error.message };
+    if (!data) return { status: "offline", breakType: "" };
+    // Declared breaks stay visible even if a heartbeat blip looks "stale".
+    if (data.status === "break" && data.break_type) {
+      return {
+        status: "break",
+        breakType: data.break_type,
+        breakStartedAt: data.break_started_at,
+      };
+    }
+    const stale =
+      !data.last_heartbeat_at ||
+      Date.now() - new Date(data.last_heartbeat_at).getTime() > 90_000;
+    return {
+      status: (stale ? "offline" : data.status) as PresenceStatus,
+      breakType: data.break_type || "",
+      breakStartedAt: data.break_started_at,
+    };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to load presence." };
+  }
+}
+
+export async function startBreak(
+  type: BreakType
+): Promise<{ status?: string; breakType?: string; error?: string }> {
+  try {
+    await requireAuth();
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("presence_start_break", {
+      p_type: type,
+    });
+    if (error) {
+      const msg = error.message || "";
+      if (msg.includes("presence_start_break") || msg.includes("does not exist")) {
+        return {
+          error:
+            "Break SQL not applied yet. Run sql/30_presence_breaks.sql in Supabase SQL Editor.",
+        };
+      }
+      return { error: msg };
+    }
+    const row = data as { status?: string; break_type?: string } | null;
+    return { status: row?.status, breakType: row?.break_type };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not start break." };
+  }
+}
+
+export async function endBreak(): Promise<{ status?: string; error?: string }> {
+  try {
+    await requireAuth();
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("presence_end_break");
+    if (error) return { error: error.message };
+    const row = data as { status?: string } | null;
+    return { status: row?.status };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not end break." };
   }
 }
 

@@ -65,7 +65,7 @@ export interface TabDef {
 
 export const TABS: TabDef[] = [
   { k: "ceo", label: "CEO Dashboard", emoji: "\u{1F4CA}", kind: "dashboard", div: "ALL" },
-  { k: "monitor", label: "Employee Monitor", emoji: "\u{1F440}", kind: "dashboard", div: "ALL", note: "Live working / idle / away status from mouse, keyboard, and CRM tab activity." },
+  { k: "monitor", label: "Employee Monitor", emoji: "\u{1F440}", kind: "dashboard", div: "ALL", note: "Logged in, declared breaks (tea/lunch/smoke), Away after 2 min idle, Logged out." },
   { k: "logs", label: "Activity Logs", emoji: "\u{1F4DC}", kind: "dashboard", div: "ALL", note: "Audit trail of CRM actions. Visible to CEO and Super Admin only. CEO account actions are not recorded." },
   { k: "leadgen", label: "Lead Gen", emoji: "\u{1F4DD}", div: "SALES", dated: true, singular: "Lead", note: "Saving a lead instantly creates its QA record. The QA Outcome column shows whether QA later qualified or rejected it." },
   { k: "qa", label: "QA", emoji: "\u2705", div: "SALES", dated: true, note: "Qualify only when the 6 checks are Yes and volume is over $5k. Qualifying creates the SQL. Disqualifying is recorded and kept in history." },

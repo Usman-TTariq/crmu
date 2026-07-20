@@ -331,7 +331,7 @@ export default function ActiveLogins() {
               }}
             >
               <Activity size={14} />
-              Open Employee Monitor (work vs idle)
+              Open Employee Monitor (login / away / logout)
             </button>
             <button
               onClick={kickAll}

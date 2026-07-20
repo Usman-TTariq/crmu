@@ -21,7 +21,14 @@ const DAY_TARGET_SEC = 8 * 3600;
 const WEEK_TARGET_SEC = 40 * 3600;
 
 type SortKey = "status" | "day" | "week" | "name";
-type FilterKey = "all" | PresenceStatus | "below";
+type FilterKey = "all" | "online" | "break" | "away" | "offline" | "below";
+
+function breakLabel(type?: string | null): string {
+  if (type === "tea") return "Tea break";
+  if (type === "lunch") return "Lunch break";
+  if (type === "smoke") return "Smoke break";
+  return "On break";
+}
 
 function fmtDur(sec: number): string {
   const s = Math.max(0, Math.floor(sec || 0));
@@ -53,56 +60,55 @@ function todayKarachi(): string {
   }).format(new Date());
 }
 
+/** CRM still open (heartbeat fresh) — includes Away / Break. */
+function isOnline(status: PresenceStatus): boolean {
+  return status !== "offline";
+}
+
+function isAway(status: PresenceStatus): boolean {
+  return status === "away" || status === "idle";
+}
+
 function statusTone(status: PresenceStatus) {
   if (status === "working") return TONES.good;
-  if (status === "idle") return TONES.warn;
-  if (status === "away") return TONES.bad;
+  if (status === "break") return TONES.info;
+  if (isAway(status)) return TONES.warn;
   return TONES.neutral;
 }
 
-function statusLabel(status: PresenceStatus): string {
-  if (status === "working") return "Working";
-  if (status === "idle") return "Idle / Timepass";
-  if (status === "away") return "Away from seat";
-  return "Offline";
+function statusLabel(status: PresenceStatus, breakType?: string | null): string {
+  if (status === "working") return "Logged in";
+  if (status === "break") return breakLabel(breakType);
+  if (isAway(status)) return "Away";
+  return "Logged out";
 }
 
 function statusRank(s: PresenceStatus): number {
   if (s === "working") return 0;
-  if (s === "idle") return 1;
-  if (s === "away") return 2;
+  if (s === "break") return 1;
+  if (isAway(s)) return 2;
   return 3;
-}
-
-function dayProgress(r: PresenceRow): number {
-  return Math.min(100, Math.round(((r.working_seconds || 0) / DAY_TARGET_SEC) * 100));
-}
-
-function weekProgress(r: PresenceRow): number {
-  return Math.min(100, Math.round(((r.week_working_seconds || 0) / WEEK_TARGET_SEC) * 100));
 }
 
 function onlineSample(r: PresenceRow): number {
   return (r.working_seconds || 0) + (r.idle_seconds_today || 0) + (r.away_seconds || 0);
 }
 
-/** Below target: day work < 50% of 8h with ≥2h online sample */
+function dayProgress(r: PresenceRow): number {
+  return Math.min(100, Math.round((onlineSample(r) / DAY_TARGET_SEC) * 100));
+}
+
+function weekProgress(r: PresenceRow): number {
+  const week =
+    (r.week_working_seconds || 0) + (r.week_idle_seconds || 0) + (r.week_away_seconds || 0);
+  return Math.min(100, Math.round((week / WEEK_TARGET_SEC) * 100));
+}
+
+/** Below target: day online < 50% of 8h with ≥2h online sample */
 function isBelowTarget(r: PresenceRow): boolean {
   const sample = onlineSample(r);
   if (sample < 2 * 3600) return false;
-  return (r.working_seconds || 0) < DAY_TARGET_SEC * 0.5;
-}
-
-function isHighIdle(r: PresenceRow): boolean {
-  const sample = onlineSample(r);
-  if (sample < 30 * 60) return false;
-  const idleAway = (r.idle_seconds_today || 0) + (r.away_seconds || 0);
-  return idleAway / sample >= 0.3;
-}
-
-function isPassive(r: PresenceRow): boolean {
-  const interactRate = r.heartbeats > 0 ? r.interactions / r.heartbeats : 0;
-  return r.status === "working" && interactRate < 0.5 && r.heartbeats >= 4;
+  return sample < DAY_TARGET_SEC * 0.5;
 }
 
 function progressTone(pct: number, sampleOk: boolean): string {
@@ -114,66 +120,46 @@ function progressTone(pct: number, sampleOk: boolean): string {
 
 function flagOf(r: PresenceRow): { label: string; tone: keyof typeof TONES } | null {
   if (isBelowTarget(r)) return { label: "Below target", tone: "bad" };
-  if (isHighIdle(r)) return { label: "High idle", tone: "warn" };
-  if (isPassive(r)) return { label: "Passive browsing", tone: "warn" };
   return null;
 }
 
 function verdict(r: PresenceRow): { label: string; tone: keyof typeof TONES; detail: string } {
   const total = onlineSample(r);
-  const workPct = total > 0 ? Math.round((r.working_seconds / total) * 100) : 0;
-  const idlePct = total > 0 ? Math.round((r.idle_seconds_today / total) * 100) : 0;
-  const interactRate = r.heartbeats > 0 ? r.interactions / r.heartbeats : 0;
-
-  if (r.status === "offline" && total === 0) {
-    return { label: "No signal", tone: "neutral", detail: "Has not opened CRM today" };
-  }
-  if (r.status === "idle") {
+  if (r.status === "break") {
+    const started = r.break_started_at
+      ? fmtDur(Math.max(0, Math.floor((Date.now() - new Date(r.break_started_at).getTime()) / 1000)))
+      : "";
     return {
-      label: "Timepassing now",
+      label: breakLabel(r.break_type),
+      tone: "info",
+      detail: started
+        ? `On break for ${started} · ${fmtDur(r.break_seconds || 0)} break time today`
+        : `${fmtDur(r.break_seconds || 0)} break time today`,
+    };
+  }
+  if (isAway(r.status)) {
+    return {
+      label: "Away",
       tone: "warn",
-      detail: `No mouse/keyboard for ${fmtDur(r.idle_seconds)} — seat likely empty`,
-    };
-  }
-  if (r.status === "away") {
-    return {
-      label: "Away now",
-      tone: "bad",
-      detail: r.focused === false ? "CRM tab in background or closed focus" : "Long idle — not at desk",
-    };
-  }
-  if (isPassive(r)) {
-    return {
-      label: "Passive browsing",
-      tone: "warn",
-      detail: "Online but almost no clicks/keys — may be watching, not working",
-    };
-  }
-  if (idlePct >= 45 && total >= 1800) {
-    return {
-      label: "Mostly idle today",
-      tone: "bad",
-      detail: `${idlePct}% of CRM time idle · only ${workPct}% actively working`,
-    };
-  }
-  if (workPct >= 60 && total >= 600) {
-    return {
-      label: "Solid work day",
-      tone: "good",
-      detail: `${workPct}% active · ${fmtDur(r.working_seconds)} working · ${r.interactions} interactions`,
+      detail: `No mouse/keyboard for ${fmtDur(r.idle_seconds)} (2+ min) · CRM still open`,
     };
   }
   if (r.status === "working") {
     return {
-      label: "Engaged now",
+      label: "Logged in",
       tone: "good",
-      detail: `On /${r.current_tab || "…"} · ${r.clicks_1m + r.keys_1m + r.scrolls_1m} inputs last pulse`,
+      detail: r.current_tab
+        ? `Active on /${r.current_tab} · ${fmtDur(total)} online today`
+        : `Active · ${fmtDur(total)} online today`,
     };
   }
+  if (total === 0) {
+    return { label: "Logged out", tone: "neutral", detail: "Has not opened CRM today" };
+  }
   return {
-    label: "Offline",
+    label: "Logged out",
     tone: "neutral",
-    detail: total > 0 ? `Today: ${workPct}% work / ${idlePct}% idle` : "Not signed into CRM",
+    detail: `CRM closed · ${fmtDur(total)} online earlier today`,
   };
 }
 
@@ -184,8 +170,8 @@ function csvEscape(v: string): string {
 
 function downloadPresenceCsv(rows: PresenceRow[], day: string) {
   const headers = [
-    "Name", "Title", "Team", "Status", "Day work", "Day idle", "Day away",
-    "Week work", "Day % of 8h", "Week % of 40h", "Interactions", "Current tab", "Flag",
+    "Name", "Title", "Team", "Status", "Online today", "Online this week",
+    "Day % of 8h", "Week % of 40h", "Interactions", "Current tab", "Flag",
   ];
   const lines = [
     headers.map(csvEscape).join(","),
@@ -195,10 +181,8 @@ function downloadPresenceCsv(rows: PresenceRow[], day: string) {
         r.name,
         r.title,
         r.team,
-        r.status,
-        fmtDur(r.working_seconds),
-        fmtDur(r.idle_seconds_today),
-        fmtDur(r.away_seconds),
+        statusLabel(r.status, r.break_type),
+        fmtDur(onlineSample(r)),
         fmtDur(r.week_working_seconds || 0),
         String(dayProgress(r)),
         String(weekProgress(r)),
@@ -217,7 +201,13 @@ function downloadPresenceCsv(rows: PresenceRow[], day: string) {
   URL.revokeObjectURL(url);
 }
 
-function StatusChip({ status }: { status: PresenceStatus }) {
+function StatusChip({
+  status,
+  breakType,
+}: {
+  status: PresenceStatus;
+  breakType?: string | null;
+}) {
   const t = statusTone(status);
   return (
     <span
@@ -237,7 +227,7 @@ function StatusChip({ status }: { status: PresenceStatus }) {
       {status === "working" ? <span className="pulse-dot" /> : (
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: t.fg }} />
       )}
-      {statusLabel(status)}
+      {statusLabel(status, breakType)}
     </span>
   );
 }
@@ -310,9 +300,12 @@ export default function MonitorPage() {
   }, [selected, day]);
 
   const counts = useMemo(() => {
-    const c = { working: 0, idle: 0, away: 0, offline: 0, below: 0 };
+    const c = { online: 0, onBreak: 0, away: 0, offline: 0, below: 0 };
     for (const r of rows) {
-      c[r.status] += 1;
+      if (r.status === "working") c.online += 1;
+      else if (r.status === "break") c.onBreak += 1;
+      else if (isAway(r.status)) c.away += 1;
+      else c.offline += 1;
       if (isBelowTarget(r)) c.below += 1;
     }
     return c;
@@ -323,8 +316,14 @@ export default function MonitorPage() {
     const list = rows.filter((r) => {
       if (filter === "below") {
         if (!isBelowTarget(r)) return false;
-      } else if (filter !== "all" && r.status !== filter) {
-        return false;
+      } else if (filter === "online") {
+        if (r.status !== "working") return false;
+      } else if (filter === "break") {
+        if (r.status !== "break") return false;
+      } else if (filter === "away") {
+        if (!isAway(r.status)) return false;
+      } else if (filter === "offline") {
+        if (isOnline(r.status)) return false;
       }
       if (!qq) return true;
       return (
@@ -337,11 +336,11 @@ export default function MonitorPage() {
 
     list.sort((a, b) => {
       if (sort === "name") return a.name.localeCompare(b.name);
-      if (sort === "day") return (b.working_seconds || 0) - (a.working_seconds || 0);
+      if (sort === "day") return onlineSample(b) - onlineSample(a);
       if (sort === "week") return (b.week_working_seconds || 0) - (a.week_working_seconds || 0);
       const sr = statusRank(a.status) - statusRank(b.status);
       if (sr !== 0) return sr;
-      return (b.working_seconds || 0) - (a.working_seconds || 0);
+      return onlineSample(b) - onlineSample(a);
     });
     return list;
   }, [rows, q, filter, sort]);
@@ -361,7 +360,7 @@ export default function MonitorPage() {
             Employee Monitor
           </div>
           <div className="app-page-lede">
-            8h day · 40h week targets · live seat check · Asia/Karachi
+            Logged in · Breaks (tea/lunch/smoke) · Away after 2 min idle · Logged out · Asia/Karachi
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -401,7 +400,7 @@ export default function MonitorPage() {
           }}
         >
           {err.includes("dash_presence") || err.includes("function") || err.includes("does not exist")
-            ? "Presence SQL not applied yet. Run sql/09_presence.sql then sql/10_presence_hours.sql in Supabase SQL Editor, then refresh."
+            ? "Presence SQL not applied yet. Run sql/30_presence_breaks.sql in Supabase SQL Editor, then refresh."
             : err}
         </div>
       ) : null}
@@ -414,10 +413,10 @@ export default function MonitorPage() {
           marginBottom: 14,
         }}
       >
-        <Stat label="Working now" value={counts.working} sub="Mouse/keyboard active" tone={TONES.good.fg} onClick={() => setFilter("working")} />
-        <Stat label="Idle / timepass" value={counts.idle} sub="No input 2+ min" tone={TONES.warn.fg} onClick={() => setFilter("idle")} />
-        <Stat label="Away from seat" value={counts.away} sub="Tab hidden or 5+ min idle" tone={TONES.bad.fg} onClick={() => setFilter("away")} />
-        <Stat label="Offline" value={counts.offline} sub="No heartbeat 90s+" tone={C.inkSoft} onClick={() => setFilter("offline")} />
+        <Stat label="Logged in" value={counts.online} sub="Active input under 2 min" tone={TONES.good.fg} onClick={() => setFilter("online")} />
+        <Stat label="On break" value={counts.onBreak} sub="Tea / lunch / smoke" tone={TONES.info.fg} onClick={() => setFilter("break")} />
+        <Stat label="Away" value={counts.away} sub="No mouse 2+ min" tone={TONES.warn.fg} onClick={() => setFilter("away")} />
+        <Stat label="Logged out" value={counts.offline} sub="CRM closed / no signal" tone={C.inkSoft} onClick={() => setFilter("offline")} />
         <Stat label="Below target" value={counts.below} sub="< 50% of 8h (2h+ online)" tone={TONES.bad.fg} onClick={() => setFilter("below")} />
       </div>
 
@@ -451,9 +450,9 @@ export default function MonitorPage() {
                 className="app-control"
                 style={{ padding: "5px 8px", fontSize: 12 }}
               >
-                <option value="status">Sort: Live status</option>
-                <option value="day">Sort: Day work</option>
-                <option value="week">Sort: Week work</option>
+                <option value="status">Sort: Login status</option>
+                <option value="day">Sort: Online today</option>
+                <option value="week">Sort: Online this week</option>
                 <option value="name">Sort: Name</option>
               </select>
               <div style={{ position: "relative" }}>
@@ -475,21 +474,16 @@ export default function MonitorPage() {
             <div style={{ padding: 20, color: C.inkSoft, fontWeight: 600 }}>No employees match this filter.</div>
           ) : (
             <div className="data-table-scroll">
-              <table style={{ width: "100%", minWidth: 560, borderCollapse: "collapse", fontSize: 13 }}>
+              <table style={{ width: "100%", minWidth: 420, borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ textAlign: "left", color: C.inkSoft, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                     <th style={{ padding: "8px 10px" }}>Employee</th>
-                    <th style={{ padding: "8px 10px" }}>Live</th>
-                    <th style={{ padding: "8px 10px" }}>Flags</th>
-                    <th style={{ padding: "8px 10px" }}>Now on</th>
-                    <th style={{ padding: "8px 10px" }}>Idle</th>
-                    <th style={{ padding: "8px 10px" }}>Away</th>
-                    <th style={{ padding: "8px 10px" }}>Inputs</th>
+                    <th style={{ padding: "8px 10px" }}>Status</th>
+                    <th style={{ padding: "8px 10px" }}>Online today</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((r) => {
-                    const flag = flagOf(r);
                     const active = selected === r.user_id;
                     return (
                       <tr
@@ -512,41 +506,13 @@ export default function MonitorPage() {
                           </div>
                         </td>
                         <td style={{ padding: "10px" }}>
-                          <StatusChip status={r.status} />
+                          <StatusChip status={r.status} breakType={r.break_type} />
                           <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 4, fontWeight: 600 }}>
                             {r.last_heartbeat_at ? ago(r.last_heartbeat_at) : "never"}
                           </div>
                         </td>
-                        <td style={{ padding: "10px" }}>
-                          {flag ? (
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "2px 8px",
-                                borderRadius: 8,
-                                background: TONES[flag.tone].bg,
-                                color: TONES[flag.tone].fg,
-                                fontWeight: 800,
-                                fontSize: 11,
-                              }}
-                            >
-                              {flag.label}
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: 11, color: C.inkFaint, fontWeight: 600 }}>—</span>
-                          )}
-                        </td>
-                        <td style={{ padding: "10px", fontWeight: 700, color: C.ink }}>
-                          {r.status === "offline" ? "—" : `/${r.current_tab || "…"}`}
-                        </td>
-                        <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.warn.fg, whiteSpace: "nowrap" }}>
-                          {fmtDur(r.idle_seconds_today)}
-                        </td>
-                        <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.bad.fg, whiteSpace: "nowrap" }}>
-                          {fmtDur(r.away_seconds)}
-                        </td>
-                        <td className="mono" style={{ padding: "10px", fontWeight: 700 }}>
-                          {r.interactions}
+                        <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.good.fg, whiteSpace: "nowrap" }}>
+                          {fmtDur(onlineSample(r))}
                         </td>
                       </tr>
                     );
@@ -559,7 +525,10 @@ export default function MonitorPage() {
 
         {selectedRow ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Panel title={selectedRow.name} right={<StatusChip status={selectedRow.status} />}>
+            <Panel
+              title={selectedRow.name}
+              right={<StatusChip status={selectedRow.status} breakType={selectedRow.break_type} />}
+            >
               <div style={{ fontSize: 12, fontWeight: 600, color: C.inkSoft, marginBottom: 10 }}>
                 {selectedRow.title}
                 {selectedRow.team ? ` · ${selectedRow.team}` : ""} · {deviceOf(selectedRow.user_agent)}
@@ -591,12 +560,19 @@ export default function MonitorPage() {
                 );
               })()}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-                <Mini label="Work this day" value={fmtDur(selectedRow.working_seconds)} />
+                <Mini label="Online today" value={fmtDur(onlineSample(selectedRow))} />
+                <Mini label="Break today" value={fmtDur(selectedRow.break_seconds || 0)} />
                 <Mini label="Day vs 8h" value={`${dayProgress(selectedRow)}%`} />
-                <Mini label="Work this week" value={fmtDur(selectedRow.week_working_seconds || 0)} />
+                <Mini
+                  label="Online this week"
+                  value={fmtDur(
+                    (selectedRow.week_working_seconds || 0) +
+                      (selectedRow.week_idle_seconds || 0) +
+                      (selectedRow.week_away_seconds || 0)
+                  )}
+                />
+                <Mini label="Break this week" value={fmtDur(selectedRow.week_break_seconds || 0)} />
                 <Mini label="Week vs 40h" value={`${weekProgress(selectedRow)}%`} />
-                <Mini label="Idle this day" value={fmtDur(selectedRow.idle_seconds_today)} />
-                <Mini label="Away this day" value={fmtDur(selectedRow.away_seconds)} />
               </div>
               {selectedRow.week_start && selectedRow.week_end ? (
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.inkSoft, marginBottom: 10 }}>
@@ -633,13 +609,10 @@ export default function MonitorPage() {
                         </div>
                         <div>
                           <div className="mono" style={{ fontSize: 12, fontWeight: 800, color: TONES.good.fg }}>
-                            Work {fmtDur(d.working_seconds)} · {pct}% of 8h
+                            Online {fmtDur(d.working_seconds + d.idle_seconds + d.away_seconds)} · {pct}% of 8h
                           </div>
                           <div className="shift-bar">
                             <i style={{ width: `${pct}%`, background: progressTone(pct, d.working_seconds > 0) }} />
-                          </div>
-                          <div style={{ fontSize: 10.5, fontWeight: 600, color: C.inkSoft, marginTop: 3 }}>
-                            Idle {fmtDur(d.idle_seconds)} · Away {fmtDur(d.away_seconds)}
                           </div>
                         </div>
                       </div>
@@ -698,8 +671,11 @@ export default function MonitorPage() {
                         />
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 800, fontSize: 12, color: C.ink }}>
-                            {e.prev_status ? `${e.prev_status} → ` : ""}
+                            {e.prev_status
+                              ? `${statusLabel(e.prev_status as PresenceStatus)} → `
+                              : ""}
                             {statusLabel(e.status)}
+                            {e.status === "break" ? " (declared)" : ""}
                           </div>
                           <div style={{ fontSize: 11, fontWeight: 600, color: C.inkSoft }}>
                             {String(e.created_at).slice(0, 19).replace("T", " ")}
@@ -717,8 +693,10 @@ export default function MonitorPage() {
       </div>
 
       <div style={{ marginTop: 14, fontSize: 12, fontWeight: 600, color: C.inkSoft, lineHeight: 1.45 }}>
-        <b style={{ color: C.ink }}>Below target</b> = &lt;50% of 8h after 2h+ online.{" "}
-        High idle = idle+away ≥30% of CRM time (30m+ sample).
+        <b style={{ color: C.ink }}>Logged in</b> = active.{" "}
+        <b style={{ color: C.ink }}>On break</b> = tea / lunch / smoke (user selected).{" "}
+        <b style={{ color: C.ink }}>Away</b> = no input 2+ min.{" "}
+        <b style={{ color: C.ink }}>Logged out</b> = CRM closed.
       </div>
     </div>
   );

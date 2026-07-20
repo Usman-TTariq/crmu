@@ -189,7 +189,10 @@ async function markLeadDuplicates(
 /** Text columns used by header search (server-side ILIKE). */
 const SEARCH_FIELDS: Partial<Record<TabKey, string[]>> = {
   leadgen: ["lead_id", "business_name", "owner_name", "phone", "email", "lead_gen_agent", "city", "state"],
-  qa: ["lead_id", "business_name", "owner_name", "phone", "qa_agent", "qa_decision"],
+  qa: [
+    "lead_id", "business_name", "owner_name", "phone", "email", "city", "state",
+    "lead_source", "qa_agent", "qa_decision",
+  ],
   sqlassign: ["lead_id", "business_name", "owner_name", "phone", "assigned_closer", "assigned_by", "sql_status"],
   closer: ["lead_id", "business_name", "owner_name", "phone", "closer", "stage"],
   documentation: ["lead_id", "business_name", "owner_name", "phone", "pm_name", "decision"],

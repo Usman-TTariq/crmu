@@ -1,7 +1,7 @@
 "use client";
 
 // Silent activity tracker for every signed-in user.
-// Reports heartbeats so admins can see working / idle / away / offline.
+// Reports heartbeats: logged in, away (2+ min idle), or logged out.
 
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
@@ -97,6 +97,8 @@ export default function PresenceTracker() {
     void pulse();
     const timer = window.setInterval(() => void pulse(), HEARTBEAT_MS);
 
+    // Only mark offline on real tab/window close — NOT on React remount
+    // (Strict Mode / soft nav), which was wiping declared breaks instantly.
     const onHide = () => {
       void markPresenceOffline();
     };
@@ -111,7 +113,6 @@ export default function PresenceTracker() {
       window.removeEventListener("touchstart", bump);
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pagehide", onHide);
-      void markPresenceOffline();
     };
   }, []);
 

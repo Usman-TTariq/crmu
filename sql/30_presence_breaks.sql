@@ -1,103 +1,34 @@
 -- ============================================================================
--- TGT Nexus CRM — 09_presence.sql
--- Live employee presence + daily activity (work vs idle/away).
--- Powers the PresenceTracker heartbeat and the Monitor admin tab.
--- Admin-only reads. Safe to re-run. Apply in Supabase SQL Editor.
+-- TGT Nexus CRM — 30_presence_breaks.sql
+-- Tea / Lunch / Smoke breaks — user-selected, visible on Employee Monitor.
+-- Safe to re-run. Apply in Supabase SQL Editor after deploying app changes.
 -- ============================================================================
 
--- ---------------------------------------------------------------------------
--- Live presence (one row per auth user)
--- ---------------------------------------------------------------------------
-create table if not exists public.user_presence (
-  user_id            uuid primary key references auth.users (id) on delete cascade,
-  status             text not null default 'offline'
-                     check (status in ('working', 'idle', 'away', 'offline')),
-  current_tab        text not null default '',
-  last_heartbeat_at  timestamptz,
-  last_input_at      timestamptz,
-  session_started_at timestamptz,
-  idle_seconds       integer not null default 0,
-  focused            boolean not null default true,
-  clicks_1m          integer not null default 0,
-  keys_1m            integer not null default 0,
-  scrolls_1m         integer not null default 0,
-  user_agent         text not null default '',
-  updated_at         timestamptz not null default now()
-);
+-- Allow status = 'break'
+alter table public.user_presence drop constraint if exists user_presence_status_check;
+alter table public.user_presence
+  add constraint user_presence_status_check
+  check (status in ('working', 'idle', 'away', 'offline', 'break'));
 
-create index if not exists user_presence_status_idx
-  on public.user_presence (status, last_heartbeat_at desc);
+alter table public.presence_events drop constraint if exists presence_events_status_check;
+alter table public.presence_events
+  add constraint presence_events_status_check
+  check (status in ('working', 'idle', 'away', 'offline', 'break'));
 
--- ---------------------------------------------------------------------------
--- Daily aggregates (one row per user per calendar day, Asia/Karachi wall clock)
--- ---------------------------------------------------------------------------
-create table if not exists public.presence_day (
-  user_id           uuid not null references auth.users (id) on delete cascade,
-  day               date not null,
-  working_seconds   integer not null default 0,
-  idle_seconds      integer not null default 0,
-  away_seconds      integer not null default 0,
-  interactions      integer not null default 0,
-  heartbeats        integer not null default 0,
-  tabs              jsonb not null default '{}'::jsonb,
-  primary key (user_id, day)
-);
+alter table public.user_presence
+  add column if not exists break_type text not null default '',
+  add column if not exists break_started_at timestamptz;
+
+alter table public.user_presence drop constraint if exists user_presence_break_type_check;
+alter table public.user_presence
+  add constraint user_presence_break_type_check
+  check (break_type in ('', 'tea', 'lunch', 'smoke'));
+
+alter table public.presence_day
+  add column if not exists break_seconds integer not null default 0;
 
 -- ---------------------------------------------------------------------------
--- Status-change timeline (for admin drill-down)
--- ---------------------------------------------------------------------------
-create table if not exists public.presence_events (
-  id           bigserial primary key,
-  user_id      uuid not null references auth.users (id) on delete cascade,
-  status       text not null check (status in ('working', 'idle', 'away', 'offline')),
-  prev_status  text,
-  current_tab  text not null default '',
-  created_at   timestamptz not null default now()
-);
-
-create index if not exists presence_events_user_day_idx
-  on public.presence_events (user_id, created_at desc);
-
--- ---------------------------------------------------------------------------
--- RLS: users can only touch their own live row; aggregates/events via RPC
--- ---------------------------------------------------------------------------
-alter table public.user_presence enable row level security;
-alter table public.presence_day enable row level security;
-alter table public.presence_events enable row level security;
-
-drop policy if exists presence_select_own on public.user_presence;
-create policy presence_select_own on public.user_presence
-  for select to authenticated
-  using (user_id = auth.uid() or private.is_admin());
-
-drop policy if exists presence_upsert_own on public.user_presence;
-create policy presence_upsert_own on public.user_presence
-  for insert to authenticated
-  with check (user_id = auth.uid());
-
-drop policy if exists presence_update_own on public.user_presence;
-create policy presence_update_own on public.user_presence
-  for update to authenticated
-  using (user_id = auth.uid())
-  with check (user_id = auth.uid());
-
-drop policy if exists presence_day_admin on public.presence_day;
-create policy presence_day_admin on public.presence_day
-  for select to authenticated
-  using (private.is_admin() or user_id = auth.uid());
-
-drop policy if exists presence_events_admin on public.presence_events;
-create policy presence_events_admin on public.presence_events
-  for select to authenticated
-  using (private.is_admin() or user_id = auth.uid());
-
-grant select, insert, update on public.user_presence to authenticated;
-grant select on public.presence_day to authenticated;
-grant select on public.presence_events to authenticated;
-
--- ---------------------------------------------------------------------------
--- Heartbeat: any signed-in user reports activity; server derives status +
--- rolls seconds into today's buckets based on the PREVIOUS status.
+-- Heartbeat: keep break while user is on a declared break; else login/away.
 -- ---------------------------------------------------------------------------
 create or replace function public.presence_heartbeat(
   p_tab            text default '',
@@ -126,22 +57,26 @@ declare
   delta integer;
   day_local date;
   prev_status text;
+  keep_break boolean := false;
+  btype text := '';
 begin
   if uid is null then
     raise exception 'Not authenticated';
   end if;
 
-  -- 2+ min no mouse/keyboard/touch → away. Tab focus ignored.
-  if idle_s >= 120 then
+  select * into prev from public.user_presence where user_id = uid;
+  prev_status := coalesce(prev.status, 'offline');
+  keep_break := (prev_status = 'break' and coalesce(prev.break_type, '') <> '');
+  btype := case when keep_break then prev.break_type else '' end;
+
+  if keep_break then
+    new_status := 'break';
+  elsif idle_s >= 120 then
     new_status := 'away';
   else
     new_status := 'working';
   end if;
 
-  select * into prev from public.user_presence where user_id = uid;
-  prev_status := coalesce(prev.status, 'offline');
-
-  -- Attribute elapsed time since last heartbeat (cap 3 min)
   if prev.last_heartbeat_at is not null then
     delta := least(180, greatest(0, floor(extract(epoch from (now() - prev.last_heartbeat_at)))::int));
   else
@@ -151,13 +86,16 @@ begin
   day_local := (now() at time zone 'Asia/Karachi')::date;
 
   if delta > 0 then
-    insert into public.presence_day as pd (user_id, day, working_seconds, idle_seconds, away_seconds, interactions, heartbeats, tabs)
+    insert into public.presence_day as pd (
+      user_id, day, working_seconds, idle_seconds, away_seconds, break_seconds, interactions, heartbeats, tabs
+    )
     values (
       uid,
       day_local,
       case when prev_status in ('working', 'idle') then delta else 0 end,
       0,
       case when prev_status = 'away' then delta else 0 end,
+      case when prev_status = 'break' then delta else 0 end,
       interactions,
       1,
       jsonb_build_object(tab_key, delta)
@@ -166,6 +104,7 @@ begin
       working_seconds = pd.working_seconds + excluded.working_seconds,
       idle_seconds    = pd.idle_seconds + excluded.idle_seconds,
       away_seconds    = pd.away_seconds + excluded.away_seconds,
+      break_seconds   = pd.break_seconds + excluded.break_seconds,
       interactions    = pd.interactions + excluded.interactions,
       heartbeats      = pd.heartbeats + 1,
       tabs = (
@@ -193,7 +132,7 @@ begin
   insert into public.user_presence as up (
     user_id, status, current_tab, last_heartbeat_at, last_input_at,
     session_started_at, idle_seconds, focused, clicks_1m, keys_1m, scrolls_1m,
-    user_agent, updated_at
+    user_agent, break_type, break_started_at, updated_at
   ) values (
     uid,
     new_status,
@@ -207,6 +146,8 @@ begin
     keys_n,
     scrolls,
     left(coalesce(p_user_agent, ''), 240),
+    btype,
+    case when keep_break then prev.break_started_at else null end,
     now()
   )
   on conflict (user_id) do update set
@@ -224,6 +165,8 @@ begin
     keys_1m           = excluded.keys_1m,
     scrolls_1m        = excluded.scrolls_1m,
     user_agent        = excluded.user_agent,
+    break_type        = excluded.break_type,
+    break_started_at  = excluded.break_started_at,
     updated_at        = now();
 
   if prev_status is distinct from new_status then
@@ -231,13 +174,16 @@ begin
     values (uid, new_status, prev_status, tab_key);
   end if;
 
-  return jsonb_build_object('status', new_status, 'tab', tab_key);
+  return jsonb_build_object(
+    'status', new_status,
+    'tab', tab_key,
+    'break_type', btype
+  );
 end;
 $$;
 
 grant execute on function public.presence_heartbeat(text, integer, boolean, integer, integer, integer, text) to authenticated;
 
--- Mark self offline (logout / tab close). Best-effort.
 create or replace function public.presence_offline()
 returns void
 language plpgsql
@@ -263,20 +209,24 @@ begin
 
   day_local := (now() at time zone 'Asia/Karachi')::date;
 
-  if delta > 0 and prev.status in ('working', 'idle', 'away') then
-    insert into public.presence_day as pd (user_id, day, working_seconds, idle_seconds, away_seconds, heartbeats)
+  if delta > 0 and prev.status in ('working', 'idle', 'away', 'break') then
+    insert into public.presence_day as pd (
+      user_id, day, working_seconds, idle_seconds, away_seconds, break_seconds, heartbeats
+    )
     values (
       uid,
       day_local,
       case when prev.status in ('working', 'idle') then delta else 0 end,
       0,
       case when prev.status = 'away' then delta else 0 end,
+      case when prev.status = 'break' then delta else 0 end,
       0
     )
     on conflict (user_id, day) do update set
       working_seconds = pd.working_seconds + excluded.working_seconds,
       idle_seconds    = pd.idle_seconds + excluded.idle_seconds,
-      away_seconds    = pd.away_seconds + excluded.away_seconds;
+      away_seconds    = pd.away_seconds + excluded.away_seconds,
+      break_seconds   = pd.break_seconds + excluded.break_seconds;
   end if;
 
   update public.user_presence
@@ -286,6 +236,8 @@ begin
       clicks_1m = 0,
       keys_1m = 0,
       scrolls_1m = 0,
+      break_type = '',
+      break_started_at = null,
       updated_at = now(),
       last_heartbeat_at = now()
   where user_id = uid
@@ -300,49 +252,135 @@ $$;
 
 grant execute on function public.presence_offline() to authenticated;
 
--- ---------------------------------------------------------------------------
--- Scoped live board (CEO full; sales_head → LG/closer/SQL; ops_manager → OPS).
--- Offline if no heartbeat for 90s. Week totals also in 10_presence_hours.sql.
--- Full replace also in 22_presence_monitor_scopes.sql (safe re-run).
--- ---------------------------------------------------------------------------
-create or replace function private.can_view_presence()
-returns boolean
-language sql
-stable
+-- Start a declared break (tea / lunch / smoke).
+create or replace function public.presence_start_break(p_type text)
+returns jsonb
+language plpgsql
 security definer
 set search_path = public
 as $$
-  select private.is_admin()
-      or private.role_key() in ('sales_head', 'ops_manager');
-$$;
+declare
+  uid uuid := auth.uid();
+  prev public.user_presence%rowtype;
+  btype text := lower(trim(coalesce(p_type, '')));
+  day_local date;
+  delta integer;
+begin
+  if uid is null then
+    raise exception 'Not authenticated';
+  end if;
+  if btype not in ('tea', 'lunch', 'smoke') then
+    raise exception 'Invalid break type. Use tea, lunch, or smoke.';
+  end if;
 
-create or replace function private.presence_target_ok(p_user_id uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.profiles p
-    where p.user_id = p_user_id
-      and p.is_active = true
-      and p.role_key not in ('ceo', 'super_admin')
-      and (
-        private.is_admin()
-        or (
-          private.role_key() = 'sales_head'
-          and p.role_key in ('lg_agent', 'lg_sup', 'closer', 'floor_manager')
-        )
-        or (
-          private.role_key() = 'ops_manager'
-          and p.dept = 'OPS'
-        )
+  select * into prev from public.user_presence where user_id = uid;
+
+  -- Flush time under previous status before switching to break
+  if found and prev.last_heartbeat_at is not null then
+    delta := least(180, greatest(0, floor(extract(epoch from (now() - prev.last_heartbeat_at)))::int));
+    day_local := (now() at time zone 'Asia/Karachi')::date;
+    if delta > 0 and prev.status in ('working', 'idle', 'away', 'break') then
+      insert into public.presence_day as pd (
+        user_id, day, working_seconds, idle_seconds, away_seconds, break_seconds, heartbeats
       )
-  );
+      values (
+        uid, day_local,
+        case when prev.status in ('working', 'idle') then delta else 0 end,
+        0,
+        case when prev.status = 'away' then delta else 0 end,
+        case when prev.status = 'break' then delta else 0 end,
+        0
+      )
+      on conflict (user_id, day) do update set
+        working_seconds = pd.working_seconds + excluded.working_seconds,
+        idle_seconds    = pd.idle_seconds + excluded.idle_seconds,
+        away_seconds    = pd.away_seconds + excluded.away_seconds,
+        break_seconds   = pd.break_seconds + excluded.break_seconds;
+    end if;
+  end if;
+
+  insert into public.user_presence as up (
+    user_id, status, current_tab, last_heartbeat_at, last_input_at,
+    session_started_at, idle_seconds, focused, break_type, break_started_at, updated_at
+  ) values (
+    uid, 'break', coalesce(prev.current_tab, ''), now(), now(),
+    coalesce(prev.session_started_at, now()), 0, true, btype, now(), now()
+  )
+  on conflict (user_id) do update set
+    status = 'break',
+    break_type = excluded.break_type,
+    break_started_at = now(),
+    last_heartbeat_at = now(),
+    idle_seconds = 0,
+    updated_at = now();
+
+  begin
+    insert into public.presence_events (user_id, status, prev_status, current_tab)
+    values (uid, 'break', coalesce(prev.status, 'offline'), coalesce(prev.current_tab, ''));
+  exception when others then
+    -- Don't fail the break if events check constraint is stale
+    null;
+  end;
+
+  return jsonb_build_object('status', 'break', 'break_type', btype);
+end;
 $$;
 
+grant execute on function public.presence_start_break(text) to authenticated;
+
+-- End break → back to logged in (working).
+create or replace function public.presence_end_break()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  prev public.user_presence%rowtype;
+  day_local date;
+  delta integer;
+begin
+  if uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  select * into prev from public.user_presence where user_id = uid;
+  if not found or prev.status is distinct from 'break' then
+    return jsonb_build_object('status', coalesce(prev.status, 'offline'), 'break_type', '');
+  end if;
+
+  if prev.last_heartbeat_at is not null then
+    delta := least(180, greatest(0, floor(extract(epoch from (now() - prev.last_heartbeat_at)))::int));
+    day_local := (now() at time zone 'Asia/Karachi')::date;
+    if delta > 0 then
+      insert into public.presence_day as pd (user_id, day, break_seconds, heartbeats)
+      values (uid, day_local, delta, 0)
+      on conflict (user_id, day) do update set
+        break_seconds = pd.break_seconds + excluded.break_seconds;
+    end if;
+  end if;
+
+  update public.user_presence
+  set status = 'working',
+      break_type = '',
+      break_started_at = null,
+      idle_seconds = 0,
+      last_input_at = now(),
+      last_heartbeat_at = now(),
+      updated_at = now()
+  where user_id = uid;
+
+  insert into public.presence_events (user_id, status, prev_status, current_tab)
+  values (uid, 'working', 'break', coalesce(prev.current_tab, ''));
+
+  return jsonb_build_object('status', 'working', 'break_type', '');
+end;
+$$;
+
+grant execute on function public.presence_end_break() to authenticated;
+
+-- Monitor board: include break_type + break seconds
 create or replace function public.dash_presence(p_day date default null)
 returns jsonb
 language plpgsql
@@ -361,7 +399,13 @@ begin
 
   return (
     select coalesce(jsonb_agg(row_to_json(x)::jsonb order by
-      case x.status when 'working' then 0 when 'idle' then 1 when 'away' then 2 else 3 end,
+      case x.status
+        when 'working' then 0
+        when 'break' then 1
+        when 'idle' then 2
+        when 'away' then 3
+        else 4
+      end,
       x.name
     ), '[]'::jsonb)
     from (
@@ -388,15 +432,19 @@ begin
         coalesce(up.keys_1m, 0)                                  as keys_1m,
         coalesce(up.scrolls_1m, 0)                               as scrolls_1m,
         coalesce(up.user_agent, '')                              as user_agent,
+        coalesce(up.break_type, '')                              as break_type,
+        up.break_started_at,
         coalesce(pd.working_seconds, 0)                          as working_seconds,
         coalesce(pd.idle_seconds, 0)                             as idle_seconds_today,
         coalesce(pd.away_seconds, 0)                             as away_seconds,
+        coalesce(pd.break_seconds, 0)                            as break_seconds,
         coalesce(pd.interactions, 0)                             as interactions,
         coalesce(pd.heartbeats, 0)                               as heartbeats,
         coalesce(pd.tabs, '{}'::jsonb)                           as tabs,
         coalesce(pw.week_working_seconds, 0)                     as week_working_seconds,
         coalesce(pw.week_idle_seconds, 0)                        as week_idle_seconds,
         coalesce(pw.week_away_seconds, 0)                        as week_away_seconds,
+        coalesce(pw.week_break_seconds, 0)                       as week_break_seconds,
         coalesce(pw.week_interactions, 0)                        as week_interactions,
         week_start                                               as week_start,
         week_end                                                 as week_end
@@ -408,6 +456,7 @@ begin
           sum(d.working_seconds)::int as week_working_seconds,
           sum(d.idle_seconds)::int    as week_idle_seconds,
           sum(d.away_seconds)::int    as week_away_seconds,
+          sum(coalesce(d.break_seconds, 0))::int as week_break_seconds,
           sum(d.interactions)::int    as week_interactions
         from public.presence_day d
         where d.user_id = p.user_id
@@ -434,92 +483,3 @@ end;
 $$;
 
 grant execute on function public.dash_presence(date) to authenticated;
-
-create or replace function public.dash_presence_events(
-  p_user_id uuid,
-  p_day date default null
-)
-returns jsonb
-language plpgsql
-stable
-security definer
-set search_path = public
-as $$
-declare
-  day_local date := coalesce(p_day, (now() at time zone 'Asia/Karachi')::date);
-  day_start timestamptz;
-  day_end timestamptz;
-begin
-  if not private.can_view_presence() then
-    raise exception 'Presence events are restricted.';
-  end if;
-  if not private.presence_target_ok(p_user_id) then
-    raise exception 'Not allowed to view this employee.';
-  end if;
-
-  day_start := (day_local::timestamp at time zone 'Asia/Karachi');
-  day_end   := day_start + interval '1 day';
-
-  return (
-    select coalesce(jsonb_agg(row_to_json(e)::jsonb order by e.created_at), '[]'::jsonb)
-    from (
-      select
-        id,
-        status,
-        prev_status,
-        current_tab,
-        created_at
-      from public.presence_events
-      where user_id = p_user_id
-        and created_at >= day_start
-        and created_at < day_end
-      order by created_at
-      limit 500
-    ) e
-  );
-end;
-$$;
-
-grant execute on function public.dash_presence_events(uuid, date) to authenticated;
-
-create or replace function public.dash_presence_week(
-  p_user_id uuid,
-  p_day date default null
-)
-returns jsonb
-language plpgsql
-stable
-security definer
-set search_path = public
-as $$
-declare
-  day_local date := coalesce(p_day, (now() at time zone 'Asia/Karachi')::date);
-  week_start date := day_local - ((extract(dow from day_local)::int + 6) % 7);
-begin
-  if not private.can_view_presence() then
-    raise exception 'Presence week is restricted.';
-  end if;
-  if not private.presence_target_ok(p_user_id) then
-    raise exception 'Not allowed to view this employee.';
-  end if;
-
-  return (
-    select coalesce(jsonb_agg(row_to_json(x)::jsonb order by x.day), '[]'::jsonb)
-    from (
-      select
-        d::date as day,
-        coalesce(pd.working_seconds, 0) as working_seconds,
-        coalesce(pd.idle_seconds, 0)    as idle_seconds,
-        coalesce(pd.away_seconds, 0)    as away_seconds,
-        coalesce(pd.interactions, 0)    as interactions,
-        coalesce(pd.heartbeats, 0)      as heartbeats
-      from generate_series(week_start, week_start + 6, interval '1 day') as d
-      left join public.presence_day pd
-        on pd.user_id = p_user_id
-       and pd.day = d::date
-    ) x
-  );
-end;
-$$;
-
-grant execute on function public.dash_presence_week(uuid, date) to authenticated;
