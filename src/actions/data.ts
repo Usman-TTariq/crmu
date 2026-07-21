@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSession, requireAuth, requireSession } from "@/lib/session";
 import { EDITABLE_COLUMNS, TAB_TABLE, DATE_FIELD } from "@/lib/schemas";
-import { TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
+import { RECORD_DELETE_EMAILS, TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import type { Rec, Attachment, LeadComment, RetentionComment } from "@/lib/types";
 import { isDayTimeframe, phoneDigits, type Timeframe } from "@/lib/format";
 import { logActivity } from "@/lib/activity-log";
@@ -114,9 +114,70 @@ function filterValue(raw: string): string {
   return raw.replace(/[,()]/g, "").replace(/%/g, "").replace(/_/g, "");
 }
 
+/** Oldest-wins duplicate map for an already-loaded candidate set. */
+function applyDuplicateMap(
+  rows: Rec[],
+  candidates: { lead_id: string; phone: unknown; email: unknown; created_at: string }[],
+  phones: Set<string>,
+  emails: Set<string>
+): Rec[] {
+  const firstPhone = new Map<string, string>();
+  const firstEmail = new Map<string, string>();
+  const dupOf = new Map<string, string>();
+
+  const ordered = [...candidates].sort((a, b) =>
+    String(a.created_at || "").localeCompare(String(b.created_at || ""))
+  );
+
+  for (const lead of ordered) {
+    const id = String(lead.lead_id || "");
+    if (!id) continue;
+    const { phone, email } = leadMatchKeys({ phone: lead.phone, email: lead.email });
+    const trackPhone = !!(phone && phones.has(phone));
+    const trackEmail = !!(email && emails.has(email));
+    if (!trackPhone && !trackEmail) continue;
+
+    let original: string | null = null;
+    if (trackPhone && firstPhone.has(phone)) original = firstPhone.get(phone)!;
+    else if (trackEmail && firstEmail.has(email)) original = firstEmail.get(email)!;
+
+    if (original) dupOf.set(id, original);
+    if (trackPhone && !firstPhone.has(phone)) firstPhone.set(phone, id);
+    if (trackEmail && !firstEmail.has(email)) firstEmail.set(email, id);
+  }
+
+  return rows.map((r) => {
+    const id = String(r.lead_id || "");
+    const original = dupOf.get(id) || "";
+    return { ...r, duplicate_of: original || null };
+  });
+}
+
+/** Fast path for list: only mark duplicates among the current page (no extra DB scan). */
+function markLeadDuplicatesInPage(rows: Rec[]): Rec[] {
+  if (!rows.length) return rows;
+  const phones = new Set<string>();
+  const emails = new Set<string>();
+  for (const r of rows) {
+    const { phone, email } = leadMatchKeys({ phone: r.phone, email: r.email });
+    if (phone) phones.add(phone);
+    if (email) emails.add(email);
+  }
+  if (!phones.size && !emails.size) {
+    return rows.map((r) => ({ ...r, duplicate_of: null }));
+  }
+  const candidates = rows.map((r) => ({
+    lead_id: String(r.lead_id || ""),
+    phone: r.phone,
+    email: r.email,
+    created_at: String(r.created_at || ""),
+  }));
+  return applyDuplicateMap(rows, candidates, phones, emails);
+}
+
 /**
- * Oldest lead wins. Newer leads with the same phone or email get duplicate_of = original lead_id.
- * Only loads candidates that share a phone/email with the current page (not the whole table).
+ * Oldest lead wins across the table (drawer / single-row). List uses in-page marking instead —
+ * the phone.ilike OR scan was the main leadgen open cost (~1s+).
  */
 async function markLeadDuplicates(
   rows: Rec[],
@@ -141,7 +202,6 @@ async function markLeadDuplicates(
     if (v) orParts.push(`email.ilike.${v}`);
   }
   for (const p of phones) {
-    // Match formatted US phones e.g. (555) 123-4567 via digit chunks
     const a = p.slice(0, 3);
     const b = p.slice(3, 6);
     const c = p.slice(6);
@@ -154,37 +214,19 @@ async function markLeadDuplicates(
       .from("leads")
       .select("lead_id, phone, email, created_at")
       .or(orParts.join(","))
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      .limit(200);
     candidates = (data || []) as typeof candidates;
   }
 
-  const firstPhone = new Map<string, string>();
-  const firstEmail = new Map<string, string>();
-  const dupOf = new Map<string, string>();
-
-  for (const lead of candidates) {
-    const id = String(lead.lead_id || "");
-    if (!id) continue;
-    const { phone, email } = leadMatchKeys({ phone: lead.phone, email: lead.email });
-    const trackPhone = !!(phone && phones.has(phone));
-    const trackEmail = !!(email && emails.has(email));
-    if (!trackPhone && !trackEmail) continue;
-
-    let original: string | null = null;
-    if (trackPhone && firstPhone.has(phone)) original = firstPhone.get(phone)!;
-    else if (trackEmail && firstEmail.has(email)) original = firstEmail.get(email)!;
-
-    if (original) dupOf.set(id, original);
-    if (trackPhone && !firstPhone.has(phone)) firstPhone.set(phone, id);
-    if (trackEmail && !firstEmail.has(email)) firstEmail.set(email, id);
-  }
-
-  return rows.map((r) => {
-    const id = String(r.lead_id || "");
-    const original = dupOf.get(id) || "";
-    return { ...r, duplicate_of: original || null };
-  });
+  return applyDuplicateMap(rows, candidates, phones, emails);
 }
+
+/** Narrow list selects — skip bulky notes / unused columns on first paint. */
+const LIST_SELECT: Partial<Record<TabKey, string>> = {
+  leadgen:
+    "id, lead_id, date_created, created_at, updated_at, created_by, updated_by, lead_gen_agent, lead_source, business_name, owner_name, phone, email, business_address, city, zip_code, state, current_processor, current_device, current_rate, monthly_volume",
+};
 
 /** Text columns used by header search (server-side ILIKE). */
 const SEARCH_FIELDS: Partial<Record<TabKey, string[]>> = {
@@ -255,6 +297,8 @@ export interface FetchRowsPayload {
   pageSize?: number;
   /** Header search — server-side ILIKE across tab fields. */
   q?: string;
+  /** Skip exact COUNT(*) — reuse prior total on silent live sync. */
+  skipCount?: boolean;
 }
 
 /** `list` skips drawer-only extras (comments / signed file URLs) for faster paging. */
@@ -270,6 +314,10 @@ async function enrichPipelineRows(
   const leadIds = out.map((r) => r.lead_id).filter(Boolean) as string[];
 
   if (tab === "leadgen" && leadIds.length) {
+    const dupsPromise =
+      mode === "list"
+        ? Promise.resolve(markLeadDuplicatesInPage(out))
+        : markLeadDuplicates(out, admin);
     const [qaRes, dispRes, withDups, audited] = await Promise.all([
       admin.from("qa_records").select("lead_id, qa_decision").in("lead_id", leadIds),
       admin
@@ -277,7 +325,7 @@ async function enrichPipelineRows(
         .select("lead_id, status, reason, review_note, created_at")
         .in("lead_id", leadIds)
         .order("created_at", { ascending: false }),
-      markLeadDuplicates(out, admin),
+      dupsPromise,
       enrichAuditNames(out, admin),
     ]);
     const map = new Map((qaRes.data || []).map((q) => [q.lead_id, q.qa_decision]));
@@ -314,6 +362,72 @@ async function enrichPipelineRows(
     }));
   } else if (tab === "closer") {
     out = await enrichAuditNames(out, admin);
+    if (leadIds.length) {
+      const [leadsRes, opsRes, dispRes] = await Promise.all([
+        admin
+          .from("leads")
+          .select(
+            "lead_id, lead_source, email, business_address, city, zip_code, lead_origin"
+          )
+          .in("lead_id", leadIds),
+        admin
+          .from("ops_verifications")
+          .select("lead_id, ops_status, reasoning, returned_after_ops_dispute")
+          .in("lead_id", leadIds),
+        admin
+          .from("ops_disputes")
+          .select("lead_id, status, reason, review_note, created_at")
+          .in("lead_id", leadIds)
+          .order("created_at", { ascending: false }),
+      ]);
+      const leadMap = new Map(
+        (leadsRes.data || []).map((l) => [String(l.lead_id), l as Record<string, unknown>])
+      );
+      const opsMap = new Map(
+        (opsRes.data || []).map((o) => [String(o.lead_id), o as Record<string, unknown>])
+      );
+      const latestDisp = new Map<
+        string,
+        { status: string; reason: string; review_note: string }
+      >();
+      if (!dispRes.error) {
+        for (const d of dispRes.data || []) {
+          if (!latestDisp.has(d.lead_id)) {
+            latestDisp.set(d.lead_id, {
+              status: d.status,
+              reason: d.reason || "",
+              review_note: d.review_note || "",
+            });
+          }
+        }
+      }
+      out = out.map((r) => {
+        const lid = String(r.lead_id || "");
+        const extra = leadMap.get(lid);
+        const ops = opsMap.get(lid);
+        const disp = latestDisp.get(lid);
+        return {
+          ...r,
+          lead_source: extra?.lead_source ?? r.lead_source ?? "",
+          email: extra?.email ?? r.email ?? "",
+          business_address: extra?.business_address ?? r.business_address ?? "",
+          city: extra?.city ?? r.city ?? "",
+          zip_code: extra?.zip_code ?? r.zip_code ?? "",
+          lead_origin: extra?.lead_origin ?? r.lead_origin ?? "",
+          ops_status: ops?.ops_status ?? "",
+          ops_reasoning: ops?.reasoning ?? "",
+          returned_after_ops_dispute: !!ops?.returned_after_ops_dispute,
+          ops_dispute_status: disp?.status || "",
+          ops_dispute_reason: disp?.reason || "",
+          ops_dispute_review_note: disp?.review_note || "",
+        };
+      });
+    }
+  } else if (tab === "ops" && leadIds.length) {
+    out = out.map((r) => ({
+      ...r,
+      after_ops_dispute: r.returned_after_ops_dispute ? "After OPS dispute" : "",
+    }));
   }
 
   if (tab === "sqlassign") {
@@ -397,6 +511,8 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
   total: number;
   page: number;
   pageSize: number;
+  /** When true, client should keep its previous `total` (skipCount path). */
+  keepTotal?: boolean;
   error?: string;
 }> {
   const page = Math.max(1, payload.page || 1);
@@ -458,11 +574,15 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
     const df = DATE_FIELD[payload.tab];
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
+    const cols = LIST_SELECT[payload.tab] || "*";
+    const withCount = !payload.skipCount;
 
-    let query = supabase.from(table).select("*", { count: "exact" });
-    query = applyTf(query, df, payload.tf);
+    let query = withCount
+      ? supabase.from(table).select(cols, { count: "exact" })
+      : supabase.from(table).select(cols);
+    query = applyTf(query, df, payload.tf) as typeof query;
     if (payload.q?.trim()) {
-      query = applySearch(query, payload.tab, payload.q);
+      query = applySearch(query, payload.tab, payload.q) as typeof query;
     }
     // Newest date first; same day → newest created_at (time); then id.
     if (df) {
@@ -478,8 +598,12 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
     const { data, error, count } = await query;
     if (error) return { rows: [], total: 0, page, pageSize, error: error.message };
 
-    let rows = (data || []) as Rec[];
+    let rows = (data || []) as unknown as Rec[];
     rows = await enrichPipelineRows(payload.tab, rows, supabase, admin, "list");
+
+    if (payload.skipCount) {
+      return { rows, total: 0, page, pageSize, keepTotal: true };
+    }
 
     return { rows, total: count ?? rows.length, page, pageSize };
   } catch (e) {
@@ -715,7 +839,9 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
     if (payload.tab === "ops" && v.ops_status === "Approved")
       messages.push(`${biz} OPS-approved. Progressed to Onboarding.`);
     if (payload.tab === "ops" && v.ops_status === "Disapproved")
-      messages.push(`${biz} disapproved in OPS. Recorded and kept in history.`);
+      messages.push(
+        `${biz} disapproved in OPS. Closer was notified and may dispute with AVP.`
+      );
     if (payload.tab === "msp" && v.final_status === "Archived")
       messages.push(`${biz} archived in Onboarding.`);
     if (payload.tab === "msp" && (v.a1_result === "Yes" || v.a2_result === "Yes" || v.a3_result === "Yes"))
@@ -801,6 +927,96 @@ export async function createManualOpsRecord(payload: {
   }
 }
 
+const CLOSER_CREATE_ROLES = new Set(["closer", "ceo", "super_admin", "sales_head", "avp_sales"]);
+
+// ---------------------------------------------------------------------------
+// Closer-direct lead: parent leads row + closer_deals (skips QA / SQL)
+// ---------------------------------------------------------------------------
+export async function createManualCloserRecord(payload: {
+  values: Record<string, unknown>;
+}): Promise<{ ok?: boolean; error?: string; messages?: string[] }> {
+  try {
+    const session = await requireSession();
+    const role = session.profile.role_key;
+    if (!CLOSER_CREATE_ROLES.has(role)) {
+      return { error: "You cannot create closer leads." };
+    }
+
+    const supabase = await createClient();
+    const v = payload.values;
+    const identity = session.profile.full_name;
+    const closerName =
+      role === "closer" ? identity : String(v.closer || "").trim();
+    if (!closerName) return { error: "Closer is required." };
+
+    const businessName = String(v.business_name || "").trim();
+    if (!businessName) return { error: "Business name is required." };
+
+    const volumeRaw = v.monthly_volume;
+    const monthlyVolume =
+      volumeRaw === "" || volumeRaw === undefined || volumeRaw === null
+        ? null
+        : volumeRaw;
+
+    const { data: lead, error: leadErr } = await supabase
+      .from("leads")
+      .insert({
+        date_created: v.date_created || undefined,
+        lead_gen_agent: "",
+        lead_source: String(v.lead_source || "Closer Direct"),
+        lead_origin: "closer_direct",
+        business_name: businessName,
+        owner_name: String(v.owner_name || ""),
+        phone: String(v.phone || ""),
+        email: String(v.email || ""),
+        business_address: String(v.business_address || ""),
+        city: String(v.city || ""),
+        zip_code: String(v.zip_code || ""),
+        state: String(v.state || ""),
+        current_processor: String(v.current_processor || "None"),
+        current_device: String(v.current_device || ""),
+        current_rate: String(v.current_rate || ""),
+        monthly_volume: monthlyVolume,
+        notes: String(v.notes || ""),
+        created_by: session.userId,
+      })
+      .select("lead_id")
+      .single();
+    if (leadErr) return { error: leadErr.message };
+
+    const assignedDate = String(v.assigned_date || "").trim() || null;
+    const { error: closerErr } = await supabase.from("closer_deals").insert({
+      lead_id: lead.lead_id,
+      business_name: businessName,
+      owner_name: String(v.owner_name || ""),
+      phone: String(v.phone || ""),
+      state: String(v.state || ""),
+      monthly_volume: monthlyVolume,
+      assigned_date: assignedDate,
+      closer: closerName,
+      stage: String(v.stage || "No Answer") || "No Answer",
+      notes: String(v.notes || ""),
+      created_by: session.userId,
+    });
+    if (closerErr) return { error: closerErr.message };
+
+    await logActivity({
+      action: "record.create",
+      entityTab: "closer",
+      entityId: lead.lead_id,
+      summary: `Closer-direct lead · ${lead.lead_id} · ${businessName}`,
+      meta: { closer: closerName, origin: "closer_direct" },
+    });
+
+    return {
+      ok: true,
+      messages: [`Lead created in Closer Pipeline as ${lead.lead_id}.`],
+    };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Create failed." };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Append-only lead comment (works even when the drawer is read-only)
 // ---------------------------------------------------------------------------
@@ -868,7 +1084,11 @@ export async function deleteRecord(payload: { tab: TabKey; id: string }): Promis
   error?: string;
 }> {
   try {
-    await requireAuth();
+    const session = await requireSession();
+    const email = String(session.email || "").trim().toLowerCase();
+    if (!RECORD_DELETE_EMAILS.includes(email)) {
+      return { error: "You are not allowed to delete records." };
+    }
     const supabase = await createClient();
     const table = TAB_TABLE[payload.tab];
     if (!table) return { error: "Unknown tab." };
@@ -886,16 +1106,53 @@ export async function deleteRecord(payload: { tab: TabKey; id: string }): Promis
   }
 }
 
+/** Lightweight COUNT(*) for pager total — run after rows are already on screen. */
+export async function fetchRowsTotal(payload: {
+  tab: TabKey;
+  tf: Timeframe;
+  q?: string;
+}): Promise<{ total: number; error?: string }> {
+  try {
+    await requireAuth();
+    const supabase = await createClient();
+    const table = TAB_TABLE[payload.tab];
+    if (!table || payload.tab === "teamsetup") {
+      return { total: 0, error: "Unknown tab." };
+    }
+    const df = DATE_FIELD[payload.tab];
+    let query = supabase.from(table).select("id", { count: "exact", head: true });
+    query = applyTf(query, df, payload.tf) as typeof query;
+    if (payload.q?.trim()) {
+      query = applySearch(query, payload.tab, payload.q) as typeof query;
+    }
+    const { count, error } = await query;
+    if (error) return { total: 0, error: error.message };
+    return { total: count || 0 };
+  } catch (e) {
+    return {
+      total: 0,
+      error: e instanceof Error ? e.message : "Failed to count.",
+    };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Sidebar counts (RLS-scoped, per timeframe)
 // ---------------------------------------------------------------------------
-export async function fetchTabCounts(payload: { tf: Timeframe }): Promise<Record<string, number>> {
+export async function fetchTabCounts(payload: {
+  tf: Timeframe;
+  /** Only count these tabs (defaults to all non-dashboard tabs). */
+  tabs?: TabKey[];
+}): Promise<Record<string, number>> {
   await requireAuth();
   const supabase = await createClient();
   const counts: Record<string, number> = {};
+  const wanted = payload.tabs?.length
+    ? new Set(payload.tabs)
+    : null;
 
   await Promise.all(
-    TABS.filter((t) => !t.kind).map(async (t) => {
+    TABS.filter((t) => !t.kind && (!wanted || wanted.has(t.k))).map(async (t) => {
       const table = TAB_TABLE[t.k];
       if (!table) return;
       let q = supabase.from(table).select("id", { count: "exact", head: true });

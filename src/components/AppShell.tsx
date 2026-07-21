@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { startTransition, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Eye, Lock, LogOut, Menu, Plus, Search, X } from "lucide-react";
 import { C } from "@/lib/theme";
@@ -13,23 +13,34 @@ import PresenceTracker from "@/components/PresenceTracker";
 import BreakControl from "@/components/BreakControl";
 import LeadGenNotify from "@/components/LeadGenNotify";
 import { fetchTabCounts } from "@/actions/data";
-import { signOut } from "@/actions/auth";
+import { logSignIn, signOut } from "@/actions/auth";
 import { stopViewAs } from "@/actions/impersonate";
+
+const SIGN_IN_LOG_KEY = "crm_signed_in_logged";
+
+function pathTabKey(pathname: string, home: TabKey): TabKey {
+  return (pathname.split("/")[1] || home) as TabKey;
+}
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const app = useApp();
   const pathname = usePathname();
   const router = useRouter();
   const [navOpen, setNavOpen] = useState(false);
+  /** Instant highlight / header before Next finishes the route fetch. */
+  const [pendingKey, setPendingKey] = useState<TabKey | null>(null);
 
-  const activeKey = (pathname.split("/")[1] || app.role.home) as TabKey;
+  const pathKey = pathTabKey(pathname, app.role.home);
+  const activeKey = pendingKey || pathKey;
   const tab = TABS.find((t) => t.k === activeKey) || TABS[0];
+  const navigating = pendingKey !== null && pendingKey !== pathKey;
 
   const visibleTabs = TABS.filter(
     (t) =>
       app.viewTabs.includes(t.k) &&
       (t.k !== "ceo" || app.canSeeCeo) &&
       (t.k !== "monitor" || app.canSeeMonitor) &&
+      (t.k !== "counselling" || app.canSeeCounselling) &&
       (t.k !== "logs" || USER_ADMIN_ROLES.includes(app.role.key))
   );
 
@@ -40,9 +51,44 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     ADDABLE.includes(activeKey) &&
     (activeKey !== "teamsetup" || USER_ADMIN_ROLES.includes(app.role.key));
 
+  const goTab = (key: TabKey) => {
+    if (key === pathKey && !pendingKey) {
+      setNavOpen(false);
+      return;
+    }
+    app.setQuery("");
+    setNavOpen(false);
+    setPendingKey(key);
+    router.prefetch(`/${key}`);
+    startTransition(() => {
+      router.push(`/${key}`);
+    });
+  };
+
   useEffect(() => {
+    setPendingKey(null);
     setNavOpen(false);
   }, [pathname]);
+
+  // Audit log once per browser session — never blocks login.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(SIGN_IN_LOG_KEY)) return;
+      sessionStorage.setItem(SIGN_IN_LOG_KEY, "1");
+    } catch {
+      // private mode / blocked storage — still try to log once this mount
+    }
+    void logSignIn();
+  }, []);
+
+  // Remember role home so the next login can skip the / → /ceo bounce.
+  useEffect(() => {
+    try {
+      localStorage.setItem("crm_home", `/${app.role.home}`);
+    } catch {
+      /* ignore */
+    }
+  }, [app.role.home]);
 
   useEffect(() => {
     if (!navOpen) return;
@@ -57,19 +103,36 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [navOpen]);
 
+  const viewTabsKey = app.viewTabs.join(",");
+
+  // Warm route chunks so the next click doesn't wait on first compile/fetch.
+  useEffect(() => {
+    for (const t of visibleTabs) {
+      router.prefetch(`/${t.k}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewTabsKey]);
+
   useEffect(() => {
     let alive = true;
-    fetchTabCounts({ tf: app.tf }).then((c) => {
-      if (alive) app.setCounts(c);
-    });
+    // Defer sidebar counts so home-page data wins the network burst after login.
+    // After first paint of the active tab — don't compete with fetchRows.
+    const t = window.setTimeout(() => {
+      fetchTabCounts({ tf: app.tf, tabs: app.viewTabs }).then((c) => {
+        if (alive) app.setCounts(c);
+      });
+    }, 1200);
     return () => {
       alive = false;
+      window.clearTimeout(t);
     };
+    // Stable string key — array identity must not retrigger when context rebuilds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [app.tf, pathname]);
+  }, [app.tf, viewTabsKey]);
 
   return (
-    <div className={`app-shell min-w-0 w-full${navOpen ? " nav-open" : ""}`}>
+    <div className={`app-shell min-w-0 w-full${navOpen ? " nav-open" : ""}${navigating ? " is-navigating" : ""}`}>
+      {navigating ? <div className="app-nav-progress" aria-hidden /> : null}
       <PresenceTracker />
       <div className="app-atmosphere" aria-hidden>
         <div className="app-atmosphere-wash" />
@@ -120,11 +183,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     <button
                       key={t.k}
                       type="button"
-                      onClick={() => {
-                        app.setQuery("");
-                        setNavOpen(false);
-                        router.push(`/${t.k}`);
-                      }}
+                      onClick={() => goTab(t.k)}
+                      onMouseEnter={() => router.prefetch(`/${t.k}`)}
                       className={`crm-nav app-nav-btn${at ? " is-active" : ""}`}
                     >
                       <span style={{ fontSize: 15, flexShrink: 0 }}>{t.emoji}</span>
@@ -159,7 +219,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.55)" }}>{app.session.profile.title}</div>
           </div>
-          <button type="button" onClick={() => signOut()} title="Sign out" className="app-side-logout">
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                sessionStorage.removeItem(SIGN_IN_LOG_KEY);
+              } catch {
+                /* ignore */
+              }
+              void signOut();
+            }}
+            title="Sign out"
+            className="app-side-logout"
+          >
             <LogOut size={14} />
           </button>
         </div>
@@ -299,10 +371,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </span>
         </div>
 
-        <section className="app-content">
-          <div key={pathname} className="app-content-inner">
-            {children}
-          </div>
+        <section
+          className="app-content"
+          style={navigating ? { opacity: 0.72, transition: "opacity 120ms ease" } : undefined}
+        >
+          <div className="app-content-inner">{children}</div>
         </section>
       </main>
 

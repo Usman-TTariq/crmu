@@ -65,9 +65,12 @@ export default function BreakControl() {
   }, []);
 
   useEffect(() => {
-    load();
-    const t = window.setInterval(load, 30_000);
-    return () => window.clearInterval(t);
+    const boot = window.setTimeout(load, 1500);
+    const t = window.setInterval(load, 60_000);
+    return () => {
+      window.clearTimeout(boot);
+      window.clearInterval(t);
+    };
   }, [load]);
 
   useEffect(() => {
@@ -79,6 +82,7 @@ export default function BreakControl() {
   useEffect(() => {
     if (!userId) return;
     const supabase = createClient();
+    let debounce: ReturnType<typeof setTimeout> | null = null;
     const channel = supabase
       .channel("my-break-presence")
       .on(
@@ -89,10 +93,15 @@ export default function BreakControl() {
           table: "user_presence",
           filter: `user_id=eq.${userId}`,
         },
-        () => load()
+        () => {
+          // Own heartbeats also UPDATE this row — debounce so we don't hit /ceo every pulse.
+          if (debounce) clearTimeout(debounce);
+          debounce = setTimeout(() => load(), 5_000);
+        }
       )
       .subscribe();
     return () => {
+      if (debounce) clearTimeout(debounce);
       void supabase.removeChannel(channel);
     };
   }, [load, userId]);

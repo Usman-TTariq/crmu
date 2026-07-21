@@ -1,6 +1,6 @@
 "use client";
 
-// Supervisor panel: open team disputes — approve (back to QA) or disapprove.
+// Supervisor / AVP panel: open disputes — approve (back to QA/OPS) or disapprove.
 
 import React, { useCallback, useEffect, useState } from "react";
 import { Scale } from "lucide-react";
@@ -11,10 +11,16 @@ import {
   reviewDispute,
   type DisputeRow,
 } from "@/actions/disputes";
+import {
+  fetchOpenOpsDisputes,
+  reviewOpsDispute,
+} from "@/actions/ops-disputes";
 
 export default function DisputePanel({
+  variant = "qa",
   onChanged,
 }: {
+  variant?: "qa" | "ops";
   onChanged?: () => void;
 }) {
   const [rows, setRows] = useState<DisputeRow[]>([]);
@@ -23,11 +29,12 @@ export default function DisputePanel({
   const [notes, setNotes] = useState<Record<string, string>>({});
 
   const load = useCallback(() => {
-    fetchOpenDisputes().then((res) => {
+    const fetcher = variant === "ops" ? fetchOpenOpsDisputes : fetchOpenDisputes;
+    fetcher().then((res) => {
       setRows(res.rows || []);
       setErr(res.error || "");
     });
-  }, []);
+  }, [variant]);
 
   useEffect(() => {
     load();
@@ -35,11 +42,18 @@ export default function DisputePanel({
 
   const decide = async (id: string, decision: "approved" | "disapproved") => {
     setBusyId(id);
-    const res = await reviewDispute({
-      disputeId: id,
-      decision,
-      note: notes[id] || "",
-    });
+    const res =
+      variant === "ops"
+        ? await reviewOpsDispute({
+            disputeId: id,
+            decision,
+            note: notes[id] || "",
+          })
+        : await reviewDispute({
+            disputeId: id,
+            decision,
+            note: notes[id] || "",
+          });
     setBusyId(null);
     if (res.error) {
       window.alert(res.error);
@@ -48,6 +62,15 @@ export default function DisputePanel({
     load();
     onChanged?.();
   };
+
+  const sqlHint =
+    variant === "ops"
+      ? "OPS dispute SQL not applied yet. Run sql/38_ops_disputes.sql in Supabase."
+      : "Dispute SQL not applied yet. Run sql/33_qa_disputes.sql in Supabase.";
+  const approveLabel = variant === "ops" ? "Approve → OPS QA" : "Approve → QA";
+  const title = variant === "ops" ? "Open OPS disputes" : "Open disputes";
+  const waitingLabel =
+    variant === "ops" ? "awaiting AVP review" : "awaiting review";
 
   if (err && !rows.length) {
     return (
@@ -62,9 +85,7 @@ export default function DisputePanel({
           fontSize: 13,
         }}
       >
-        {err.includes("dispute") || err.includes("does not exist")
-          ? "Dispute SQL not applied yet. Run sql/33_qa_disputes.sql in Supabase."
-          : err}
+        {err.includes("dispute") || err.includes("does not exist") ? sqlHint : err}
       </div>
     );
   }
@@ -74,10 +95,10 @@ export default function DisputePanel({
   return (
     <div style={{ marginBottom: 14 }}>
       <Panel
-        title="Open disputes"
+        title={title}
         right={
           <span style={{ fontSize: 12, fontWeight: 700, color: C.inkSoft }}>
-            {rows.length} awaiting review
+            {rows.length} {waitingLabel}
           </span>
         }
       >
@@ -125,7 +146,7 @@ export default function DisputePanel({
                   className="app-cta"
                   style={{ fontSize: 12, padding: "7px 12px" }}
                 >
-                  Approve → QA
+                  {approveLabel}
                 </button>
                 <button
                   type="button"

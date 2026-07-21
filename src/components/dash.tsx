@@ -85,17 +85,70 @@ export function Bar({
   );
 }
 
+/** Stacked horizontal bar for multi-metric timelines (e.g. working / break / away). */
+export function StackedBar({
+  label,
+  segments,
+  max,
+  right,
+}: {
+  label: string;
+  segments: { value: number; color: string; title?: string }[];
+  max: number;
+  right?: string;
+}) {
+  const total = segments.reduce((s, x) => s + Math.max(0, x.value || 0), 0);
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4, gap: 8 }}>
+        <span style={{ color: C.ink, fontWeight: 600 }}>{label}</span>
+        <span className="mono" style={{ color: C.inkSoft, fontWeight: 700, flexShrink: 0 }}>
+          {right ?? numfmt(total)}
+        </span>
+      </div>
+      <div
+        style={{
+          height: 8,
+          background: C.lineSoft,
+          borderRadius: 6,
+          overflow: "hidden",
+          display: "flex",
+        }}
+        title={segments.map((s) => s.title || "").filter(Boolean).join(" · ")}
+      >
+        {segments.map((s, i) => {
+          const w = max > 0 ? Math.min(100, (Math.max(0, s.value) / max) * 100) : 0;
+          if (w <= 0) return null;
+          return (
+            <div
+              key={i}
+              style={{
+                height: "100%",
+                width: w + "%",
+                background: s.color,
+                flexShrink: 0,
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function Panel({
   title,
   color,
   children,
   style,
+  bodyStyle,
   right,
 }: {
   title: string;
   color?: string;
   children: React.ReactNode;
   style?: React.CSSProperties;
+  bodyStyle?: React.CSSProperties;
   right?: React.ReactNode;
 }) {
   return (
@@ -111,7 +164,7 @@ export function Panel({
         ...(style || {}),
       }}
     >
-      <div style={{ padding: "12px 18px", display: "flex", alignItems: "center", gap: 9, borderBottom: `1px solid ${C.lineSoft}` }}>
+      <div style={{ padding: "12px 18px", display: "flex", alignItems: "center", gap: 9, borderBottom: `1px solid ${C.lineSoft}`, flexShrink: 0 }}>
         <span
           style={{
             width: 8,
@@ -127,7 +180,7 @@ export function Panel({
         </span>
         {right}
       </div>
-      <div style={{ padding: "16px 18px" }}>{children}</div>
+      <div style={{ padding: "16px 18px", ...(bodyStyle || {}) }}>{children}</div>
     </div>
   );
 }

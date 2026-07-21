@@ -49,8 +49,10 @@ export default function LeadGenNotify() {
   const panelRef = useRef<HTMLDivElement>(null);
   const seenIds = useRef(new Set<string>());
   const myName = app.session.profile.full_name;
-  const isLeadGen =
-    app.role.key === "lg_agent" || app.role.key === "lg_sup";
+  const canNotify =
+    app.role.key === "lg_agent" ||
+    app.role.key === "lg_sup" ||
+    app.role.key === "closer";
 
   const unread = items.filter((n) => !n.read_at).length;
 
@@ -62,20 +64,20 @@ export default function LeadGenNotify() {
   }, []);
 
   useEffect(() => {
-    if (!isLeadGen) return;
+    if (!canNotify) return;
     void load();
-  }, [isLeadGen, load]);
+  }, [canNotify, load]);
 
   useEffect(() => {
-    if (!isLeadGen) return;
+    if (!canNotify) return;
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission === "default") {
       void Notification.requestPermission();
     }
-  }, [isLeadGen]);
+  }, [canNotify]);
 
   useEffect(() => {
-    if (!isLeadGen) return;
+    if (!canNotify) return;
     const supabase = createClient();
     const channel = supabase
       .channel(`crm-notifications-${myName}`)
@@ -112,7 +114,7 @@ export default function LeadGenNotify() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [isLeadGen, myName]);
+  }, [canNotify, myName]);
 
   useEffect(() => {
     if (!open) return;
@@ -135,8 +137,9 @@ export default function LeadGenNotify() {
     setOpen(false);
     setToasts((prev) => prev.filter((t) => t.id !== n.id));
     if (n.lead_id) {
-      app.jumpTo("leadgen", n.lead_id);
-      router.push("/leadgen");
+      const tab = n.kind === "ops_disqualified" ? "closer" : "leadgen";
+      app.jumpTo(tab, n.lead_id);
+      router.push(`/${tab}`);
     }
   };
 
@@ -147,7 +150,7 @@ export default function LeadGenNotify() {
     );
   };
 
-  if (!isLeadGen) return null;
+  if (!canNotify) return null;
 
   return (
     <>
@@ -187,7 +190,7 @@ export default function LeadGenNotify() {
                     onClick={() => void openLead(n)}
                   >
                     <div className="lg-notify-avatar" aria-hidden>
-                      QA
+                      {n.kind === "ops_disqualified" ? "OPS" : "QA"}
                     </div>
                     <div className="lg-notify-row-body">
                       <div className="lg-notify-row-title">{n.title}</div>
@@ -222,10 +225,12 @@ export default function LeadGenNotify() {
               onClick={() => void openLead(t)}
             >
               <div className="lg-notify-avatar lg-notify-avatar-lg" aria-hidden>
-                QA
+                {t.kind === "ops_disqualified" ? "OPS" : "QA"}
               </div>
               <div>
-                <div className="lg-desktop-toast-source">Quality Assurance</div>
+                <div className="lg-desktop-toast-source">
+                  {t.kind === "ops_disqualified" ? "OPS QA" : "Quality Assurance"}
+                </div>
                 <div className="lg-desktop-toast-msg">
                   <strong>{t.title}</strong>
                   {t.body ? `: ${t.body}` : ""}

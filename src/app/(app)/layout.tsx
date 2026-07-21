@@ -25,7 +25,10 @@ export default async function AppLayout({
 
   const supabase = await createClient();
   const [{ data: profiles }, viewAsName] = await Promise.all([
-    supabase.from("profiles").select("*").order("full_name"),
+    supabase
+      .from("profiles")
+      .select("id, user_id, full_name, title, dept, team, role_key, target, is_active, notes")
+      .order("full_name"),
     getViewAsName(),
   ]);
 

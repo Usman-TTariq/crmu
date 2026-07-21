@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { logActivity, profileByUserId } from "@/lib/activity-log";
+import { logActivity } from "@/lib/activity-log";
 import { getSession } from "@/lib/session";
 
 export interface SignInPayload {
@@ -11,31 +11,45 @@ export interface SignInPayload {
   password: string;
 }
 
-export async function signIn(payload: SignInPayload): Promise<{ error?: string }> {
+/** Touch Supabase Auth early so TLS is warm before signIn (login page mount). */
+export async function warmAuth(): Promise<void> {
+  try {
+    const supabase = await createClient();
+    await supabase.auth.getSession();
+  } catch {
+    // ignore — best-effort warm-up only
+  }
+}
+
+/**
+ * Server-side password auth (browser→Supabase often fails with "Failed to fetch"
+ * due to CORS / network blocks). Auth only — no profile lookup, no redirect throw.
+ * Client navigates after cookies are set. Audit log is AppShell logSignIn.
+ */
+export async function signIn(
+  payload: SignInPayload
+): Promise<{ error?: string; ok?: boolean }> {
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: payload.email,
+  const { error } = await supabase.auth.signInWithPassword({
+    email: String(payload.email || "").trim(),
     password: payload.password,
   });
   if (error) return { error: error.message };
+  return { ok: true };
+}
 
-  const userId = data.user?.id;
-  if (userId) {
-    const profile = await profileByUserId(userId);
-    if (profile) {
-      await logActivity({
-        action: "auth.sign_in",
-        summary: `Signed in · ${profile.full_name}`,
-        actorOverride: {
-          userId,
-          name: profile.full_name,
-          role: profile.role_key,
-        },
-      });
-    }
+/** Fire-and-forget sign-in audit (called once from AppShell after landing). */
+export async function logSignIn(): Promise<void> {
+  try {
+    const session = await getSession();
+    if (!session) return;
+    await logActivity({
+      action: "auth.sign_in",
+      summary: `Signed in · ${session.profile.full_name}`,
+    });
+  } catch {
+    // Never break the app for logging.
   }
-
-  redirect("/");
 }
 
 export async function signOut(): Promise<void> {

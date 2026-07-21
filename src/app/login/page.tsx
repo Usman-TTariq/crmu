@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { signIn } from "@/actions/auth";
+import { signIn, warmAuth } from "@/actions/auth";
+
+const HOME_KEY = "crm_home";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -10,6 +12,11 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Warm Next↔Supabase connection while the user types credentials.
+  useEffect(() => {
+    void warmAuth();
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,7 +26,16 @@ export default function LoginPage() {
     if (res?.error) {
       setError(res.error);
       setBusy(false);
+      return;
     }
+    let home = "/";
+    try {
+      const saved = localStorage.getItem(HOME_KEY);
+      if (saved && saved.startsWith("/")) home = saved;
+    } catch {
+      /* ignore */
+    }
+    window.location.assign(home);
   };
 
   return (

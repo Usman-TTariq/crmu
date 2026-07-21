@@ -10,8 +10,9 @@ import {
   type TabKey,
   CEO_ROLES,
   MGR_ROLES,
-  DELETE_ROLES,
+  RECORD_DELETE_EMAILS,
   MONITOR_ROLES,
+  COUNSELLING_ROLES,
 } from "@/lib/constants";
 import type { OptsCtx } from "@/lib/schemas";
 
@@ -35,6 +36,7 @@ interface AppCtx {
   editTabs: TabKey[];
   canSeeCeo: boolean;
   canSeeMonitor: boolean;
+  canSeeCounselling: boolean;
   isManager: boolean;
   canDelete: boolean;
   /** When set, CEO/Super Admin is signed in as this person (View as). */
@@ -114,6 +116,17 @@ export function AppProvider({
 
   const role = roleByKey(session.profile.role_key);
 
+  // Stable across toast/count updates — otherwise AppShell refetches forever.
+  const viewTabs = useMemo(() => resolveTabs(role.view), [role.view]);
+  const editTabs = useMemo(() => resolveTabs(role.edit), [role.edit]);
+  const canSeeCeo = CEO_ROLES.includes(role.key);
+  const canSeeMonitor = MONITOR_ROLES.includes(role.key);
+  const canSeeCounselling = COUNSELLING_ROLES.includes(role.key);
+  const isManager = MGR_ROLES.includes(role.key);
+  const canDelete = RECORD_DELETE_EMAILS.includes(
+    String(session.email || "").trim().toLowerCase()
+  );
+
   const opts: OptsCtx = useMemo(() => {
     const byTitle = (...titles: string[]) =>
       profiles.filter((p) => titles.includes(p.title) && p.is_active).map((p) => p.full_name);
@@ -140,12 +153,13 @@ export function AppProvider({
       session,
       profiles,
       role,
-      viewTabs: resolveTabs(role.view),
-      editTabs: resolveTabs(role.edit),
-      canSeeCeo: CEO_ROLES.includes(role.key),
-      canSeeMonitor: MONITOR_ROLES.includes(role.key),
-      isManager: MGR_ROLES.includes(role.key),
-      canDelete: DELETE_ROLES.includes(role.key),
+      viewTabs,
+      editTabs,
+      canSeeCeo,
+      canSeeMonitor,
+      canSeeCounselling,
+      isManager,
+      canDelete,
       viewAsName,
       opts,
       tf,
@@ -162,7 +176,31 @@ export function AppProvider({
       jumpTo,
       clearPendingOpen,
     }),
-    [session, profiles, role, viewAsName, opts, tf, query, toasts, pushToasts, requestAdd, onAdd, counts, setCounts, pendingOpen, jumpTo, clearPendingOpen]
+    [
+      session,
+      profiles,
+      role,
+      viewTabs,
+      editTabs,
+      canSeeCeo,
+      canSeeMonitor,
+      canSeeCounselling,
+      isManager,
+      canDelete,
+      viewAsName,
+      opts,
+      tf,
+      query,
+      toasts,
+      pushToasts,
+      requestAdd,
+      onAdd,
+      counts,
+      setCounts,
+      pendingOpen,
+      jumpTo,
+      clearPendingOpen,
+    ]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

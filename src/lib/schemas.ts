@@ -142,7 +142,13 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
         return "";
       },
     },
-    { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
+    {
+      k: "notes",
+      label: "Notes",
+      type: "text",
+      long: true,
+      hideTable: true,
+    },
     { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
   qa: [
@@ -211,14 +217,70 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "updated_at", label: "Last Edited", type: "computed", mono: true, fmt: "stamp", compute: (r) => r.updated_at },
     { k: "updated_by_name", label: "Edited By", type: "computed", isPill: true, compute: (r) => r.updated_by_name || "-" },
     { k: "created_by_name", label: "Created By", type: "computed", isPill: true, compute: (r) => r.created_by_name || "-" },
+    { k: "lead_source", label: "Lead Source", type: "select", opts: LEAD_SOURCES, readOnly: true, hideTable: true },
     { k: "business_name", label: "Business Name", type: "text", readOnly: true },
     { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
     { k: "phone", label: "Phone", type: "phone", mono: true, readOnly: true },
-    { k: "state", label: "State", type: "text", readOnly: true },
+    { k: "email", label: "Email", type: "text", readOnly: true, hideTable: true },
+    { k: "business_address", label: "Business Address", type: "address", readOnly: true, hideTable: true },
+    {
+      k: "state",
+      label: "State",
+      type: "select",
+      editable: true,
+      opts: () => usStateCodes(),
+      optLabel: usStateLabel,
+      readOnly: true,
+    },
+    {
+      k: "city",
+      label: "City",
+      type: "select",
+      editable: true,
+      requires: "state",
+      opts: (_c, r) => cityOptionsForState(r?.state, r?.city),
+      readOnly: true,
+      hideTable: true,
+    },
+    {
+      k: "zip_code",
+      label: "Zip Code",
+      type: "select",
+      editable: true,
+      requires: "city",
+      opts: (_c, r) => zipOptionsForCity(r?.state, r?.city, r?.zip_code),
+      readOnly: true,
+      hideTable: true,
+    },
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
     { k: "assigned_date", label: "Assigned Date", type: "date" },
-    { k: "closer", label: "Closer", type: "text", readOnly: true },
+    { k: "closer", label: "Closer", type: "select", opts: (c) => c.closers, readOnly: true },
     { k: "stage", label: "Stage", type: "select", opts: CLOSER_STAGES },
+    {
+      k: "ops_outcome",
+      label: "OPS Outcome",
+      type: "computed",
+      isPill: true,
+      compute: (r) => {
+        if (r.ops_status === "Disapproved") return "Disqualified by OPS";
+        if (r.ops_status === "Approved") return "OPS Approved";
+        if (r.ops_status === "Pending" && r.returned_after_ops_dispute) return "Back to OPS QA";
+        if (r.ops_status === "Pending") return "In OPS QA";
+        return "";
+      },
+    },
+    {
+      k: "ops_dispute_status_label",
+      label: "OPS Dispute",
+      type: "computed",
+      isPill: true,
+      compute: (r) => {
+        if (r.ops_dispute_status === "open") return "OPS dispute open";
+        if (r.ops_dispute_status === "disapproved") return "OPS dispute disapproved";
+        if (r.ops_dispute_status === "approved") return "OPS dispute approved → OPS";
+        return "";
+      },
+    },
     { k: "lost_reason", label: "Lost Reason", type: "text", long: true, hideTable: true },
     { k: "connected_date", label: "Connected Date", type: "date" },
     { k: "docs_pending_date", label: "Docs Pending Date", type: "date" },
@@ -273,6 +335,13 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "owner_phone_verified", label: "Owner Phone Verified?", type: "select", opts: YN },
     { k: "business_verified", label: "Business Verified?", type: "select", opts: YN },
     { k: "ops_status", label: "Approval / Disapproval", type: "select", opts: OPS_STATUS },
+    {
+      k: "after_ops_dispute",
+      label: "After dispute",
+      type: "computed",
+      isPill: true,
+      compute: (r) => (r.returned_after_ops_dispute || r.after_ops_dispute ? "After OPS dispute" : ""),
+    },
     { k: "reasoning", label: "Reasoning", type: "text", long: true },
     { k: "ops_agent", label: "OPS QA Agent", type: "select", opts: (c) => c.opsVerifiers },
     { k: "ops_date", label: "OPS Date", type: "date" },

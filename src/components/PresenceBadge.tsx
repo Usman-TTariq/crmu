@@ -8,7 +8,6 @@ import { useRouter } from "next/navigation";
 import { Activity } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { useApp } from "@/components/app-context";
-import { createClient } from "@/lib/supabase/client";
 import { fetchPresenceBoard } from "@/actions/presence";
 
 export default function PresenceBadge() {
@@ -28,33 +27,14 @@ export default function PresenceBadge() {
     });
   }, [app.canSeeMonitor]);
 
-  useEffect(() => {
-    load();
-    const t = window.setInterval(load, 60_000);
-    return () => window.clearInterval(t);
-  }, [load]);
-
+  // Poll only — user_presence realtime fires on every heartbeat (shows as /ceo spam).
   useEffect(() => {
     if (!app.canSeeMonitor) return;
-    const supabase = createClient();
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    const schedule = () => {
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => load(), 400);
-    };
-
-    const channel = supabase
-      .channel("presence-badge-alerts")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "user_presence" },
-        schedule
-      )
-      .subscribe();
-
+    const boot = window.setTimeout(load, 2000);
+    const t = window.setInterval(load, 120_000);
     return () => {
-      if (debounce) clearTimeout(debounce);
-      void supabase.removeChannel(channel);
+      window.clearTimeout(boot);
+      window.clearInterval(t);
     };
   }, [app.canSeeMonitor, load]);
 

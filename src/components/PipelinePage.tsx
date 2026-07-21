@@ -15,31 +15,35 @@ import DisputePanel from "@/components/DisputePanel";
 import { createClient } from "@/lib/supabase/client";
 import {
   fetchRows,
+  fetchRowsTotal,
   fetchRowByLeadId,
   fetchOpsAccuracyStats,
   saveRecord,
   deleteRecord,
   createManualOpsRecord,
+  createManualCloserRecord,
   fetchTabCounts,
   addLeadComment,
   fetchLeadComments,
 } from "@/actions/data";
 import { openDispute } from "@/actions/disputes";
+import { openOpsDispute } from "@/actions/ops-disputes";
+import { saveLeadNotes } from "@/actions/lead-notes";
 import type { LeadComment } from "@/lib/types";
+import {
+  getPipelineCache,
+  invalidatePipelineCache,
+  pipelineCacheKey,
+  setPipelineCache,
+  touchPipelineCacheTotal,
+} from "@/lib/pipeline-cache";
 
-/** Match DataTable cell padding (~38–42px). */
-const TABLE_ROW_PX = 42;
-const TABLE_HEAD_PX = 40;
-const PAGER_PX = 56;
-const PAGE_SIZE_MIN = 8;
-const PAGE_SIZE_MAX = 100;
-const VIEWPORT_BOTTOM_PAD = 20;
-/** Ignore tiny ResizeObserver flaps that would re-fetch and flash the loader. */
-const PAGE_SIZE_DEBOUNCE_MS = 200;
+/** Fixed page size — table grows with rows (page scrolls); no empty minHeight gap. */
+const PAGE_SIZE = 50;
 /** Don't hard-refresh on every window focus — only if data is this stale. */
 const FOCUS_REFRESH_MIN_MS = 30_000;
-/** Background (realtime) refetch debounce. */
-const LIVE_REFRESH_DEBOUNCE_MS = 800;
+/** Background (realtime) refetch debounce — leads table is busy team-wide. */
+const LIVE_REFRESH_DEBOUNCE_MS = 2500;
 
 const PIPELINE_COMMENT_TABS: TabKey[] = [
   "leadgen",
@@ -100,6 +104,26 @@ function buildDefault(tab: TabKey): Rec {
       notes: "",
     };
   }
+  if (tab === "closer") {
+    return {
+      ...base,
+      lead_source: "Closer Direct",
+      business_name: "",
+      owner_name: "",
+      phone: "",
+      email: "",
+      business_address: "",
+      city: "",
+      zip_code: "",
+      state: "",
+      monthly_volume: "",
+      assigned_date: today(),
+      closer: "",
+      stage: "No Answer",
+      notes: "",
+      attachments: [],
+    };
+  }
   return base;
 }
 
@@ -111,8 +135,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   const [rows, setRows] = useState<Rec[] | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  /** 0 = not measured yet — wait before first fetch. */
-  const [pageSize, setPageSize] = useState(0);
+  const pageSize = PAGE_SIZE;
   const [searchQ, setSearchQ] = useState("");
   /** True only for intentional page/search/tf fetches — not silent live sync. */
   const [pageFetching, setPageFetching] = useState(false);
@@ -127,65 +150,19 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   const tableShellRef = useRef<HTMLDivElement>(null);
   const fetchGen = useRef(0);
   const lastFetchAt = useRef(0);
-  const pageSizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pageSizeReadyRef = useRef(false);
+  const refreshRef = useRef<(opts?: { silent?: boolean }) => Promise<void>>(async () => {});
+  const silentInFlight = useRef(false);
+  const silentQueued = useRef(false);
 
   const canEdit = app.editTabs.includes(tab);
   const notAllowed = !app.viewTabs.includes(tab);
-  const pageSizeReady = pageSize > 0;
-  const initialLoading = rows === null || !pageSizeReady;
+  const pageSizeReady = true;
+  const initialLoading = rows === null;
 
   const pushToasts = app.pushToasts;
   const setCounts = app.setCounts;
+  const viewTabs = app.viewTabs;
   const tf = app.tf;
-
-  // Fit as many rows as the viewport allows; pagination uses that size.
-  useEffect(() => {
-    if (notAllowed) return;
-    const el = tableShellRef.current;
-    if (!el) return;
-
-    const applySize = (next: number) => {
-      setPageSize((prev) => {
-        if (prev === next) return prev;
-        if (prev > 0) {
-          setPage((p) => {
-            const firstIdx = (p - 1) * prev;
-            return Math.floor(firstIdx / next) + 1;
-          });
-        }
-        pageSizeReadyRef.current = true;
-        return next;
-      });
-    };
-
-    const measure = () => {
-      const top = el.getBoundingClientRect().top;
-      const available = Math.max(0, window.innerHeight - top - VIEWPORT_BOTTOM_PAD);
-      const forRows = available - TABLE_HEAD_PX - PAGER_PX;
-      const next = Math.max(
-        PAGE_SIZE_MIN,
-        Math.min(PAGE_SIZE_MAX, Math.floor(forRows / TABLE_ROW_PX) || PAGE_SIZE_MIN)
-      );
-      if (pageSizeTimer.current) clearTimeout(pageSizeTimer.current);
-      // First paint: apply immediately so the initial fetch is not delayed.
-      if (!pageSizeReadyRef.current) {
-        applySize(next);
-        return;
-      }
-      pageSizeTimer.current = setTimeout(() => applySize(next), PAGE_SIZE_DEBOUNCE_MS);
-    };
-
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    window.addEventListener("resize", measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", measure);
-      if (pageSizeTimer.current) clearTimeout(pageSizeTimer.current);
-    };
-  }, [notAllowed, tab, opsBanner]);
 
   // Debounce header search → server `q`
   useEffect(() => {
@@ -199,57 +176,123 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     return () => clearTimeout(t);
   }, [app.query]);
 
-  // Reset page when tab / timeframe changes
+  // Reset page when tab / timeframe changes — restore cache instantly if warm.
   useEffect(() => {
     setPage(1);
-    setRows(null);
+    const key = pipelineCacheKey(tab, tf, 1, pageSize, searchQ);
+    const hit = getPipelineCache(key);
+    if (hit) {
+      setRows(hit.rows);
+      setTotal(hit.total);
+    } else {
+      setRows(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset on tab/tf; pageSize/search handled below
   }, [tab, tf]);
 
   const refresh = useCallback(
     async (opts?: { silent?: boolean }) => {
       if (!pageSizeReady) return;
       const silent = !!opts?.silent;
+      if (silent) {
+        if (silentInFlight.current) {
+          silentQueued.current = true;
+          return;
+        }
+        silentInFlight.current = true;
+      }
       const gen = ++fetchGen.current;
       if (!silent) setPageFetching(true);
-      const res = await fetchRows({ tab, tf, page, pageSize, q: searchQ || undefined });
-      if (gen !== fetchGen.current) return;
-      if (res.error) {
-        if (!silent) pushToasts([res.error]);
-        // Always clear — a silent fetch may have superseded a hard one mid-flight.
-        setPageFetching(false);
-        return;
-      }
-      setRows(res.rows);
-      setTotal(res.total);
-      lastFetchAt.current = Date.now();
-      setPageFetching(false);
-      // If delete emptied the last page, step back
-      const maxPage = Math.max(1, Math.ceil(res.total / pageSize) || 1);
-      if (page > maxPage) setPage(maxPage);
-      fetchTabCounts({ tf }).then((c) => setCounts(c));
-      if (tab === "ops") {
-        fetchOpsAccuracyStats({ tf }).then((s) => {
-          if (!s.error) setOpsBanner(s);
+      try {
+        const res = await fetchRows({
+          tab,
+          tf,
+          page,
+          pageSize,
+          q: searchQ || undefined,
+          skipCount: silent,
         });
-      } else {
-        setOpsBanner(null);
+        if (gen !== fetchGen.current) return;
+        if (res.error) {
+          if (!silent) pushToasts([res.error]);
+          setPageFetching(false);
+          return;
+        }
+        setRows(res.rows);
+        let nextTotal = 0;
+        setTotal((prev) => {
+          nextTotal = res.keepTotal ? prev : res.total;
+          const maxPage = Math.max(1, Math.ceil(nextTotal / pageSize) || 1);
+          if (page > maxPage) setPage(maxPage);
+          return nextTotal;
+        });
+        setPipelineCache(
+          pipelineCacheKey(tab, tf, page, pageSize, searchQ),
+          res.rows,
+          nextTotal || res.rows.length
+        );
+        lastFetchAt.current = Date.now();
+        setPageFetching(false);
+        if (!silent) {
+          fetchTabCounts({ tf, tabs: viewTabs }).then((c) => setCounts(c));
+          if (tab === "ops") {
+            fetchOpsAccuracyStats({ tf }).then((s) => {
+              if (!s.error) setOpsBanner(s);
+            });
+          } else {
+            setOpsBanner(null);
+          }
+        }
+      } finally {
+        if (silent) {
+          silentInFlight.current = false;
+          if (silentQueued.current) {
+            silentQueued.current = false;
+            void refreshRef.current({ silent: true });
+          }
+        }
       }
     },
-    [tab, tf, page, pageSize, pageSizeReady, searchQ, pushToasts, setCounts]
+    [tab, tf, page, pageSize, pageSizeReady, searchQ, pushToasts, setCounts, viewTabs]
   );
+
+  refreshRef.current = refresh;
 
   useEffect(() => {
     if (notAllowed || !pageSizeReady) return;
+    const key = pipelineCacheKey(tab, tf, page, pageSize, searchQ);
+    const hit = getPipelineCache(key);
+    if (hit) {
+      setRows(hit.rows);
+      setTotal(hit.total);
+      lastFetchAt.current = hit.at;
+    }
+
     const gen = ++fetchGen.current;
-    setPageFetching(true);
-    // Keep previous rows visible (stale-while-revalidate) — clearing felt like a full reload.
-    fetchRows({ tab, tf, page, pageSize, q: searchQ || undefined }).then((res) => {
+    // Only flash the loader when we have nothing cached to show.
+    if (!hit) setPageFetching(true);
+
+    // Skip COUNT(*) on first paint — pager total fills in right after.
+    fetchRows({
+      tab,
+      tf,
+      page,
+      pageSize,
+      q: searchQ || undefined,
+      skipCount: true,
+    }).then((res) => {
       if (gen !== fetchGen.current) return;
       if (res.error) pushToasts([res.error]);
       setRows(res.rows);
-      setTotal(res.total);
+      setPipelineCache(key, res.rows, hit?.total ?? res.rows.length);
       lastFetchAt.current = Date.now();
       setPageFetching(false);
+
+      void fetchRowsTotal({ tab, tf, q: searchQ || undefined }).then((c) => {
+        if (gen !== fetchGen.current || c.error) return;
+        setTotal(c.total);
+        touchPipelineCacheTotal(key, c.total);
+      });
     });
     if (tab === "ops") {
       fetchOpsAccuracyStats({ tf }).then((s) => {
@@ -271,8 +314,9 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       const leadId = String(r.lead_id || "");
       if (!leadId) return;
 
-      // List fetch is light — load drawer-only fields (comments / signed files) on open.
+      // List fetch is light — load full row / comments on open.
       if (
+        tab === "leadgen" ||
         tab === "closer" ||
         tab === "ops" ||
         tab === "documentation" ||
@@ -285,6 +329,18 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
               ? { ...d, record: res.row! }
               : d
           );
+          // Cross-page duplicate mark (list only checks the current page).
+          if (tab === "leadgen" && res.row.duplicate_of) {
+            setRows((prev) =>
+              prev
+                ? prev.map((row) =>
+                    String(row.lead_id) === leadId
+                      ? { ...row, duplicate_of: res.row!.duplicate_of }
+                      : row
+                  )
+                : prev
+            );
+          }
         });
         return;
       }
@@ -311,9 +367,10 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     const supabase = createClient();
     let debounce: ReturnType<typeof setTimeout> | null = null;
     const scheduleSilentRefresh = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => {
-        void refresh({ silent: true });
+        void refreshRef.current({ silent: true });
       }, LIVE_REFRESH_DEBOUNCE_MS);
     };
 
@@ -340,7 +397,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       window.removeEventListener("focus", onFocus);
       void supabase.removeChannel(channel);
     };
-  }, [tab, notAllowed, refresh]);
+  }, [tab, notAllowed]);
 
   // Deep-link: open record on current page, else fetch by lead_id.
   const pendingOpen = app.pendingOpen;
@@ -423,6 +480,8 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     let res;
     if (isNew && tab === "ops") {
       res = await createManualOpsRecord({ values });
+    } else if (isNew && tab === "closer") {
+      res = await createManualCloserRecord({ values });
     } else {
       res = await saveRecord({
         tab,
@@ -439,6 +498,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     if (res.messages?.length) app.pushToasts(res.messages);
 
     setDrawer(null);
+    invalidatePipelineCache(tab);
     refresh();
   };
 
@@ -449,6 +509,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       return;
     }
     setDrawer(null);
+    invalidatePipelineCache(tab);
     refresh();
   };
 
@@ -533,7 +594,15 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       ) : null}
 
       {tab === "leadgen" && app.role.key === "lg_sup" ? (
-        <DisputePanel onChanged={() => void refresh()} />
+        <DisputePanel variant="qa" onChanged={() => void refresh()} />
+      ) : null}
+
+      {tab === "closer" &&
+      (app.role.key === "avp_sales" ||
+        app.role.key === "sales_head" ||
+        app.role.key === "ceo" ||
+        app.role.key === "super_admin") ? (
+        <DisputePanel variant="ops" onChanged={() => void refresh()} />
       ) : null}
 
       <div
@@ -547,9 +616,6 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           boxShadow: "0 12px 34px rgba(46,4,10,0.30)",
           display: "flex",
           flexDirection: "column",
-          minHeight: pageSizeReady
-            ? TABLE_HEAD_PX + pageSize * TABLE_ROW_PX + PAGER_PX
-            : 240,
         }}
       >
         {initialLoading ? (
@@ -561,7 +627,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
               justifyContent: "center",
               gap: 14,
               padding: "72px 24px",
-              flex: 1,
+              minHeight: 240,
               color: C.inkSoft,
             }}
           >
@@ -586,7 +652,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           </div>
         ) : (
           <>
-            <div style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
+            <div style={{ position: "relative", overflowX: "auto" }}>
               {pageFetching && pageRows.length === 0 ? (
                 <div
                   style={{
@@ -599,6 +665,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
                     justifyContent: "center",
                     gap: 10,
                     background: "rgba(255,255,255,0.55)",
+                    minHeight: 180,
                   }}
                 >
                   <Loader2 size={22} className="spin" style={{ color: C.blue }} />
@@ -660,15 +727,38 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           onClose={() => setDrawer(null)}
           onSave={onSave}
           onDelete={onDelete}
+          disputeKind={tab === "closer" ? "ops" : "qa"}
           canDispute={
-            tab === "leadgen" &&
-            app.role.key === "lg_agent" &&
             !drawer.isNew &&
-            String(drawer.record.qa_outcome || "") === "Disqualified" &&
-            String(drawer.record.dispute_status || "") !== "open"
+            ((tab === "leadgen" &&
+              app.role.key === "lg_agent" &&
+              String(drawer.record.qa_outcome || "") === "Disqualified" &&
+              String(drawer.record.dispute_status || "") !== "open") ||
+              (tab === "closer" &&
+                app.role.key === "closer" &&
+                String(drawer.record.ops_status || "") === "Disapproved" &&
+                String(drawer.record.ops_dispute_status || "") !== "open"))
           }
           onOpenDispute={async (reason) => {
             const leadId = String(drawer.record.lead_id || "");
+            if (tab === "closer") {
+              const res = await openOpsDispute({ leadId, reason });
+              if (res.error) {
+                app.pushToasts([res.error]);
+                return;
+              }
+              app.pushToasts(["OPS dispute submitted to AVP Sales."]);
+              setDrawer({
+                record: {
+                  ...drawer.record,
+                  ops_dispute_status: "open",
+                  ops_dispute_reason: reason,
+                },
+                isNew: false,
+              });
+              refresh();
+              return;
+            }
             const res = await openDispute({ leadId, reason });
             if (res.error) {
               app.pushToasts([res.error]);
@@ -685,6 +775,39 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
             });
             refresh();
           }}
+          extraEditableKeys={
+            tab === "leadgen" &&
+            (app.role.key === "lg_agent" || app.role.key === "lg_sup") &&
+            !drawer.isNew
+              ? ["notes"]
+              : undefined
+          }
+          onSaveNotes={
+            tab === "leadgen" &&
+            (app.role.key === "lg_agent" || app.role.key === "lg_sup") &&
+            !drawer.isNew
+              ? async (notes) => {
+                  const leadId = String(drawer.record.lead_id || "");
+                  const res = await saveLeadNotes({ leadId, notes });
+                  if (res.error) {
+                    app.pushToasts([res.error]);
+                    return;
+                  }
+                  app.pushToasts(["Notes saved — visible to QA."]);
+                  setDrawer({
+                    record: { ...drawer.record, notes },
+                    isNew: false,
+                  });
+                  setRows((prev) =>
+                    prev
+                      ? prev.map((r) =>
+                          String(r.lead_id) === leadId ? { ...r, notes } : r
+                        )
+                      : prev
+                  );
+                }
+              : undefined
+          }
           allowComment={
             PIPELINE_COMMENT_TABS.includes(tab) && !!drawer.record.lead_id && !drawer.isNew
           }

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, SessionInfo } from "@/lib/types";
 
@@ -16,14 +17,15 @@ export async function requireAuth(): Promise<string> {
   return data.claims.sub;
 }
 
-export async function getSession(): Promise<SessionInfo | null> {
+/** Deduped per React request — layout + page share one session lookup. */
+export const getSession = cache(async (): Promise<SessionInfo | null> => {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getClaims();
   if (error || !data?.claims?.sub) return null;
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("*")
+    .select("id, user_id, full_name, title, dept, team, role_key, target, is_active, notes")
     .eq("user_id", data.claims.sub)
     .single();
 
@@ -35,7 +37,7 @@ export async function getSession(): Promise<SessionInfo | null> {
     email: String(data.claims.email || ""),
     profile: profile as Profile,
   };
-}
+});
 
 export async function requireSession(): Promise<SessionInfo> {
   const s = await getSession();

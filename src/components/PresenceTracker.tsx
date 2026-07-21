@@ -94,7 +94,8 @@ export default function PresenceTracker() {
     window.addEventListener("touchstart", bump, { passive: true });
     document.addEventListener("visibilitychange", onVis);
 
-    void pulse();
+    // Let the first screen fetch finish before competing for the connection.
+    const boot = window.setTimeout(() => void pulse(), 2000);
     const timer = window.setInterval(() => void pulse(), HEARTBEAT_MS);
 
     // Only mark offline on real tab/window close — NOT on React remount
@@ -105,6 +106,7 @@ export default function PresenceTracker() {
     window.addEventListener("pagehide", onHide);
 
     return () => {
+      window.clearTimeout(boot);
       window.clearInterval(timer);
       window.removeEventListener("mousemove", bumpMove);
       window.removeEventListener("mousedown", onClick);

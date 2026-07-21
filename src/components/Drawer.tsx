@@ -34,7 +34,11 @@ export default function Drawer({
   allowComment,
   onAddComment,
   canDispute,
+  disputeKind = "qa",
   onOpenDispute,
+  /** Keys that stay editable even when the drawer is otherwise read-only (e.g. LG notes). */
+  extraEditableKeys,
+  onSaveNotes,
 }: {
   tab: TabDef;
   fields: FieldDef[];
@@ -52,9 +56,14 @@ export default function Drawer({
   /** Pipeline comments: compose even when the rest of the drawer is read-only */
   allowComment?: boolean;
   onAddComment?: (body: string) => Promise<void>;
-  /** Lead Gen: show Create dispute when lead is Disqualified and no open dispute */
+  /** Show Create dispute when disqualified / OPS-disapproved and no open dispute */
   canDispute?: boolean;
+  /** Copy + banners for Lead Gen QA vs OPS disputes */
+  disputeKind?: "qa" | "ops";
   onOpenDispute?: (reason: string) => Promise<void>;
+  extraEditableKeys?: string[];
+  /** Notes-only save when drawer is read-only (Lead Gen → QA). */
+  onSaveNotes?: (notes: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<Rec>(() => {
     const base = ownerLock ? { ...record, [ownerLock.field]: ownerLock.value } : { ...record };
@@ -64,6 +73,15 @@ export default function Drawer({
   const [mounted, setMounted] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeBusy, setDisputeBusy] = useState(false);
+  const isOpsDispute = disputeKind === "ops";
+  const disputeStatus = isOpsDispute ? record.ops_dispute_status : record.dispute_status;
+  const disputeReasonShown = isOpsDispute ? record.ops_dispute_reason : record.dispute_reason;
+  const disputeReviewNote = isOpsDispute
+    ? record.ops_dispute_review_note
+    : record.dispute_review_note;
+  const afterDispute = isOpsDispute
+    ? record.returned_after_ops_dispute || record.after_ops_dispute
+    : record.returned_after_dispute || record.after_dispute;
 
   useEffect(() => {
     setMounted(true);
@@ -111,12 +129,21 @@ export default function Drawer({
   const visible = effFields.filter(
     (f) =>
       !(f.k === "lost_reason" && draft.stage !== "Closed Lost") &&
-      !(f.k === "fail_reason" && draft.decision !== "Fail")
+      !(f.k === "fail_reason" && draft.decision !== "Fail") &&
+      // Uploads need a lead_id in storage — hide until the record exists
+      !(isNew && f.type === "files")
   );
   const fullFields = visible.filter((f) => !f.long && f.type !== "thread" && f.type !== "files");
   const longFields = visible.filter((f) => f.long || f.type === "thread" || f.type === "files");
+  const isExtraEditable = (k: string) => !!extraEditableKeys?.includes(k);
+  const fieldReadOnly = (f: FieldDef) =>
+    !!f.readOnly || (readOnly && !isExtraEditable(f.k));
+  const notesDirty =
+    !!onSaveNotes &&
+    isExtraEditable("notes") &&
+    String(draft.notes || "") !== String(record.notes || "");
   const firstEdit = readOnly
-    ? null
+    ? (visible.find((x) => isExtraEditable(x.k) && !x.readOnly)?.k || null)
     : (
         visible.find(
           (x) =>
@@ -216,7 +243,7 @@ export default function Drawer({
           </div>
         ) : null}
 
-        {record.returned_after_dispute || record.after_dispute ? (
+        {afterDispute ? (
           <div
             style={{
               margin: "14px 22px 0",
@@ -230,11 +257,13 @@ export default function Drawer({
               lineHeight: 1.4,
             }}
           >
-            After dispute — supervisor approved a Lead Gen dispute on this lead.
+            {isOpsDispute
+              ? "After OPS dispute — AVP approved; this deal returned to OPS QA."
+              : "After dispute — supervisor approved a Lead Gen dispute on this lead."}
           </div>
         ) : null}
 
-        {record.dispute_status === "disapproved" ? (
+        {disputeStatus === "disapproved" ? (
           <div
             style={{
               margin: "14px 22px 0",
@@ -249,13 +278,13 @@ export default function Drawer({
             }}
           >
             Dispute disapproved
-            {record.dispute_review_note
-              ? ` — ${String(record.dispute_review_note)}`
+            {disputeReviewNote
+              ? ` — ${String(disputeReviewNote)}`
               : ". You may open a new dispute with a stronger reason."}
           </div>
         ) : null}
 
-        {record.dispute_status === "open" ? (
+        {disputeStatus === "open" ? (
           <div
             style={{
               margin: "14px 22px 0",
@@ -269,9 +298,11 @@ export default function Drawer({
               lineHeight: 1.4,
             }}
           >
-            Dispute open — waiting for your team supervisor.
-            {record.dispute_reason ? (
-              <div style={{ fontWeight: 600, marginTop: 4 }}>{String(record.dispute_reason)}</div>
+            {isOpsDispute
+              ? "OPS dispute open — waiting for AVP Sales review."
+              : "Dispute open — waiting for your team supervisor."}
+            {disputeReasonShown ? (
+              <div style={{ fontWeight: 600, marginTop: 4 }}>{String(disputeReasonShown)}</div>
             ) : null}
           </div>
         ) : null}
@@ -287,12 +318,23 @@ export default function Drawer({
             }}
           >
             <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink, marginBottom: 8 }}>
-              This lead was disqualified. Create a dispute for your supervisor.
+              {isOpsDispute
+                ? "Disqualified by OPS. Create a dispute for AVP Sales."
+                : "This lead was disqualified. Create a dispute for your supervisor."}
             </div>
+            {isOpsDispute && record.ops_reasoning ? (
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.inkSoft, marginBottom: 8 }}>
+                OPS reason: {String(record.ops_reasoning)}
+              </div>
+            ) : null}
             <textarea
               value={disputeReason}
               onChange={(e) => setDisputeReason(e.target.value)}
-              placeholder="Why should QA reverse this disqualification?"
+              placeholder={
+                isOpsDispute
+                  ? "Why should OPS reverse this disapproval?"
+                  : "Why should QA reverse this disqualification?"
+              }
               rows={3}
               className="app-control"
               style={{ width: "100%", fontSize: 13, resize: "vertical", marginBottom: 8 }}
@@ -331,7 +373,7 @@ export default function Drawer({
                 opts={opts}
                 onChange={onChange}
                 onPatch={onPatch}
-                readOnly={readOnly}
+                readOnly={fieldReadOnly(f)}
                 manager={manager}
                 autoFocus={f.k === firstEdit}
                 locked={!!ownerLock && f.k === ownerLock.field}
@@ -351,7 +393,7 @@ export default function Drawer({
                   opts={opts}
                   onChange={onChange}
                   onPatch={onPatch}
-                  readOnly={readOnly}
+                  readOnly={fieldReadOnly(f)}
                   manager={manager}
                   autoFocus={f.k === firstEdit}
                   locked={!!ownerLock && f.k === ownerLock.field}
@@ -434,6 +476,34 @@ export default function Drawer({
               }}
             >
               {saving ? "Saving..." : "Add comment"}
+            </button>
+          ) : null}
+          {readOnly && notesDirty && onSaveNotes ? (
+            <button
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await onSaveNotes(String(draft.notes || ""));
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={saving}
+              className="btnp"
+              style={{
+                border: "none",
+                background: "linear-gradient(180deg,#ba161c,#8e1015)",
+                color: "#fff",
+                borderRadius: 10,
+                padding: "10px 22px",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: saving ? "default" : "pointer",
+                opacity: saving ? 0.7 : 1,
+                boxShadow: "0 6px 16px rgba(196,19,47,0.28)",
+              }}
+            >
+              {saving ? "Saving..." : "Save notes"}
             </button>
           ) : null}
           {!readOnly ? (

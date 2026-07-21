@@ -1,7 +1,7 @@
 // Domain constants ported from the prototype.
 // Person-specific demo roles are generalized into role templates (role_key on profiles).
 
-export const LEAD_SOURCES = ["Cold Calling", "PPC", "Referral", "Data Scrap", "Organic", "Other"];
+export const LEAD_SOURCES = ["Cold Calling", "PPC", "Referral", "Data Scrap", "Organic", "Closer Direct", "Other"];
 export const PROCESSORS = ["Square", "Toast", "Clover", "Stripe", "NRS", "Cash only", "None", "Other"];
 export const MSP_PROVIDERS = [
   "CardConnect/Soiree", "CardConnect/Genesys", "CardConnect/Meta", "Paysafe", "Nexio",
@@ -30,7 +30,7 @@ export const DEPTS = ["SALES", "OPS", "DOCUMENTATION", "ALL"];
 export const DOC_DECISIONS = ["Pending", "Pass", "Fail"];
 
 export type TabKey =
-  | "ceo" | "monitor" | "logs" | "leadgen" | "qa" | "sqlassign" | "closer" | "saleskpi"
+  | "ceo" | "monitor" | "counselling" | "logs" | "leadgen" | "qa" | "sqlassign" | "closer" | "saleskpi"
   | "documentation"
   | "ops" | "msp" | "fulfillment" | "leasing" | "retention" | "opskpi"
   | "teamsetup";
@@ -42,7 +42,7 @@ export const PIPE: [TabKey, string][] = [
 ];
 
 export const NAV_GROUPS: { label: string; keys: TabKey[] }[] = [
-  { label: "Overview", keys: ["ceo", "monitor", "logs"] },
+  { label: "Overview", keys: ["ceo", "monitor", "counselling", "logs"] },
   { label: "Sales", keys: ["leadgen", "qa", "sqlassign", "closer", "saleskpi"] },
   { label: "Documentation", keys: ["documentation"] },
   { label: "Operations", keys: ["ops", "msp", "fulfillment", "leasing", "retention", "opskpi"] },
@@ -66,11 +66,12 @@ export interface TabDef {
 export const TABS: TabDef[] = [
   { k: "ceo", label: "CEO Dashboard", emoji: "\u{1F4CA}", kind: "dashboard", div: "ALL" },
   { k: "monitor", label: "Employee Monitor", emoji: "\u{1F440}", kind: "dashboard", div: "ALL", note: "Logged in, declared breaks (tea/lunch/smoke), Away after 2 min idle, Logged out." },
+  { k: "counselling", label: "Stats Counselling", emoji: "\u{1F4C8}", kind: "dashboard", div: "ALL", note: "Team sales + attendance overview, plus Day-1 → today journey for any person (output charts and presence timeline)." },
   { k: "logs", label: "Activity Logs", emoji: "\u{1F4DC}", kind: "dashboard", div: "ALL", note: "Audit trail of CRM actions. Visible to CEO and Super Admin only. CEO account actions are not recorded." },
-  { k: "leadgen", label: "Lead Gen", emoji: "\u{1F4DD}", div: "SALES", dated: true, singular: "Lead", note: "Saving a lead instantly creates its QA record. The QA Outcome column shows whether QA later qualified or rejected it." },
+  { k: "leadgen", label: "Lead Gen", emoji: "\u{1F4DD}", div: "SALES", dated: true, singular: "Lead", note: "Saving a lead instantly creates its QA record. After create, fields stay locked — you can still add Notes (visible to QA) and comments, and dispute a Disqualified lead." },
   { k: "qa", label: "QA", emoji: "\u2705", div: "SALES", dated: true, note: "Qualify only when the 6 checks are Yes and volume is over $5k. Qualifying creates the SQL. Disqualifying returns the lead to Lead Gen for a possible dispute." },
   { k: "sqlassign", label: "SQL Assignment", emoji: "\u{1F3AF}", div: "SALES", dated: true, note: "Pick a closer (load shown) and set Status to Assigned to push it to the Closer Pipeline." },
-  { k: "closer", label: "Closer Pipeline", emoji: "\u{1F91D}", div: "SALES", dated: true, note: "Closed sends it to Documentation. Closed Lost needs a reason and stays in history. Not Interested closes the deal without Documentation/OPS." },
+  { k: "closer", label: "Closer Pipeline", emoji: "\u{1F91D}", div: "SALES", dated: true, singular: "Lead", note: "Add Lead creates a closer-direct deal (skips Lead Gen / QA / SQL). Closed sends it to Documentation. Closed Lost needs a reason and stays in history. Not Interested closes the deal without Documentation/OPS." },
   { k: "saleskpi", label: "Sales KPIs", emoji: "\u{1F4C8}", kind: "kpi", div: "SALES" },
   { k: "documentation", label: "Documentation", emoji: "\u{1F4C1}", div: "DOCUMENTATION", dated: true, singular: "Review", note: "Project Manager reviews closer docs. Pass sends the deal to OPS QA. Fail returns it to Closer as Docs Pending for Sales/AVP to fix." },
   { k: "ops", label: "OPS QA", emoji: "\u{1F50E}", div: "OPS", dated: true, singular: "Lead", note: "OPS QA verifies documents and records a reasoning for every decision. Approving with anything unverified auto-disapproves. Approved sends it to Onboarding." },
@@ -106,7 +107,7 @@ export const ROLES: RoleDef[] = [
   { key: "ceo", label: "CEO - Super Admin [ALL]", view: "all", edit: "all", home: "ceo", scope: "Full access. Sees and edits every department and the CEO dashboard." },
   { key: "super_admin", label: "Super Admin [ALL]", view: "all", edit: "all", home: "ceo", scope: "Full access. Sees and edits every department and the CEO dashboard." },
   { key: "sales_head", label: "Sales Head & QA [SALES]", view: "all", edit: "sales", home: "leadgen", scope: "Sees all data, edits only the Sales side. OPS tabs are read-only. Employee Monitor shows Lead Gen, Closers, and SQL (floor) logins. No CEO dashboard." },
-  { key: "avp_sales", label: "AVP Sales [SALES]", view: "sales", edit: "sales", home: "leadgen", scope: "Full access to every Sales tab (Lead Gen through Team Setup). No OPS or CEO dashboard." },
+  { key: "avp_sales", label: "AVP Sales [SALES]", view: "sales", edit: "sales", home: "leadgen", scope: "Full access to every Sales tab (Lead Gen through Team Setup). Reviews closer OPS disputes — approve returns the deal to OPS QA." },
   { key: "floor_manager", label: "Floor Manager [SALES]", view: ["sqlassign"], edit: [], home: "sqlassign", scope: "View only: every SQL across all teams. Cannot assign or edit — only Sales Head and AVP Sales can assign." },
   {
     key: "project_manager",
@@ -150,7 +151,7 @@ export const ROLES: RoleDef[] = [
     scope: "View team leads. Approve or disapprove Lead Gen disputes on disqualified leads.",
   },
   { key: "qa_agent", label: "QA Agent [SALES]", view: ["qa"], edit: ["qa"], home: "qa", row: { qa: "ownQA" }, scope: "Only the leads assigned to you for QA." },
-  { key: "closer", label: "Closer [SALES]", view: ["closer"], edit: ["closer"], home: "closer", row: { closer: "ownCloser" }, scope: "Only the deals assigned to you." },
+  { key: "closer", label: "Closer [SALES]", view: ["closer"], edit: ["closer"], home: "closer", row: { closer: "ownCloser" }, scope: "Only the deals assigned to you. You can also create direct leads that skip Lead Gen / QA and enter your pipeline. OPS-disapproved deals can be disputed to AVP Sales." },
   { key: "ops_verifier", label: "QA & Funding Lead [OPS]", view: ["ops", "documentation"], edit: ["ops"], home: "ops", scope: "Leads OPS QA. Sees, edits, assigns and revokes all OPS verification. Can view Documentation." },
   {
     key: "ops_qa_onb",
@@ -179,11 +180,14 @@ export const resolveTabs = (spec: RoleDef["view"]): TabKey[] =>
 
 export const CEO_ROLES = ["ceo", "super_admin"];
 export const MGR_ROLES = ["ceo", "super_admin", "ops_manager", "ops_am"];
-export const DELETE_ROLES = ["ceo", "super_admin", "ops_manager", "ops_am", "cs_head", "cs_lead"];
-export const ADDABLE: TabKey[] = ["leadgen", "ops", "teamsetup"];
+/** Only these login emails may delete pipeline records (leads / stage rows). */
+export const RECORD_DELETE_EMAILS = ["yasal.khan@tgtnexus.net"];
+export const ADDABLE: TabKey[] = ["leadgen", "closer", "teamsetup"];
 export const USER_ADMIN_ROLES = ["ceo", "super_admin"];
 /** Employee Monitor tab + presence RPCs (scoped board for sales_head / ops_manager). */
 export const MONITOR_ROLES = ["ceo", "super_admin", "sales_head", "ops_manager"];
+/** Stats Counselling — CEO / Super Admin / Sales Head only (not ops_manager). */
+export const COUNSELLING_ROLES = ["ceo", "super_admin", "sales_head"];
 
 // Owner field per row scope (matches profile full name stored on records)
 export const OWNER_FIELD: Record<RowScope, string> = {

@@ -9,7 +9,6 @@ import { useRouter } from "next/navigation";
 import { Activity, LogOut, MonitorSmartphone, RefreshCw, ShieldAlert } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { useApp } from "@/components/app-context";
-import { createClient } from "@/lib/supabase/client";
 import {
   fetchActiveSessions,
   signOutUserEverywhere,
@@ -78,34 +77,20 @@ export default function ActiveLogins() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep the badge count fresh; Realtime presence changes → refetch sessions
-  useEffect(() => {
-    load();
-    const t = window.setInterval(load, 60_000);
-    return () => window.clearInterval(t);
-  }, [load]);
-
+  // Poll only — realtime on user_presence refires on every heartbeat and floods /ceo.
   useEffect(() => {
     if (!app.canSeeCeo) return;
-    const supabase = createClient();
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    const schedule = () => {
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => load(), 500);
-    };
-    const channel = supabase
-      .channel("active-logins-presence")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "user_presence" },
-        schedule
-      )
-      .subscribe();
+    const boot = window.setTimeout(load, 2500);
+    const t = window.setInterval(load, 120_000);
     return () => {
-      if (debounce) clearTimeout(debounce);
-      void supabase.removeChannel(channel);
+      window.clearTimeout(boot);
+      window.clearInterval(t);
     };
   }, [app.canSeeCeo, load]);
+
+  useEffect(() => {
+    if (open) load();
+  }, [open, load]);
 
   useEffect(() => {
     if (!open) return;
