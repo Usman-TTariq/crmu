@@ -162,7 +162,7 @@ export default function BreakControl() {
           whiteSpace: "nowrap",
         }}
       >
-        <Coffee size={14} />
+        {breakType === "lunch" ? <Utensils size={14} /> : <Pause size={14} />}
         {labelOf(breakType)}
         <span className="mono" style={{ fontWeight: 700, opacity: 0.85 }}>
           {fmtElapsed(breakStartedAt)}
@@ -189,7 +189,7 @@ export default function BreakControl() {
           fontSize: 12.5,
         }}
       >
-        <Coffee size={14} style={{ color: C.inkSoft }} />
+        <Pause size={14} style={{ color: C.inkSoft }} />
         Break
       </button>
       {open ? (
