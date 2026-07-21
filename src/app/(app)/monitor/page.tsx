@@ -98,6 +98,14 @@ function awaySample(r: PresenceRow): number {
   return r.away_seconds || 0;
 }
 
+function generalBreakSample(r: PresenceRow): number {
+  return r.general_break_seconds || 0;
+}
+
+function lunchBreakSample(r: PresenceRow): number {
+  return r.lunch_break_seconds || 0;
+}
+
 function weekOnlineSample(r: PresenceRow): number {
   return (r.week_working_seconds || 0) + (r.week_idle_seconds || 0);
 }
@@ -135,12 +143,14 @@ function verdict(r: PresenceRow): { label: string; tone: keyof typeof TONES; det
     const started = r.break_started_at
       ? fmtDur(Math.max(0, Math.floor((Date.now() - new Date(r.break_started_at).getTime()) / 1000)))
       : "";
+    const todayOfType =
+      r.break_type === "lunch" ? lunchBreakSample(r) : generalBreakSample(r);
     return {
       label: breakLabel(r.break_type),
       tone: "info",
       detail: started
-        ? `On break for ${started} · ${fmtDur(r.break_seconds || 0)} break time today`
-        : `${fmtDur(r.break_seconds || 0)} break time today`,
+        ? `On break for ${started} · ${fmtDur(todayOfType)} today`
+        : `${fmtDur(todayOfType)} today`,
     };
   }
   if (isAway(r.status)) {
@@ -176,7 +186,9 @@ function csvEscape(v: string): string {
 
 function downloadPresenceCsv(rows: PresenceRow[], day: string) {
   const headers = [
-    "Name", "Title", "Team", "Status", "Online today", "Away today", "Online this week",
+    "Name", "Title", "Team", "Status", "Online today", "Away today",
+    "General break today", "Lunch break today", "Online this week",
+    "General break week", "Lunch break week",
     "Day % of 8h", "Week % of 40h", "Interactions", "Current tab", "Flag",
   ];
   const lines = [
@@ -190,7 +202,11 @@ function downloadPresenceCsv(rows: PresenceRow[], day: string) {
         statusLabel(r.status, r.break_type),
         fmtDur(onlineSample(r)),
         fmtDur(awaySample(r)),
+        fmtDur(generalBreakSample(r)),
+        fmtDur(lunchBreakSample(r)),
         fmtDur(weekOnlineSample(r)),
+        fmtDur(r.week_general_break_seconds || 0),
+        fmtDur(r.week_lunch_break_seconds || 0),
         String(dayProgress(r)),
         String(weekProgress(r)),
         String(r.interactions),
@@ -481,12 +497,14 @@ export default function MonitorPage() {
             <div style={{ padding: 20, color: C.inkSoft, fontWeight: 600 }}>No employees match this filter.</div>
           ) : (
             <div className="data-table-scroll">
-              <table style={{ width: "100%", minWidth: 420, borderCollapse: "collapse", fontSize: 13 }}>
+              <table style={{ width: "100%", minWidth: 640, borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ textAlign: "left", color: C.inkSoft, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                     <th style={{ padding: "8px 10px" }}>Employee</th>
                     <th style={{ padding: "8px 10px" }}>Status</th>
                     <th style={{ padding: "8px 10px" }}>Online today</th>
+                    <th style={{ padding: "8px 10px" }}>General break</th>
+                    <th style={{ padding: "8px 10px" }}>Lunch break</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -529,6 +547,12 @@ export default function MonitorPage() {
                               Away {fmtDur(awaySample(r))}
                             </div>
                           ) : null}
+                        </td>
+                        <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.info.fg, whiteSpace: "nowrap" }}>
+                          {fmtDur(generalBreakSample(r))}
+                        </td>
+                        <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.info.fg, whiteSpace: "nowrap" }}>
+                          {fmtDur(lunchBreakSample(r))}
                         </td>
                       </tr>
                     );
@@ -578,11 +602,13 @@ export default function MonitorPage() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                 <Mini label="Online today" value={fmtDur(onlineSample(selectedRow))} />
                 <Mini label="Away today" value={fmtDur(awaySample(selectedRow))} />
-                <Mini label="Break today" value={fmtDur(selectedRow.break_seconds || 0)} />
+                <Mini label="General break today" value={fmtDur(generalBreakSample(selectedRow))} />
+                <Mini label="Lunch break today" value={fmtDur(lunchBreakSample(selectedRow))} />
                 <Mini label="Day vs 8h" value={`${dayProgress(selectedRow)}%`} />
                 <Mini label="Online this week" value={fmtDur(weekOnlineSample(selectedRow))} />
+                <Mini label="General break week" value={fmtDur(selectedRow.week_general_break_seconds || 0)} />
+                <Mini label="Lunch break week" value={fmtDur(selectedRow.week_lunch_break_seconds || 0)} />
                 <Mini label="Away this week" value={fmtDur(selectedRow.week_away_seconds || 0)} />
-                <Mini label="Break this week" value={fmtDur(selectedRow.week_break_seconds || 0)} />
                 <Mini label="Week vs 40h" value={`${weekProgress(selectedRow)}%`} />
               </div>
               {selectedRow.week_start && selectedRow.week_end ? (
@@ -625,6 +651,18 @@ export default function MonitorPage() {
                               <span style={{ color: TONES.warn.fg, fontWeight: 700 }}>
                                 {" "}
                                 · Away {fmtDur(d.away_seconds)}
+                              </span>
+                            ) : null}
+                            {(d.general_break_seconds || 0) > 0 ? (
+                              <span style={{ color: TONES.info.fg, fontWeight: 700 }}>
+                                {" "}
+                                · Gen {fmtDur(d.general_break_seconds || 0)}
+                              </span>
+                            ) : null}
+                            {(d.lunch_break_seconds || 0) > 0 ? (
+                              <span style={{ color: TONES.info.fg, fontWeight: 700 }}>
+                                {" "}
+                                · Lunch {fmtDur(d.lunch_break_seconds || 0)}
                               </span>
                             ) : null}
                           </div>

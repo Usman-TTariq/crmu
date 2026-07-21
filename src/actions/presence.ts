@@ -32,6 +32,8 @@ export interface PresenceRow {
   idle_seconds_today: number;
   away_seconds: number;
   break_seconds?: number;
+  general_break_seconds?: number;
+  lunch_break_seconds?: number;
   interactions: number;
   heartbeats: number;
   tabs: Record<string, number>;
@@ -39,6 +41,8 @@ export interface PresenceRow {
   week_idle_seconds?: number;
   week_away_seconds?: number;
   week_break_seconds?: number;
+  week_general_break_seconds?: number;
+  week_lunch_break_seconds?: number;
   week_interactions?: number;
   week_start?: string;
   week_end?: string;
@@ -57,6 +61,9 @@ export interface PresenceDayRow {
   working_seconds: number;
   idle_seconds: number;
   away_seconds: number;
+  break_seconds?: number;
+  general_break_seconds?: number;
+  lunch_break_seconds?: number;
   interactions: number;
   heartbeats: number;
 }
@@ -153,7 +160,7 @@ export async function startBreak(
       if (msg.includes("presence_start_break") || msg.includes("does not exist")) {
         return {
           error:
-            "Break SQL not applied yet. Run sql/30_presence_breaks.sql (and sql/47_general_break.sql) in Supabase SQL Editor.",
+            "Break SQL not applied yet. Run sql/47_general_break.sql and sql/48_break_type_seconds.sql in Supabase SQL Editor.",
         };
       }
       return { error: msg };
