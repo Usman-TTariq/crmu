@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/session";
 
 export type PresenceStatus = "working" | "idle" | "away" | "offline" | "break";
-export type BreakType = "tea" | "lunch" | "smoke";
+export type BreakType = "general" | "lunch";
 
 export interface PresenceRow {
   user_id: string;
@@ -153,7 +153,7 @@ export async function startBreak(
       if (msg.includes("presence_start_break") || msg.includes("does not exist")) {
         return {
           error:
-            "Break SQL not applied yet. Run sql/30_presence_breaks.sql in Supabase SQL Editor.",
+            "Break SQL not applied yet. Run sql/30_presence_breaks.sql (and sql/47_general_break.sql) in Supabase SQL Editor.",
         };
       }
       return { error: msg };

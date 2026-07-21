@@ -133,7 +133,6 @@ export default function TeamSetupPage() {
   const tabDef = TABS.find((t) => t.k === "teamsetup")!;
   const fields = SCHEMAS.teamsetup;
   const isAdmin = USER_ADMIN_ROLES.includes(app.role.key);
-  // roster writes are admin-only, matching the profiles RLS policies
   const canEdit = app.editTabs.includes("teamsetup") && isAdmin;
   const canViewAs = isAdmin && !app.viewAsName;
   const [viewAsBusy, setViewAsBusy] = useState<string | null>(null);

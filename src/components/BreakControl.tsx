@@ -1,9 +1,9 @@
 "use client";
 
-// Header control: start Tea / Lunch / Smoke break, or end current break.
+// Header control: start General / Lunch break, or end current break.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Coffee, Utensils, Cigarette, X } from "lucide-react";
+import { Utensils, Pause, X } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import {
   endBreak,
@@ -15,15 +15,13 @@ import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/app-context";
 
 const BREAKS: { type: BreakType; label: string; icon: React.ReactNode }[] = [
-  { type: "tea", label: "Tea break", icon: <Coffee size={14} /> },
+  { type: "general", label: "Break", icon: <Pause size={14} /> },
   { type: "lunch", label: "Lunch break", icon: <Utensils size={14} /> },
-  { type: "smoke", label: "Smoke break", icon: <Cigarette size={14} /> },
 ];
 
 function labelOf(type: string): string {
-  if (type === "tea") return "Tea break";
   if (type === "lunch") return "Lunch break";
-  if (type === "smoke") return "Smoke break";
+  if (type === "general" || type === "tea" || type === "smoke") return "Break";
   return "On break";
 }
 

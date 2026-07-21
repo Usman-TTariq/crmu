@@ -65,7 +65,7 @@ export interface TabDef {
 
 export const TABS: TabDef[] = [
   { k: "ceo", label: "CEO Dashboard", emoji: "\u{1F4CA}", kind: "dashboard", div: "ALL" },
-  { k: "monitor", label: "Employee Monitor", emoji: "\u{1F440}", kind: "dashboard", div: "ALL", note: "Logged in, declared breaks (tea/lunch/smoke), Away after 2 min idle, Logged out." },
+  { k: "monitor", label: "Employee Monitor", emoji: "\u{1F440}", kind: "dashboard", div: "ALL", note: "Logged in, declared breaks (general/lunch), Away after 2 min idle, Logged out." },
   { k: "counselling", label: "Stats Counselling", emoji: "\u{1F4C8}", kind: "dashboard", div: "ALL", note: "Team sales + attendance overview, plus Day-1 → today journey for any person (output charts and presence timeline)." },
   { k: "logs", label: "Activity Logs", emoji: "\u{1F4DC}", kind: "dashboard", div: "ALL", note: "Audit trail of CRM actions. Visible to CEO and Super Admin only. CEO account actions are not recorded." },
   { k: "leadgen", label: "Lead Gen", emoji: "\u{1F4DD}", div: "SALES", dated: true, singular: "Lead", note: "Saving a lead instantly creates its QA record. After create, fields stay locked — you can still add Notes (visible to QA) and comments, and dispute a Disqualified lead." },

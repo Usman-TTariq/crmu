@@ -24,9 +24,8 @@ type SortKey = "status" | "day" | "week" | "name";
 type FilterKey = "all" | "online" | "break" | "away" | "offline" | "below";
 
 function breakLabel(type?: string | null): string {
-  if (type === "tea") return "Tea break";
   if (type === "lunch") return "Lunch break";
-  if (type === "smoke") return "Smoke break";
+  if (type === "general" || type === "tea" || type === "smoke") return "Break";
   return "On break";
 }
 
@@ -360,7 +359,7 @@ export default function MonitorPage() {
             Employee Monitor
           </div>
           <div className="app-page-lede">
-            Logged in · Breaks (tea/lunch/smoke) · Away after 2 min idle · Logged out · Asia/Karachi
+            Logged in · Breaks (general / lunch) · Away after 2 min idle · Logged out · Asia/Karachi
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -414,7 +413,7 @@ export default function MonitorPage() {
         }}
       >
         <Stat label="Logged in" value={counts.online} sub="Active input under 2 min" tone={TONES.good.fg} onClick={() => setFilter("online")} />
-        <Stat label="On break" value={counts.onBreak} sub="Tea / lunch / smoke" tone={TONES.info.fg} onClick={() => setFilter("break")} />
+        <Stat label="On break" value={counts.onBreak} sub="General / lunch" tone={TONES.info.fg} onClick={() => setFilter("break")} />
         <Stat label="Away" value={counts.away} sub="No mouse 2+ min" tone={TONES.warn.fg} onClick={() => setFilter("away")} />
         <Stat label="Logged out" value={counts.offline} sub="CRM closed / no signal" tone={C.inkSoft} onClick={() => setFilter("offline")} />
         <Stat label="Below target" value={counts.below} sub="< 50% of 8h (2h+ online)" tone={TONES.bad.fg} onClick={() => setFilter("below")} />
@@ -694,7 +693,7 @@ export default function MonitorPage() {
 
       <div style={{ marginTop: 14, fontSize: 12, fontWeight: 600, color: C.inkSoft, lineHeight: 1.45 }}>
         <b style={{ color: C.ink }}>Logged in</b> = active.{" "}
-        <b style={{ color: C.ink }}>On break</b> = tea / lunch / smoke (user selected).{" "}
+        <b style={{ color: C.ink }}>On break</b> = general / lunch (user selected).{" "}
         <b style={{ color: C.ink }}>Away</b> = no input 2+ min.{" "}
         <b style={{ color: C.ink }}>Logged out</b> = CRM closed.
       </div>
