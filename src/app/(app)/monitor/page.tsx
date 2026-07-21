@@ -94,10 +94,6 @@ function onlineSample(r: PresenceRow): number {
   return r.working_seconds || 0;
 }
 
-function awaySample(r: PresenceRow): number {
-  return r.away_seconds || 0;
-}
-
 function generalBreakSample(r: PresenceRow): number {
   return r.general_break_seconds || 0;
 }
