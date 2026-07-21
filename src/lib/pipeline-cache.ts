@@ -12,9 +12,10 @@ export function pipelineCacheKey(
   tf: Timeframe,
   page: number,
   pageSize: number,
-  q: string
+  q: string,
+  extra = ""
 ): string {
-  return `${tab}|${tf}|${page}|${pageSize}|${q}`;
+  return `${tab}|${tf}|${page}|${pageSize}|${q}|${extra}`;
 }
 
 export function getPipelineCache(key: string): Entry | null {

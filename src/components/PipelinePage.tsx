@@ -5,7 +5,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { num, isBlank, today } from "@/lib/format";
 import { SCHEMAS, TAB_TABLE, mspIsFatal } from "@/lib/schemas";
-import { TABS, ADDABLE, OWNER_FIELD, type TabKey } from "@/lib/constants";
+import { TABS, ADDABLE, OWNER_FIELD, QA_DECISIONS, type TabKey } from "@/lib/constants";
 import type { Rec } from "@/lib/types";
 import { useApp } from "@/components/app-context";
 import DataTable from "@/components/DataTable";
@@ -137,6 +137,8 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   const [total, setTotal] = useState(0);
   const pageSize = PAGE_SIZE;
   const [searchQ, setSearchQ] = useState("");
+  /** QA tab: "" = all, else Pending | Qualified | Disqualified. */
+  const [qaDecisionFilter, setQaDecisionFilter] = useState("");
   /** True only for intentional page/search/tf fetches — not silent live sync. */
   const [pageFetching, setPageFetching] = useState(false);
   const [opsBanner, setOpsBanner] = useState<{
@@ -176,10 +178,11 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     return () => clearTimeout(t);
   }, [app.query]);
 
-  // Reset page when tab / timeframe changes — restore cache instantly if warm.
+  // Reset page when tab / timeframe / QA filter changes — restore cache instantly if warm.
   useEffect(() => {
     setPage(1);
-    const key = pipelineCacheKey(tab, tf, 1, pageSize, searchQ);
+    if (tab !== "qa") setQaDecisionFilter("");
+    const key = pipelineCacheKey(tab, tf, 1, pageSize, searchQ, qaDecisionFilter);
     const hit = getPipelineCache(key);
     if (hit) {
       setRows(hit.rows);
@@ -187,8 +190,8 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     } else {
       setRows(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset on tab/tf; pageSize/search handled below
-  }, [tab, tf]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pageSize/search handled in fetch effect
+  }, [tab, tf, qaDecisionFilter]);
 
   const refresh = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -210,6 +213,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           page,
           pageSize,
           q: searchQ || undefined,
+          qaDecision: tab === "qa" ? qaDecisionFilter || undefined : undefined,
           skipCount: silent,
         });
         if (gen !== fetchGen.current) return;
@@ -227,7 +231,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           return nextTotal;
         });
         setPipelineCache(
-          pipelineCacheKey(tab, tf, page, pageSize, searchQ),
+          pipelineCacheKey(tab, tf, page, pageSize, searchQ, qaDecisionFilter),
           res.rows,
           nextTotal || res.rows.length
         );
@@ -253,14 +257,14 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
         }
       }
     },
-    [tab, tf, page, pageSize, pageSizeReady, searchQ, pushToasts, setCounts, viewTabs]
+    [tab, tf, page, pageSize, pageSizeReady, searchQ, qaDecisionFilter, pushToasts, setCounts, viewTabs]
   );
 
   refreshRef.current = refresh;
 
   useEffect(() => {
     if (notAllowed || !pageSizeReady) return;
-    const key = pipelineCacheKey(tab, tf, page, pageSize, searchQ);
+    const key = pipelineCacheKey(tab, tf, page, pageSize, searchQ, qaDecisionFilter);
     const hit = getPipelineCache(key);
     if (hit) {
       setRows(hit.rows);
@@ -279,6 +283,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       page,
       pageSize,
       q: searchQ || undefined,
+      qaDecision: tab === "qa" ? qaDecisionFilter || undefined : undefined,
       skipCount: true,
     }).then((res) => {
       if (gen !== fetchGen.current) return;
@@ -288,7 +293,12 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       lastFetchAt.current = Date.now();
       setPageFetching(false);
 
-      void fetchRowsTotal({ tab, tf, q: searchQ || undefined }).then((c) => {
+      void fetchRowsTotal({
+        tab,
+        tf,
+        q: searchQ || undefined,
+        qaDecision: tab === "qa" ? qaDecisionFilter || undefined : undefined,
+      }).then((c) => {
         if (gen !== fetchGen.current || c.error) return;
         setTotal(c.total);
         touchPipelineCacheTotal(key, c.total);
@@ -301,7 +311,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     } else {
       setOpsBanner(null);
     }
-  }, [tab, tf, page, pageSize, pageSizeReady, searchQ, notAllowed, pushToasts]);
+  }, [tab, tf, page, pageSize, pageSizeReady, searchQ, qaDecisionFilter, notAllowed, pushToasts]);
 
   const changePage = useCallback((next: number) => {
     setPage(next);
@@ -603,6 +613,48 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
         app.role.key === "ceo" ||
         app.role.key === "super_admin") ? (
         <DisputePanel variant="ops" onChanged={() => void refresh()} />
+      ) : null}
+
+      {tab === "qa" ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            marginBottom: 12,
+          }}
+        >
+          <label
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: C.inkSoft,
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            QA Decision
+          </label>
+          <select
+            className="app-control"
+            value={qaDecisionFilter}
+            onChange={(e) => {
+              setQaDecisionFilter(e.target.value);
+              setPage(1);
+            }}
+            title="Filter by QA decision"
+            aria-label="Filter by QA decision"
+            style={{ minWidth: 160 }}
+          >
+            <option value="">All decisions</option>
+            {QA_DECISIONS.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </div>
       ) : null}
 
       <div

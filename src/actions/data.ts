@@ -297,8 +297,23 @@ export interface FetchRowsPayload {
   pageSize?: number;
   /** Header search — server-side ILIKE across tab fields. */
   q?: string;
+  /** QA tab only: Pending | Qualified | Disqualified. */
+  qaDecision?: string;
   /** Skip exact COUNT(*) — reuse prior total on silent live sync. */
   skipCount?: boolean;
+}
+
+const QA_DECISION_FILTERS = new Set(["Pending", "Qualified", "Disqualified"]);
+
+function applyQaDecisionFilter<T extends { eq: (col: string, val: string) => T }>(
+  query: T,
+  tab: TabKey,
+  qaDecision?: string
+): T {
+  if (tab !== "qa") return query;
+  const v = (qaDecision || "").trim();
+  if (!QA_DECISION_FILTERS.has(v)) return query;
+  return query.eq("qa_decision", v);
 }
 
 /** `list` skips drawer-only extras (comments / signed file URLs) for faster paging. */
@@ -367,7 +382,7 @@ async function enrichPipelineRows(
         admin
           .from("leads")
           .select(
-            "lead_id, lead_source, email, business_address, city, zip_code, lead_origin"
+            "lead_id, lead_source, email, business_address, city, zip_code, lead_origin, lead_gen_agent, current_processor, current_device, current_rate, notes"
           )
           .in("lead_id", leadIds),
         admin
@@ -383,6 +398,23 @@ async function enrichPipelineRows(
       const leadMap = new Map(
         (leadsRes.data || []).map((l) => [String(l.lead_id), l as Record<string, unknown>])
       );
+      const agentNames = [
+        ...new Set(
+          [...leadMap.values()]
+            .map((l) => String(l.lead_gen_agent || "").trim())
+            .filter(Boolean)
+        ),
+      ];
+      const teamByAgent = new Map<string, string>();
+      if (agentNames.length) {
+        const { data: profiles } = await admin
+          .from("profiles")
+          .select("full_name, team")
+          .in("full_name", agentNames);
+        for (const p of profiles || []) {
+          teamByAgent.set(String(p.full_name), String(p.team || ""));
+        }
+      }
       const opsMap = new Map(
         (opsRes.data || []).map((o) => [String(o.lead_id), o as Record<string, unknown>])
       );
@@ -406,6 +438,7 @@ async function enrichPipelineRows(
         const extra = leadMap.get(lid);
         const ops = opsMap.get(lid);
         const disp = latestDisp.get(lid);
+        const agent = String(extra?.lead_gen_agent || "");
         return {
           ...r,
           lead_source: extra?.lead_source ?? r.lead_source ?? "",
@@ -414,6 +447,12 @@ async function enrichPipelineRows(
           city: extra?.city ?? r.city ?? "",
           zip_code: extra?.zip_code ?? r.zip_code ?? "",
           lead_origin: extra?.lead_origin ?? r.lead_origin ?? "",
+          lead_gen_agent: agent,
+          lead_gen_team: teamByAgent.get(agent) || "",
+          current_processor: extra?.current_processor ?? "",
+          current_device: extra?.current_device ?? "",
+          current_rate: extra?.current_rate ?? "",
+          lead_notes: extra?.notes ?? "",
           ops_status: ops?.ops_status ?? "",
           ops_reasoning: ops?.reasoning ?? "",
           returned_after_ops_dispute: !!ops?.returned_after_ops_dispute,
@@ -608,6 +647,7 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
       ? supabase.from(table).select(cols, { count: "exact" })
       : supabase.from(table).select(cols);
     query = applyTf(query, df, payload.tf) as typeof query;
+    query = applyQaDecisionFilter(query, payload.tab, payload.qaDecision) as typeof query;
     if (payload.q?.trim()) {
       query = applySearch(query, payload.tab, payload.q) as typeof query;
     }
@@ -1138,6 +1178,7 @@ export async function fetchRowsTotal(payload: {
   tab: TabKey;
   tf: Timeframe;
   q?: string;
+  qaDecision?: string;
 }): Promise<{ total: number; error?: string }> {
   try {
     await requireAuth();
@@ -1149,6 +1190,7 @@ export async function fetchRowsTotal(payload: {
     const df = DATE_FIELD[payload.tab];
     let query = supabase.from(table).select("id", { count: "exact", head: true });
     query = applyTf(query, df, payload.tf) as typeof query;
+    query = applyQaDecisionFilter(query, payload.tab, payload.qaDecision) as typeof query;
     if (payload.q?.trim()) {
       query = applySearch(query, payload.tab, payload.q) as typeof query;
     }
