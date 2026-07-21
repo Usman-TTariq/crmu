@@ -25,7 +25,7 @@ type FilterKey = "all" | "online" | "break" | "away" | "offline" | "below";
 
 function breakLabel(type?: string | null): string {
   if (type === "lunch") return "Lunch break";
-  if (type === "general" || type === "tea" || type === "smoke") return "Break";
+  if (type === "general" || type === "tea" || type === "smoke") return "General break";
   return "On break";
 }
 

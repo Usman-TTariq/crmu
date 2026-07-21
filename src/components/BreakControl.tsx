@@ -15,13 +15,13 @@ import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/app-context";
 
 const BREAKS: { type: BreakType; label: string; icon: React.ReactNode }[] = [
-  { type: "general", label: "Break", icon: <Pause size={14} /> },
+  { type: "general", label: "General break", icon: <Pause size={14} /> },
   { type: "lunch", label: "Lunch break", icon: <Utensils size={14} /> },
 ];
 
 function labelOf(type: string): string {
   if (type === "lunch") return "Lunch break";
-  if (type === "general" || type === "tea" || type === "smoke") return "Break";
+  if (type === "general" || type === "tea" || type === "smoke") return "General break";
   return "On break";
 }
 
@@ -46,9 +46,13 @@ export default function BreakControl() {
   const [breakStartedAt, setBreakStartedAt] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
+  /** Skip presence polls while start/end RPC is in flight (avoids wiping optimistic UI). */
+  const mutatingRef = useRef(false);
 
   const load = useCallback(() => {
+    if (mutatingRef.current) return;
     fetchMyPresence().then((res) => {
+      if (mutatingRef.current) return;
       if (res.error) return;
       if (res.status === "break" && res.breakType) {
         setBreakType(res.breakType);
@@ -114,28 +118,40 @@ export default function BreakControl() {
   }, [open]);
 
   const onStart = async (type: BreakType) => {
+    // Optimistic UI — don't wait on the server round-trip to show the break chip.
+    const startedAt = new Date().toISOString();
+    mutatingRef.current = true;
+    setOpen(false);
+    setBreakType(type);
+    setBreakStartedAt(startedAt);
     setBusy(true);
     const res = await startBreak(type);
     setBusy(false);
-    setOpen(false);
+    mutatingRef.current = false;
     if (res.error) {
+      setBreakType("");
+      setBreakStartedAt(null);
       window.alert(res.error);
       return;
     }
-    setBreakType(type);
-    setBreakStartedAt(new Date().toISOString());
+    if (res.breakType) setBreakType(res.breakType);
   };
 
   const onEnd = async () => {
+    const prevType = breakType;
+    const prevStarted = breakStartedAt;
+    mutatingRef.current = true;
+    setBreakType("");
+    setBreakStartedAt(null);
     setBusy(true);
     const res = await endBreak();
     setBusy(false);
+    mutatingRef.current = false;
     if (res.error) {
+      setBreakType(prevType);
+      setBreakStartedAt(prevStarted);
       window.alert(res.error);
-      return;
     }
-    setBreakType("");
-    setBreakStartedAt(null);
   };
 
   void tick; // re-render elapsed clock
