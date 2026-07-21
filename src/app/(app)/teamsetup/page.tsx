@@ -38,7 +38,7 @@ function closerBadges(rows: BoardCloserRow[]): (r: BoardCloserRow) => Badge | nu
 const TEAM_ORDER = ["Olympus", "Phoenix", "Spartan", "Titans"];
 const TITLE_ORDER = [
   "CEO", "Super Admin",   "Sales Head & QA", "Head of Workforce Performance and Quality", "AVP Sales", "Floor Manager",
-  "Lead Gen Supervisor", "Lead Gen Agent", "Closer", "Tier 3", "QA Agent",
+  "Lead Gen Supervisor", "Team Captain", "Lead Gen Agent", "Closer", "Tier 3", "QA Agent",
   "Project Manager",
   "Manager", "Assistant Manager", "QA & Funding Lead", "OPS QA & Onboarding", "Quality Assurance",
   "Onboarding Lead", "Onboarding Agent",

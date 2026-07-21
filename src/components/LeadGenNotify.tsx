@@ -52,6 +52,7 @@ export default function LeadGenNotify() {
   const canNotify =
     app.role.key === "lg_agent" ||
     app.role.key === "lg_sup" ||
+    app.role.key === "team_captain" ||
     app.role.key === "closer";
 
   const unread = items.filter((n) => !n.read_at).length;
