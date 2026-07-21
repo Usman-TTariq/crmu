@@ -199,6 +199,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
       k: "lead_gen_agent",
       label: "Lead Gen Agent",
       type: "computed",
+      isPill: true,
       compute: (r) => r.lead_gen_agent || "-",
     },
     {

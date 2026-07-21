@@ -160,7 +160,9 @@ export default function Field({
       ? pct(v)
       : f.fmt === "stamp"
       ? stamp(v)
-      : numfmt(v);
+      : f.fmt === "num"
+      ? numfmt(v)
+      : String(v ?? "-");
     return (
       <div>
         {lbl}
