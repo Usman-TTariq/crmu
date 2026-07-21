@@ -431,16 +431,43 @@ async function enrichPipelineRows(
   }
 
   if (tab === "sqlassign") {
-    const { data: open } = await admin
+    const openPromise = admin
       .from("closer_deals")
       .select("closer")
       .not("stage", "in", '("Closed","Closed Won","Closed Lost","Not Interested")');
+    const leadsPromise = leadIds.length
+      ? admin.from("leads").select("lead_id, lead_gen_agent").in("lead_id", leadIds)
+      : Promise.resolve({ data: [] as { lead_id: string; lead_gen_agent: string }[] });
+    const [{ data: open }, { data: leadRows }] = await Promise.all([openPromise, leadsPromise]);
     const loads = new Map<string, number>();
     (open || []).forEach((d) => loads.set(d.closer, (loads.get(d.closer) || 0) + 1));
-    out = out.map((r) => ({
-      ...r,
-      closer_open_load: loads.get(String(r.assigned_closer || "")) || 0,
-    }));
+    const agentByLead = new Map(
+      (leadRows || []).map((l) => [String(l.lead_id), String(l.lead_gen_agent || "")])
+    );
+    const agentNames = [
+      ...new Set(
+        [...agentByLead.values()].map((n) => n.trim()).filter(Boolean)
+      ),
+    ];
+    const teamByAgent = new Map<string, string>();
+    if (agentNames.length) {
+      const { data: profiles } = await admin
+        .from("profiles")
+        .select("full_name, team")
+        .in("full_name", agentNames);
+      for (const p of profiles || []) {
+        teamByAgent.set(String(p.full_name), String(p.team || ""));
+      }
+    }
+    out = out.map((r) => {
+      const agent = agentByLead.get(String(r.lead_id || "")) || "";
+      return {
+        ...r,
+        closer_open_load: loads.get(String(r.assigned_closer || "")) || 0,
+        lead_gen_agent: agent,
+        lead_gen_team: teamByAgent.get(agent) || "",
+      };
+    });
   }
 
   if ((tab === "closer" || tab === "ops" || tab === "documentation") && leadIds.length) {
