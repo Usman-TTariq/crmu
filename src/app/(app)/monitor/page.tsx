@@ -24,7 +24,7 @@ type SortKey = "status" | "day" | "week" | "name";
 type FilterKey = "all" | "online" | "break" | "away" | "offline" | "below";
 
 function breakLabel(type?: string | null): string {
-  if (type === "lunch") return "Lunch break";
+  if (type === "meal" || type === "lunch") return "Meal break";
   if (type === "general" || type === "tea" || type === "smoke") return "General break";
   return "On break";
 }
@@ -98,7 +98,8 @@ function generalBreakSample(r: PresenceRow): number {
   return r.general_break_seconds || 0;
 }
 
-function lunchBreakSample(r: PresenceRow): number {
+/** Meal break seconds (DB column still lunch_break_seconds). */
+function mealBreakSample(r: PresenceRow): number {
   return r.lunch_break_seconds || 0;
 }
 
@@ -140,7 +141,9 @@ function verdict(r: PresenceRow): { label: string; tone: keyof typeof TONES; det
       ? fmtDur(Math.max(0, Math.floor((Date.now() - new Date(r.break_started_at).getTime()) / 1000)))
       : "";
     const todayOfType =
-      r.break_type === "lunch" ? lunchBreakSample(r) : generalBreakSample(r);
+      r.break_type === "meal" || r.break_type === "lunch"
+        ? mealBreakSample(r)
+        : generalBreakSample(r);
     return {
       label: breakLabel(r.break_type),
       tone: "info",
@@ -183,8 +186,8 @@ function csvEscape(v: string): string {
 function downloadPresenceCsv(rows: PresenceRow[], day: string) {
   const headers = [
     "Name", "Title", "Team", "Status", "Logged in today",
-    "General break today", "Lunch break today", "Logged in this week",
-    "General break week", "Lunch break week",
+    "General break today", "Meal break today", "Logged in this week",
+    "General break week", "Meal break week",
     "Day % of 8h", "Week % of 40h", "Interactions", "Current tab", "Flag",
   ];
   const lines = [
@@ -198,7 +201,7 @@ function downloadPresenceCsv(rows: PresenceRow[], day: string) {
         statusLabel(r.status, r.break_type),
         fmtDur(onlineSample(r)),
         fmtDur(generalBreakSample(r)),
-        fmtDur(lunchBreakSample(r)),
+        fmtDur(mealBreakSample(r)),
         fmtDur(weekOnlineSample(r)),
         fmtDur(r.week_general_break_seconds || 0),
         fmtDur(r.week_lunch_break_seconds || 0),
@@ -378,7 +381,7 @@ export default function MonitorPage() {
             Employee Monitor
           </div>
           <div className="app-page-lede">
-            Logged in · Breaks (general / lunch) · Away after 2 min idle · Logged out · Asia/Karachi
+            Logged in · Breaks (general / meal) · Away after 2 min idle · Logged out · Asia/Karachi
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -432,7 +435,7 @@ export default function MonitorPage() {
         }}
       >
         <Stat label="Logged in" value={counts.online} sub="Active — counts in Logged in today" tone={TONES.good.fg} onClick={() => setFilter("online")} />
-        <Stat label="On break" value={counts.onBreak} sub="General / lunch" tone={TONES.info.fg} onClick={() => setFilter("break")} />
+        <Stat label="On break" value={counts.onBreak} sub="General / meal" tone={TONES.info.fg} onClick={() => setFilter("break")} />
         <Stat label="Away" value={counts.away} sub="Idle 2+ min — not in total" tone={TONES.warn.fg} onClick={() => setFilter("away")} />
         <Stat label="Logged out" value={counts.offline} sub="CRM closed / no signal" tone={C.inkSoft} onClick={() => setFilter("offline")} />
         <Stat label="Below target" value={counts.below} sub="< 50% of 8h (2h+ online)" tone={TONES.bad.fg} onClick={() => setFilter("below")} />
@@ -499,7 +502,7 @@ export default function MonitorPage() {
                     <th style={{ padding: "8px 10px" }}>Status</th>
                     <th style={{ padding: "8px 10px" }}>Logged in today</th>
                     <th style={{ padding: "8px 10px" }}>General break</th>
-                    <th style={{ padding: "8px 10px" }}>Lunch break</th>
+                    <th style={{ padding: "8px 10px" }}>Meal break</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -542,7 +545,7 @@ export default function MonitorPage() {
                           {fmtDur(generalBreakSample(r))}
                         </td>
                         <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.info.fg, whiteSpace: "nowrap" }}>
-                          {fmtDur(lunchBreakSample(r))}
+                          {fmtDur(mealBreakSample(r))}
                         </td>
                       </tr>
                     );
@@ -592,11 +595,11 @@ export default function MonitorPage() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                 <Mini label="Logged in today" value={fmtDur(onlineSample(selectedRow))} />
                 <Mini label="General break today" value={fmtDur(generalBreakSample(selectedRow))} />
-                <Mini label="Lunch break today" value={fmtDur(lunchBreakSample(selectedRow))} />
+                <Mini label="Meal break today" value={fmtDur(mealBreakSample(selectedRow))} />
                 <Mini label="Day vs 8h" value={`${dayProgress(selectedRow)}%`} />
                 <Mini label="Logged in this week" value={fmtDur(weekOnlineSample(selectedRow))} />
                 <Mini label="General break week" value={fmtDur(selectedRow.week_general_break_seconds || 0)} />
-                <Mini label="Lunch break week" value={fmtDur(selectedRow.week_lunch_break_seconds || 0)} />
+                <Mini label="Meal break week" value={fmtDur(selectedRow.week_lunch_break_seconds || 0)} />
                 <Mini label="Week vs 40h" value={`${weekProgress(selectedRow)}%`} />
               </div>
               {selectedRow.week_start && selectedRow.week_end ? (
@@ -644,7 +647,7 @@ export default function MonitorPage() {
                             {(d.lunch_break_seconds || 0) > 0 ? (
                               <span style={{ color: TONES.info.fg, fontWeight: 700 }}>
                                 {" "}
-                                · Lunch {fmtDur(d.lunch_break_seconds || 0)}
+                                · Meal {fmtDur(d.lunch_break_seconds || 0)}
                               </span>
                             ) : null}
                           </div>
@@ -731,7 +734,7 @@ export default function MonitorPage() {
 
       <div style={{ marginTop: 14, fontSize: 12, fontWeight: 600, color: C.inkSoft, lineHeight: 1.45 }}>
         <b style={{ color: C.ink }}>Logged in today</b> = active desk time only (login → logout; Away + breaks excluded).{" "}
-        <b style={{ color: C.ink }}>On break</b> = general / lunch (own columns).{" "}
+        <b style={{ color: C.ink }}>On break</b> = general / meal (own columns).{" "}
         <b style={{ color: C.ink }}>Away</b> = no input 2+ min (status only, not in Logged in total).{" "}
         <b style={{ color: C.ink }}>Logged out</b> = CRM closed.
       </div>

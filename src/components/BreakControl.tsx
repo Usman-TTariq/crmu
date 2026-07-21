@@ -1,6 +1,6 @@
 "use client";
 
-// Header control: start General / Lunch break, or end current break.
+// Header control: start General / Meal break, or end current break.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Utensils, Pause, X } from "lucide-react";
@@ -16,11 +16,11 @@ import { useApp } from "@/components/app-context";
 
 const BREAKS: { type: BreakType; label: string; icon: React.ReactNode }[] = [
   { type: "general", label: "General break", icon: <Pause size={14} /> },
-  { type: "lunch", label: "Lunch break", icon: <Utensils size={14} /> },
+  { type: "meal", label: "Meal break", icon: <Utensils size={14} /> },
 ];
 
 function labelOf(type: string): string {
-  if (type === "lunch") return "Lunch break";
+  if (type === "meal" || type === "lunch") return "Meal break";
   if (type === "general" || type === "tea" || type === "smoke") return "General break";
   return "On break";
 }
@@ -178,7 +178,7 @@ export default function BreakControl() {
           whiteSpace: "nowrap",
         }}
       >
-        {breakType === "lunch" ? <Utensils size={14} /> : <Pause size={14} />}
+        {breakType === "meal" || breakType === "lunch" ? <Utensils size={14} /> : <Pause size={14} />}
         {labelOf(breakType)}
         <span className="mono" style={{ fontWeight: 700, opacity: 0.85 }}>
           {fmtElapsed(breakStartedAt)}
