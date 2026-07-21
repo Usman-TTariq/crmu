@@ -32,7 +32,13 @@ export default function PresenceTracker() {
 
   useEffect(() => {
     const bump = () => {
+      // If they were past the Away threshold, flush a heartbeat immediately
+      // so Monitor flips back to Logged in without waiting up to 30s.
+      const idleBefore = Math.floor((Date.now() - lastInput.current) / 1000);
       lastInput.current = Date.now();
+      if (idleBefore >= 120) {
+        void pulseRef.current();
+      }
     };
     const bumpMove = () => {
       const now = Date.now();

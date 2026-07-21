@@ -89,8 +89,17 @@ function statusRank(s: PresenceStatus): number {
   return 3;
 }
 
+/** Active time today (Logged in). Away is tracked separately — not part of the 8h target. */
 function onlineSample(r: PresenceRow): number {
-  return (r.working_seconds || 0) + (r.idle_seconds_today || 0) + (r.away_seconds || 0);
+  return (r.working_seconds || 0) + (r.idle_seconds_today || 0);
+}
+
+function awaySample(r: PresenceRow): number {
+  return r.away_seconds || 0;
+}
+
+function weekOnlineSample(r: PresenceRow): number {
+  return (r.week_working_seconds || 0) + (r.week_idle_seconds || 0);
 }
 
 function dayProgress(r: PresenceRow): number {
@@ -98,9 +107,7 @@ function dayProgress(r: PresenceRow): number {
 }
 
 function weekProgress(r: PresenceRow): number {
-  const week =
-    (r.week_working_seconds || 0) + (r.week_idle_seconds || 0) + (r.week_away_seconds || 0);
-  return Math.min(100, Math.round((week / WEEK_TARGET_SEC) * 100));
+  return Math.min(100, Math.round((weekOnlineSample(r) / WEEK_TARGET_SEC) * 100));
 }
 
 /** Below target: day online < 50% of 8h with ≥2h online sample */
@@ -169,7 +176,7 @@ function csvEscape(v: string): string {
 
 function downloadPresenceCsv(rows: PresenceRow[], day: string) {
   const headers = [
-    "Name", "Title", "Team", "Status", "Online today", "Online this week",
+    "Name", "Title", "Team", "Status", "Online today", "Away today", "Online this week",
     "Day % of 8h", "Week % of 40h", "Interactions", "Current tab", "Flag",
   ];
   const lines = [
@@ -182,7 +189,8 @@ function downloadPresenceCsv(rows: PresenceRow[], day: string) {
         r.team,
         statusLabel(r.status, r.break_type),
         fmtDur(onlineSample(r)),
-        fmtDur(r.week_working_seconds || 0),
+        fmtDur(awaySample(r)),
+        fmtDur(weekOnlineSample(r)),
         String(dayProgress(r)),
         String(weekProgress(r)),
         String(r.interactions),
@@ -336,7 +344,7 @@ export default function MonitorPage() {
     list.sort((a, b) => {
       if (sort === "name") return a.name.localeCompare(b.name);
       if (sort === "day") return onlineSample(b) - onlineSample(a);
-      if (sort === "week") return (b.week_working_seconds || 0) - (a.week_working_seconds || 0);
+      if (sort === "week") return weekOnlineSample(b) - weekOnlineSample(a);
       const sr = statusRank(a.status) - statusRank(b.status);
       if (sr !== 0) return sr;
       return onlineSample(b) - onlineSample(a);
@@ -412,9 +420,9 @@ export default function MonitorPage() {
           marginBottom: 14,
         }}
       >
-        <Stat label="Logged in" value={counts.online} sub="Active input under 2 min" tone={TONES.good.fg} onClick={() => setFilter("online")} />
+        <Stat label="Logged in" value={counts.online} sub="Counts toward Online / 8h" tone={TONES.good.fg} onClick={() => setFilter("online")} />
         <Stat label="On break" value={counts.onBreak} sub="General / lunch" tone={TONES.info.fg} onClick={() => setFilter("break")} />
-        <Stat label="Away" value={counts.away} sub="No mouse 2+ min" tone={TONES.warn.fg} onClick={() => setFilter("away")} />
+        <Stat label="Away" value={counts.away} sub="Idle 2+ min · separate clock" tone={TONES.warn.fg} onClick={() => setFilter("away")} />
         <Stat label="Logged out" value={counts.offline} sub="CRM closed / no signal" tone={C.inkSoft} onClick={() => setFilter("offline")} />
         <Stat label="Below target" value={counts.below} sub="< 50% of 8h (2h+ online)" tone={TONES.bad.fg} onClick={() => setFilter("below")} />
       </div>
@@ -507,11 +515,20 @@ export default function MonitorPage() {
                         <td style={{ padding: "10px" }}>
                           <StatusChip status={r.status} breakType={r.break_type} />
                           <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 4, fontWeight: 600 }}>
-                            {r.last_heartbeat_at ? ago(r.last_heartbeat_at) : "never"}
+                            {isAway(r.status)
+                              ? `Idle ${fmtDur(r.idle_seconds)}`
+                              : r.last_heartbeat_at
+                                ? ago(r.last_heartbeat_at)
+                                : "never"}
                           </div>
                         </td>
                         <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.good.fg, whiteSpace: "nowrap" }}>
                           {fmtDur(onlineSample(r))}
+                          {awaySample(r) > 0 ? (
+                            <div style={{ fontSize: 10, fontWeight: 700, color: TONES.warn.fg, marginTop: 2 }}>
+                              Away {fmtDur(awaySample(r))}
+                            </div>
+                          ) : null}
                         </td>
                       </tr>
                     );
@@ -560,16 +577,11 @@ export default function MonitorPage() {
               })()}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                 <Mini label="Online today" value={fmtDur(onlineSample(selectedRow))} />
+                <Mini label="Away today" value={fmtDur(awaySample(selectedRow))} />
                 <Mini label="Break today" value={fmtDur(selectedRow.break_seconds || 0)} />
                 <Mini label="Day vs 8h" value={`${dayProgress(selectedRow)}%`} />
-                <Mini
-                  label="Online this week"
-                  value={fmtDur(
-                    (selectedRow.week_working_seconds || 0) +
-                      (selectedRow.week_idle_seconds || 0) +
-                      (selectedRow.week_away_seconds || 0)
-                  )}
-                />
+                <Mini label="Online this week" value={fmtDur(weekOnlineSample(selectedRow))} />
+                <Mini label="Away this week" value={fmtDur(selectedRow.week_away_seconds || 0)} />
                 <Mini label="Break this week" value={fmtDur(selectedRow.week_break_seconds || 0)} />
                 <Mini label="Week vs 40h" value={`${weekProgress(selectedRow)}%`} />
               </div>
@@ -608,7 +620,13 @@ export default function MonitorPage() {
                         </div>
                         <div>
                           <div className="mono" style={{ fontSize: 12, fontWeight: 800, color: TONES.good.fg }}>
-                            Online {fmtDur(d.working_seconds + d.idle_seconds + d.away_seconds)} · {pct}% of 8h
+                            Online {fmtDur(d.working_seconds + d.idle_seconds)} · {pct}% of 8h
+                            {d.away_seconds > 0 ? (
+                              <span style={{ color: TONES.warn.fg, fontWeight: 700 }}>
+                                {" "}
+                                · Away {fmtDur(d.away_seconds)}
+                              </span>
+                            ) : null}
                           </div>
                           <div className="shift-bar">
                             <i style={{ width: `${pct}%`, background: progressTone(pct, d.working_seconds > 0) }} />
@@ -692,9 +710,9 @@ export default function MonitorPage() {
       </div>
 
       <div style={{ marginTop: 14, fontSize: 12, fontWeight: 600, color: C.inkSoft, lineHeight: 1.45 }}>
-        <b style={{ color: C.ink }}>Logged in</b> = active.{" "}
+        <b style={{ color: C.ink }}>Logged in</b> = active (counts toward Online / 8h).{" "}
         <b style={{ color: C.ink }}>On break</b> = general / lunch (user selected).{" "}
-        <b style={{ color: C.ink }}>Away</b> = no input 2+ min.{" "}
+        <b style={{ color: C.ink }}>Away</b> = no input 2+ min — tracked separately, not in Online today.{" "}
         <b style={{ color: C.ink }}>Logged out</b> = CRM closed.
       </div>
     </div>
