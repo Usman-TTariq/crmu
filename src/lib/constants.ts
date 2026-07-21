@@ -108,7 +108,7 @@ export const ROLES: RoleDef[] = [
   { key: "super_admin", label: "Super Admin [ALL]", view: "all", edit: "all", home: "ceo", scope: "Full access. Sees and edits every department and the CEO dashboard." },
   { key: "sales_head", label: "Sales Head & QA [SALES]", view: "all", edit: "sales", home: "leadgen", scope: "Sees all data, edits only the Sales side. OPS tabs are read-only. Employee Monitor shows Lead Gen, Closers, and SQL (floor) logins. No CEO dashboard." },
   { key: "avp_sales", label: "AVP Sales [SALES]", view: "sales", edit: "sales", home: "leadgen", scope: "Full access to every Sales tab (Lead Gen through Team Setup). Reviews closer OPS disputes — approve returns the deal to OPS QA." },
-  { key: "floor_manager", label: "Floor Manager [SALES]", view: ["sqlassign"], edit: [], home: "sqlassign", scope: "View only: every SQL across all teams. Cannot assign or edit — only Sales Head and AVP Sales can assign." },
+  { key: "floor_manager", label: "Floor Manager [SALES]", view: ["leadgen", "qa", "sqlassign"], edit: [], home: "sqlassign", scope: "View only: Lead Gen, QA, and every SQL across all teams. Cannot assign or edit — only Sales Head and AVP Sales can assign." },
   {
     key: "project_manager",
     label: "Project Manager [DOCUMENTATION]",
