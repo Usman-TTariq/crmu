@@ -13,6 +13,7 @@ import {
   RECORD_DELETE_EMAILS,
   MONITOR_ROLES,
   COUNSELLING_ROLES,
+  COUNSELLING_LOCKED,
 } from "@/lib/constants";
 import type { OptsCtx } from "@/lib/schemas";
 
@@ -37,6 +38,8 @@ interface AppCtx {
   canSeeCeo: boolean;
   canSeeMonitor: boolean;
   canSeeCounselling: boolean;
+  /** Stats Counselling temporarily locked for everyone. */
+  counsellingLocked: boolean;
   isManager: boolean;
   canDelete: boolean;
   /** When set, CEO/Super Admin is signed in as this person (View as). */
@@ -122,6 +125,7 @@ export function AppProvider({
   const canSeeCeo = CEO_ROLES.includes(role.key);
   const canSeeMonitor = MONITOR_ROLES.includes(role.key);
   const canSeeCounselling = COUNSELLING_ROLES.includes(role.key);
+  const counsellingLocked = COUNSELLING_LOCKED;
   const isManager = MGR_ROLES.includes(role.key);
   const canDelete = RECORD_DELETE_EMAILS.includes(
     String(session.email || "").trim().toLowerCase()
@@ -158,6 +162,7 @@ export function AppProvider({
       canSeeCeo,
       canSeeMonitor,
       canSeeCounselling,
+      counsellingLocked,
       isManager,
       canDelete,
       viewAsName,
@@ -185,6 +190,7 @@ export function AppProvider({
       canSeeCeo,
       canSeeMonitor,
       canSeeCounselling,
+      counsellingLocked,
       isManager,
       canDelete,
       viewAsName,

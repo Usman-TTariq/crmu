@@ -52,6 +52,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     (activeKey !== "teamsetup" || USER_ADMIN_ROLES.includes(app.role.key));
 
   const goTab = (key: TabKey) => {
+    if (key === "counselling" && app.counsellingLocked) {
+      app.pushToasts(["Stats Counselling is locked for everyone right now."]);
+      setNavOpen(false);
+      return;
+    }
     if (key === pathKey && !pendingKey) {
       setNavOpen(false);
       return;
@@ -179,17 +184,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 {items.map((t) => {
                   const at = t.k === activeKey;
                   const ro = !app.editTabs.includes(t.k) && !t.kind;
+                  const locked = t.k === "counselling" && app.counsellingLocked;
                   return (
                     <button
                       key={t.k}
                       type="button"
                       onClick={() => goTab(t.k)}
-                      onMouseEnter={() => router.prefetch(`/${t.k}`)}
-                      className={`crm-nav app-nav-btn${at ? " is-active" : ""}`}
+                      onMouseEnter={() => {
+                        if (!locked) router.prefetch(`/${t.k}`);
+                      }}
+                      title={locked ? "Locked for everyone" : undefined}
+                      className={`crm-nav app-nav-btn${at ? " is-active" : ""}${locked ? " is-locked" : ""}`}
+                      style={locked ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
                     >
                       <span style={{ fontSize: 15, flexShrink: 0 }}>{t.emoji}</span>
                       <span style={{ fontSize: 13.5, fontWeight: at ? 700 : 600, flex: 1 }}>{t.label}</span>
-                      {ro ? (
+                      {locked ? (
+                        <Lock size={12} style={{ color: "rgba(255,255,255,0.75)", flexShrink: 0 }} />
+                      ) : ro ? (
                         <Eye size={12} style={{ color: at ? C.ink : "rgba(255,255,255,0.7)", opacity: 0.85 }} />
                       ) : null}
                       {!t.kind ? (

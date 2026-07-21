@@ -445,6 +445,14 @@ export default function CounsellingPage() {
     )
   );
 
+  if (app.counsellingLocked) {
+    return (
+      <div className="app-gate">
+        Stats Counselling is locked for everyone right now.
+      </div>
+    );
+  }
+
   if (!app.canSeeCounselling) {
     return (
       <div className="app-gate">

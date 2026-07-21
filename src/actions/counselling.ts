@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/session";
-import { COUNSELLING_ROLES } from "@/lib/constants";
+import { COUNSELLING_LOCKED, COUNSELLING_ROLES } from "@/lib/constants";
 import { getSession } from "@/lib/session";
 import type { Timeframe } from "@/lib/format";
 
@@ -150,6 +150,9 @@ export interface CounsellingLeadDetail {
 
 async function assertCounsellingAccess(): Promise<void> {
   await requireAuth();
+  if (COUNSELLING_LOCKED) {
+    throw new Error("Stats Counselling is locked for everyone right now.");
+  }
   const session = await getSession();
   if (!session || !COUNSELLING_ROLES.includes(session.profile.role_key)) {
     throw new Error("Stats Counselling is restricted to CEO / Super Admin / Sales Head.");
