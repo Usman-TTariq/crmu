@@ -806,14 +806,9 @@ async function enrichPipelineRows(
   }
 
   if ((tab === "closer" || tab === "ops" || tab === "documentation") && leadIds.length) {
-    // Docs: closer uploads + docs-stage. OPS QA: carry forward closer + docs + ops uploads.
-    const stageFilter =
-      tab === "documentation"
-        ? ["closer", "documentation"]
-        : tab === "ops"
-          ? ["closer", "documentation", "ops"]
-          : ["closer"];
-    // Admin: OPS agents often cannot SELECT closer_deals, so RLS hides closer attachments.
+    // Shared pack: Closer ↔ Docs ↔ OPS QA all see the same lead documents.
+    const stageFilter = ["closer", "documentation", "ops"];
+    // Admin: cross-role RLS often hides another stage's attachments.
     const { data: atts } = await admin
       .from("attachments")
       .select("*")

@@ -1,5 +1,5 @@
--- Shared documents across Closer ↔ Documentation ↔ OPS QA.
--- Any stage's uploads are visible when the lead exists in Closer, Docs, or OPS.
+-- Bidirectional document visibility: Closer ↔ Docs ↔ OPS QA.
+-- Re-run safe. Supersedes the narrower policy from sql/62 if already applied.
 
 drop policy if exists attachments_select on public.attachments;
 create policy attachments_select on public.attachments

@@ -261,16 +261,26 @@ export default function FileField({
   };
 
   if (stage === "closer") {
+    const pickTyped = (docType: AttachmentDocType) =>
+      list.find((a) => a.doc_type === docType && a.stage === "closer") ||
+      list.find((a) => a.doc_type === docType);
     const hasDl = list.some((a) => a.doc_type === "driving_license");
     const hasVoid = list.some((a) => a.doc_type === "voided_cheque");
-    const extras = list.filter(
-      (a) => !a.doc_type || a.doc_type === "other" || !CLOSER_TYPED.has(a.doc_type as AttachmentDocType)
+    const slotIds = new Set(
+      CLOSER_SLOTS.map((s) => pickTyped(s.docType)?.id).filter(Boolean) as string[]
     );
+    const extras = list.filter((a) => !slotIds.has(a.id));
     const multiBusy = busy && activeDocType === null;
+    const carriedIn = list.some((a) => a.stage !== "closer");
 
     return (
       <div>
         {label}
+        {carriedIn ? (
+          <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 8, fontWeight: 600 }}>
+            Docs / OPS files on this lead are carried forward (view only).
+          </div>
+        ) : null}
         <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 10, fontWeight: 600 }}>
           Required for Docs Received / Closed:{" "}
           <span style={{ color: hasDl ? TONES.good.fg : TONES.bad.fg }}>
@@ -287,8 +297,9 @@ export default function FileField({
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {CLOSER_SLOTS.map((slot) => {
-            const file = list.find((a) => a.doc_type === slot.docType);
+            const file = pickTyped(slot.docType);
             const slotBusy = busy && activeDocType === slot.docType;
+            const slotReadOnly = readOnly || (!!file && file.stage !== "closer");
             return (
               <div key={slot.docType}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 6 }}>
@@ -300,11 +311,11 @@ export default function FileField({
                   )}
                 </div>
                 {file ? (
-                  <AttachmentRow a={file} readOnly={readOnly} onRemove={remove} />
+                  <AttachmentRow a={file} readOnly={slotReadOnly} onRemove={remove} />
                 ) : (
                   <div style={{ fontSize: 13, color: C.inkFaint, marginBottom: 6 }}>Not uploaded yet.</div>
                 )}
-                {!readOnly ? (
+                {!readOnly && (!file || file.stage === "closer") ? (
                   <div style={{ marginTop: 8 }}>
                     <input
                       ref={(el) => {
@@ -423,7 +434,13 @@ export default function FileField({
                 }}
               >
                 {extras.map((a) => (
-                  <AttachmentRow key={a.id} a={a} readOnly={readOnly} onRemove={remove} compact />
+                  <AttachmentRow
+                    key={a.id}
+                    a={a}
+                    readOnly={readOnly || a.stage !== "closer"}
+                    onRemove={remove}
+                    compact
+                  />
                 ))}
               </div>
             ) : null}
@@ -450,9 +467,10 @@ export default function FileField({
   return (
     <div>
       {label}
-      {stage === "ops" && list.some((a) => a.stage !== "ops") ? (
+      {list.some((a) => a.stage !== stage) ? (
         <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 8, fontWeight: 600 }}>
-          Closer / Docs files are carried forward (view only). You can attach extra OPS files below.
+          Files from Closer / Docs / OPS on this lead are carried forward (view only). You can attach
+          more below.
         </div>
       ) : null}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

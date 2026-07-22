@@ -468,7 +468,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     },
     {
       k: "attachments",
-      label: "Documents (DL + Voided Cheque required; Business License + more optional)",
+      label: "Documents (DL + Voided Cheque required; Docs/OPS files carry forward)",
       type: "files",
       long: true,
       hideTable: true,
@@ -604,7 +604,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "review_date", label: "Review Date", type: "date" },
     {
       k: "attachments",
-      label: "Documents (from Closer — DL + Voided Cheque)",
+      label: "Documents (Closer + OPS carried forward)",
       type: "files",
       long: true,
       hideTable: true,
