@@ -38,7 +38,7 @@ interface AppCtx {
   canSeeCeo: boolean;
   canSeeMonitor: boolean;
   canSeeCounselling: boolean;
-  /** Stats Counselling temporarily locked for everyone. */
+  /** Performance Overview temporarily locked for everyone. */
   counsellingLocked: boolean;
   isManager: boolean;
   canDelete: boolean;

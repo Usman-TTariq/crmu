@@ -112,7 +112,7 @@ export type CounsellingWorkItem = Record<string, unknown> & {
 };
 
 const SQL_HINT =
-  "Stats Counselling SQL not applied yet. Run sql/39_stats_counselling.sql (and sql/41_counselling_person_leads.sql for lead details) in Supabase.";
+  "Performance Overview SQL not applied yet. Run sql/39_stats_counselling.sql (and sql/41_counselling_person_leads.sql for lead details) in Supabase.";
 
 function sqlMissing(msg: string): boolean {
   return (
@@ -151,11 +151,11 @@ export interface CounsellingLeadDetail {
 async function assertCounsellingAccess(): Promise<void> {
   await requireAuth();
   if (COUNSELLING_LOCKED) {
-    throw new Error("Stats Counselling is locked for everyone right now.");
+    throw new Error("Performance Overview is locked for everyone right now.");
   }
   const session = await getSession();
   if (!session || !COUNSELLING_ROLES.includes(session.profile.role_key)) {
-    throw new Error("Stats Counselling is restricted to CEO / Super Admin / Sales Head.");
+    throw new Error("Performance Overview is restricted to CEO / Super Admin / Sales Head.");
   }
 }
 

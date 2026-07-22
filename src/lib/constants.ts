@@ -104,7 +104,7 @@ export interface TabDef {
 export const TABS: TabDef[] = [
   { k: "ceo", label: "CEO Dashboard", emoji: "\u{1F4CA}", kind: "dashboard", div: "ALL" },
   { k: "monitor", label: "Employee Monitor", emoji: "\u{1F440}", kind: "dashboard", div: "ALL", note: "Logged in, declared breaks (general/meal), Away after 2 min idle, Logged out." },
-  { k: "counselling", label: "Stats Counselling", emoji: "\u{1F4C8}", kind: "dashboard", div: "ALL", note: "Team sales + attendance overview, plus Day-1 → today journey for any person (output charts and presence timeline)." },
+  { k: "counselling", label: "Performance Overview", emoji: "\u{1F4C8}", kind: "dashboard", div: "ALL", note: "Team sales + attendance overview, plus Day-1 → today journey for any person (output charts and presence timeline)." },
   { k: "logs", label: "Activity Logs", emoji: "\u{1F4DC}", kind: "dashboard", div: "ALL", note: "Audit trail of CRM actions. Visible to CEO and Super Admin only. CEO account actions are not recorded." },
   { k: "leadgen", label: "Lead Gen", emoji: "\u{1F4DD}", div: "SALES", dated: true, singular: "Lead", note: "Saving a lead instantly creates its QA record. After create, fields stay locked — you can still add Notes (visible to QA) and comments, and dispute a Disqualified lead." },
   { k: "qa", label: "QA", emoji: "\u2705", div: "SALES", dated: true, note: "Qualify when the 6 checks are Yes (monthly volume is informational only). Qualifying creates the SQL. Disqualifying returns the lead to Lead Gen for a possible dispute." },
@@ -250,9 +250,9 @@ export const ADDABLE: TabKey[] = ["leadgen", "closer", "teamsetup"];
 export const USER_ADMIN_ROLES = ["ceo", "super_admin"];
 /** Employee Monitor tab + presence RPCs (scoped board for sales_head / ops_manager). */
 export const MONITOR_ROLES = ["ceo", "super_admin", "sales_head", "ops_manager"];
-/** Stats Counselling — CEO / Super Admin / Sales Head only (not ops_manager). */
+/** Performance Overview — CEO / Super Admin / Sales Head only (not ops_manager). */
 export const COUNSELLING_ROLES = ["ceo", "super_admin", "sales_head"];
-/** When true, nav shows lock and nobody can open Stats Counselling. */
+/** When true, nav shows lock and nobody can open Performance Overview. */
 export const COUNSELLING_LOCKED = false;
 
 // Owner field per row scope (matches profile full name stored on records)

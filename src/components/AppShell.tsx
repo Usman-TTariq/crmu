@@ -53,7 +53,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const goTab = (key: TabKey) => {
     if (key === "counselling" && app.counsellingLocked) {
-      app.pushToasts(["Stats Counselling is locked for everyone right now."]);
+      app.pushToasts(["Performance Overview is locked for everyone right now."]);
       setNavOpen(false);
       return;
     }

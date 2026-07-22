@@ -448,7 +448,7 @@ export default function CounsellingPage() {
   if (app.counsellingLocked) {
     return (
       <div className="app-gate">
-        Stats Counselling is locked for everyone right now.
+        Performance Overview is locked for everyone right now.
       </div>
     );
   }
@@ -456,7 +456,7 @@ export default function CounsellingPage() {
   if (!app.canSeeCounselling) {
     return (
       <div className="app-gate">
-        Stats Counselling is restricted to CEO / Super Admin / Sales Head.
+        Performance Overview is restricted to CEO / Super Admin / Sales Head.
       </div>
     );
   }
@@ -476,7 +476,7 @@ export default function CounsellingPage() {
         <div className="app-page-head" style={{ marginBottom: 0 }}>
           <div className="app-page-title">
             <LineChart size={22} style={{ color: C.blue }} />
-            Stats Counselling
+            Performance Overview
           </div>
           <div className="app-page-lede">
             Team sales + attendance overview · pick anyone for Day‑1 → today journey
