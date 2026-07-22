@@ -208,17 +208,26 @@ function weekBounds(day: string): { start: string; end: string } {
   return { start: iso(start), end: iso(end) };
 }
 
-/** CEO-equivalent full board via service role (HR when SQL role grant not applied yet). */
-async function fetchPresenceBoardAdmin(day: string): Promise<{ rows: PresenceRow[]; error?: string }> {
+/** Full company board via service role. Viewer-scoped exclusions:
+ *  - CEO / Super Admin: see HR + leadership; hide only top admins
+ *  - HR: full floor roster; hide top admins and other HR
+ */
+async function fetchPresenceBoardAdmin(
+  day: string,
+  opts?: { excludeRoles?: string[] }
+): Promise<{ rows: PresenceRow[]; error?: string }> {
   const admin = createAdminClient();
   const { start: weekStart, end: weekEnd } = weekBounds(day);
+  const exclude = opts?.excludeRoles?.length
+    ? opts.excludeRoles
+    : ["ceo", "super_admin", "hr", "hr_monitor"];
 
   const { data: profiles, error: pErr } = await admin
     .from("profiles")
     .select("user_id, full_name, title, role_key, team, dept")
     .eq("is_active", true)
     .not("user_id", "is", null)
-    .not("role_key", "in", "(ceo,super_admin,hr,hr_monitor)");
+    .not("role_key", "in", `(${exclude.join(",")})`);
   if (pErr) return { rows: [], error: pErr.message };
 
   const userIds = (profiles || []).map((p) => String(p.user_id));
@@ -340,9 +349,16 @@ export async function fetchPresenceBoard(payload?: {
     const role = session?.profile.role_key || "";
     const day = payload?.day || todayKarachi();
 
-    // HR / legacy hr_monitor: always CEO-equivalent board (app path; works before SQL 66).
+    // CEO / Super Admin: full roster including HR + leadership (app path; works before SQL 67).
+    if (role === "ceo" || role === "super_admin") {
+      return fetchPresenceBoardAdmin(day, { excludeRoles: ["ceo", "super_admin"] });
+    }
+
+    // HR / legacy hr_monitor: floor roster (not other HR / top admins).
     if (role === "hr" || role === "hr_monitor") {
-      return fetchPresenceBoardAdmin(day);
+      return fetchPresenceBoardAdmin(day, {
+        excludeRoles: ["ceo", "super_admin", "hr", "hr_monitor"],
+      });
     }
 
     const supabase = await createClient();
@@ -352,7 +368,9 @@ export async function fetchPresenceBoard(payload?: {
     if (error) {
       // Fallback if SQL role grant not applied yet but caller is a monitor role.
       if (MONITOR_ROLES.includes(role) && /restricted/i.test(error.message)) {
-        return fetchPresenceBoardAdmin(day);
+        return fetchPresenceBoardAdmin(day, {
+          excludeRoles: ["ceo", "super_admin", "hr", "hr_monitor"],
+        });
       }
       return { rows: [], error: error.message };
     }
