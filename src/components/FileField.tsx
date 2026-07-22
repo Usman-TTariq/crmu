@@ -23,22 +23,25 @@ function AttachmentRow({
   a,
   readOnly,
   onRemove,
+  compact,
 }: {
   a: Attachment;
   readOnly: boolean;
   onRemove: (a: Attachment) => void;
+  compact?: boolean;
 }) {
   const isImg = IMG_EXT.includes(a.file_ext);
+  const thumb = compact ? 28 : 42;
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 10,
+        gap: compact ? 7 : 10,
         background: C.lineSoft,
         border: `1px solid ${C.line}`,
-        borderRadius: 10,
-        padding: "8px 10px",
+        borderRadius: compact ? 8 : 10,
+        padding: compact ? "5px 8px" : "8px 10px",
       }}
     >
       <a href={a.signed_url} target="_blank" rel="noreferrer" style={{ flexShrink: 0, display: "block" }}>
@@ -47,14 +50,20 @@ function AttachmentRow({
           <img
             src={a.signed_url}
             alt={a.file_name}
-            style={{ width: 42, height: 42, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.line}` }}
+            style={{
+              width: thumb,
+              height: thumb,
+              objectFit: "cover",
+              borderRadius: compact ? 6 : 8,
+              border: `1px solid ${C.line}`,
+            }}
           />
         ) : (
           <div
             style={{
-              width: 42,
-              height: 42,
-              borderRadius: 8,
+              width: thumb,
+              height: thumb,
+              borderRadius: compact ? 6 : 8,
               background: C.blueSoft,
               display: "flex",
               alignItems: "center",
@@ -62,14 +71,14 @@ function AttachmentRow({
               color: C.blueDeep,
             }}
           >
-            <FileText size={20} />
+            <FileText size={compact ? 14 : 20} />
           </div>
         )}
       </a>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            fontSize: 13,
+            fontSize: compact ? 12 : 13,
             fontWeight: 600,
             color: C.ink,
             overflow: "hidden",
@@ -79,9 +88,11 @@ function AttachmentRow({
         >
           {a.file_name}
         </div>
-        <div className="mono" style={{ fontSize: 11, color: C.inkSoft }}>
-          {a.file_ext.toUpperCase()} &middot; {fileSizeLabel(a.file_size)}
-        </div>
+        {!compact ? (
+          <div className="mono" style={{ fontSize: 11, color: C.inkSoft }}>
+            {a.file_ext.toUpperCase()} &middot; {fileSizeLabel(a.file_size)}
+          </div>
+        ) : null}
       </div>
       {a.signed_url ? (
         <a
@@ -200,7 +211,7 @@ export default function FileField({
     return { added: { ...(row as Attachment), signed_url: signed?.signedUrl } };
   };
 
-  const onFiles = async (fl: FileList | null) => {
+  const onFiles = async (fl: FileList | null, docType: AttachmentDocType | null = null) => {
     const files = Array.from(fl || []);
     if (!files.length) return;
     setErr("");
@@ -208,7 +219,7 @@ export default function FileField({
     let msg = "";
     const added: Attachment[] = [];
     for (const file of files) {
-      const res = await uploadOne(file, null);
+      const res = await uploadOne(file, docType);
       if (res.error) msg = res.error;
       if (res.added) added.push(res.added);
     }
@@ -245,7 +256,10 @@ export default function FileField({
   if (stage === "closer") {
     const hasDl = list.some((a) => a.doc_type === "driving_license");
     const hasVoid = list.some((a) => a.doc_type === "voided_cheque");
-    const extras = list.filter((a) => !a.doc_type || !CLOSER_TYPED.has(a.doc_type as AttachmentDocType));
+    const extras = list.filter(
+      (a) => !a.doc_type || a.doc_type === "other" || !CLOSER_TYPED.has(a.doc_type as AttachmentDocType)
+    );
+    const multiBusy = busy && activeDocType === null;
 
     return (
       <div>
@@ -261,7 +275,7 @@ export default function FileField({
           </span>
           <span style={{ fontWeight: 500, color: C.inkFaint }}>
             {" "}
-            · 4 more optional below
+            · optional slots + extra files below
           </span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -324,16 +338,89 @@ export default function FileField({
               </div>
             );
           })}
-          {extras.length ? (
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 6 }}>Other files</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+
+          {/* Extra multi-file uploads — compact so the drawer stays short */}
+          <div
+            style={{
+              borderTop: `1px solid ${C.lineSoft}`,
+              paddingTop: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                marginBottom: 6,
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
+                More files
+                {extras.length ? (
+                  <span style={{ color: C.inkFaint, fontWeight: 600 }}> ({extras.length})</span>
+                ) : null}
+              </div>
+              {!readOnly ? (
+                <>
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
+                    onChange={(e) => {
+                      void onFiles(e.target.files, "other");
+                      e.target.value = "";
+                    }}
+                    style={{ display: "none" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => inputRef.current?.click()}
+                    disabled={busy}
+                    title="Upload multiple extra documents"
+                    style={{
+                      border: `1px solid ${C.line}`,
+                      background: C.surface,
+                      color: C.inkSoft,
+                      borderRadius: 8,
+                      padding: "5px 10px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: busy ? "default" : "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      opacity: busy ? 0.7 : 1,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <Paperclip size={13} />
+                    {multiBusy ? "Uploading..." : "Add more files"}
+                  </button>
+                </>
+              ) : null}
+            </div>
+            <div style={{ fontSize: 11, color: C.inkFaint, marginBottom: extras.length ? 6 : 0 }}>
+              Select many at once · PDF / images · up to 10 MB each
+            </div>
+            {extras.length ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 5,
+                  maxHeight: 150,
+                  overflowY: "auto",
+                  paddingRight: 2,
+                }}
+              >
                 {extras.map((a) => (
-                  <AttachmentRow key={a.id} a={a} readOnly={readOnly} onRemove={remove} />
+                  <AttachmentRow key={a.id} a={a} readOnly={readOnly} onRemove={remove} compact />
                 ))}
               </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </div>
         {err ? (
           <div
