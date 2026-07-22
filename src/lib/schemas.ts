@@ -288,24 +288,18 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "closer", label: "Closer (owner)", type: "select", opts: (c) => c.closers, readOnly: true },
     { k: "stage", label: "Stage", type: "select", opts: CLOSER_STAGES },
     {
-      k: "qa_outcome",
-      label: "QA Outcome",
-      type: "computed",
-      isPill: true,
-      compute: (r) => r.qa_outcome || "Not in QA",
-    },
-    {
       k: "ops_outcome",
-      label: "OPS Outcome",
+      label: "OPS QA",
       type: "computed",
       isPill: true,
       compute: (r) => {
-        if (r.ops_status === "Disapproved") return "Disqualified by OPS";
-        if (r.ops_status === "Approved") return "OPS Approved";
-        if (r.ops_status === "Pending" && r.returned_after_ops_dispute) return "Back to OPS QA";
-        if (r.ops_status === "Pending") return "In OPS QA";
-        if (r.ops_status === "Rework") return "OPS Rework";
-        return "Not in OPS";
+        // Same statuses as OPS QA tab (Pending / Approved / Disapproved / Rework)
+        if (r.ops_status === "Disapproved") return "Disapproved";
+        if (r.ops_status === "Approved") return "Approved";
+        if (r.ops_status === "Rework" || r.ops_status === "Reworked") return "Rework";
+        if (r.ops_status === "Pending" && r.returned_after_ops_dispute) return "Pending (after dispute)";
+        if (r.ops_status === "Pending") return "Pending";
+        return "";
       },
     },
     {
@@ -313,6 +307,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
       label: "OPS Dispute",
       type: "computed",
       isPill: true,
+      hideTable: true,
       compute: (r) => {
         if (r.ops_dispute_status === "open") return "OPS dispute open";
         if (r.ops_dispute_status === "disapproved") return "OPS dispute disapproved";
