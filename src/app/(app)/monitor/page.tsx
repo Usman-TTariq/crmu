@@ -89,35 +89,82 @@ function statusRank(s: PresenceStatus): number {
   return 3;
 }
 
-/** Logged-in (active) time today only — excludes Away and all breaks. */
-function onlineSample(r: PresenceRow): number {
-  return r.working_seconds || 0;
+/** Seconds since last heartbeat (unflushed slice — matches presence_heartbeat delta). */
+function heartbeatDelta(r: PresenceRow, nowMs: number): number {
+  if (!r.last_heartbeat_at) return 0;
+  const t = new Date(r.last_heartbeat_at).getTime();
+  if (Number.isNaN(t)) return 0;
+  // Board marks offline after 90s; don't invent time beyond that.
+  return Math.min(90, Math.max(0, Math.floor((nowMs - t) / 1000)));
 }
 
-function generalBreakSample(r: PresenceRow): number {
-  return r.general_break_seconds || 0;
+type LiveOpts = { nowMs: number; live: boolean };
+
+/** Logged-in (active) time today only — excludes Away and all breaks. */
+function onlineSample(r: PresenceRow, opts?: LiveOpts): number {
+  let s = r.working_seconds || 0;
+  if (opts?.live && (r.status === "working" || r.status === "idle")) {
+    s += heartbeatDelta(r, opts.nowMs);
+  }
+  return s;
+}
+
+function generalBreakSample(r: PresenceRow, opts?: LiveOpts): number {
+  let s = r.general_break_seconds || 0;
+  if (opts?.live && r.status === "break") {
+    const bt = String(r.break_type || "").toLowerCase();
+    if (bt !== "meal" && bt !== "lunch") s += heartbeatDelta(r, opts.nowMs);
+  }
+  return s;
 }
 
 /** Meal break seconds (DB column still lunch_break_seconds). */
-function mealBreakSample(r: PresenceRow): number {
-  return r.lunch_break_seconds || 0;
+function mealBreakSample(r: PresenceRow, opts?: LiveOpts): number {
+  let s = r.lunch_break_seconds || 0;
+  if (opts?.live && r.status === "break") {
+    const bt = String(r.break_type || "").toLowerCase();
+    if (bt === "meal" || bt === "lunch") s += heartbeatDelta(r, opts.nowMs);
+  }
+  return s;
 }
 
-function weekOnlineSample(r: PresenceRow): number {
-  return r.week_working_seconds || 0;
+function weekOnlineSample(r: PresenceRow, opts?: LiveOpts): number {
+  let s = r.week_working_seconds || 0;
+  if (opts?.live && (r.status === "working" || r.status === "idle")) {
+    s += heartbeatDelta(r, opts.nowMs);
+  }
+  return s;
 }
 
-function dayProgress(r: PresenceRow): number {
-  return Math.min(100, Math.round((onlineSample(r) / DAY_TARGET_SEC) * 100));
+function weekGeneralBreakSample(r: PresenceRow, opts?: LiveOpts): number {
+  let s = r.week_general_break_seconds || 0;
+  if (opts?.live && r.status === "break") {
+    const bt = String(r.break_type || "").toLowerCase();
+    if (bt !== "meal" && bt !== "lunch") s += heartbeatDelta(r, opts.nowMs);
+  }
+  return s;
 }
 
-function weekProgress(r: PresenceRow): number {
-  return Math.min(100, Math.round((weekOnlineSample(r) / WEEK_TARGET_SEC) * 100));
+function weekMealBreakSample(r: PresenceRow, opts?: LiveOpts): number {
+  let s = r.week_lunch_break_seconds || 0;
+  if (opts?.live && r.status === "break") {
+    const bt = String(r.break_type || "").toLowerCase();
+    if (bt === "meal" || bt === "lunch") s += heartbeatDelta(r, opts.nowMs);
+  }
+  return s;
+}
+
+function dayProgress(r: PresenceRow, opts?: LiveOpts): number {
+  return Math.min(100, Math.round((onlineSample(r, opts) / DAY_TARGET_SEC) * 100));
+}
+
+function weekProgress(r: PresenceRow, opts?: LiveOpts): number {
+  return Math.min(100, Math.round((weekOnlineSample(r, opts) / WEEK_TARGET_SEC) * 100));
 }
 
 /** Below target: day online < 50% of 8h with ≥2h online sample */
-function isBelowTarget(r: PresenceRow): boolean {
-  const sample = onlineSample(r);
+function isBelowTarget(r: PresenceRow, opts?: LiveOpts): boolean {
+  const sample = onlineSample(r, opts);
   if (sample < 2 * 3600) return false;
   return sample < DAY_TARGET_SEC * 0.5;
 }
@@ -129,21 +176,33 @@ function progressTone(pct: number, sampleOk: boolean): string {
   return TONES.bad.fg;
 }
 
-function flagOf(r: PresenceRow): { label: string; tone: keyof typeof TONES } | null {
-  if (isBelowTarget(r)) return { label: "Below target", tone: "bad" };
+function flagOf(r: PresenceRow, opts?: LiveOpts): { label: string; tone: keyof typeof TONES } | null {
+  if (isBelowTarget(r, opts)) return { label: "Below target", tone: "bad" };
   return null;
 }
 
-function verdict(r: PresenceRow): { label: string; tone: keyof typeof TONES; detail: string } {
-  const total = onlineSample(r);
+function liveIdleSeconds(r: PresenceRow, nowMs: number): number {
+  if (r.last_input_at) {
+    const t = new Date(r.last_input_at).getTime();
+    if (!Number.isNaN(t)) return Math.max(r.idle_seconds || 0, Math.floor((nowMs - t) / 1000));
+  }
+  return r.idle_seconds || 0;
+}
+
+function verdict(
+  r: PresenceRow,
+  opts?: LiveOpts
+): { label: string; tone: keyof typeof TONES; detail: string } {
+  const total = onlineSample(r, opts);
+  const nowMs = opts?.nowMs ?? Date.now();
   if (r.status === "break") {
     const started = r.break_started_at
-      ? fmtDur(Math.max(0, Math.floor((Date.now() - new Date(r.break_started_at).getTime()) / 1000)))
+      ? fmtDur(Math.max(0, Math.floor((nowMs - new Date(r.break_started_at).getTime()) / 1000)))
       : "";
     const todayOfType =
       r.break_type === "meal" || r.break_type === "lunch"
-        ? mealBreakSample(r)
-        : generalBreakSample(r);
+        ? mealBreakSample(r, opts)
+        : generalBreakSample(r, opts);
     return {
       label: breakLabel(r.break_type),
       tone: "info",
@@ -156,7 +215,7 @@ function verdict(r: PresenceRow): { label: string; tone: keyof typeof TONES; det
     return {
       label: "Away",
       tone: "warn",
-      detail: `No mouse/keyboard for ${fmtDur(r.idle_seconds)} (2+ min) · CRM still open`,
+      detail: `No mouse/keyboard for ${fmtDur(liveIdleSeconds(r, nowMs))} (2+ min) · CRM still open`,
     };
   }
   if (r.status === "working") {
@@ -266,6 +325,10 @@ export default function MonitorPage() {
   const [events, setEvents] = useState<PresenceEvent[]>([]);
   const [weekDays, setWeekDays] = useState<PresenceDayRow[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const liveDay = day === todayKarachi();
+  const live: LiveOpts = { nowMs, live: liveDay };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -275,6 +338,14 @@ export default function MonitorPage() {
       setLoading(false);
     });
   }, [day]);
+
+  // Live clock — tick durations every second while viewing today.
+  useEffect(() => {
+    if (!liveDay) return;
+    setNowMs(Date.now());
+    const t = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [liveDay]);
 
   useEffect(() => {
     load();
@@ -327,16 +398,16 @@ export default function MonitorPage() {
       else if (r.status === "break") c.onBreak += 1;
       else if (isAway(r.status)) c.away += 1;
       else c.offline += 1;
-      if (isBelowTarget(r)) c.below += 1;
+      if (isBelowTarget(r, live)) c.below += 1;
     }
     return c;
-  }, [rows]);
+  }, [rows, nowMs, liveDay]);
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     const list = rows.filter((r) => {
       if (filter === "below") {
-        if (!isBelowTarget(r)) return false;
+        if (!isBelowTarget(r, live)) return false;
       } else if (filter === "online") {
         if (r.status !== "working") return false;
       } else if (filter === "break") {
@@ -357,14 +428,14 @@ export default function MonitorPage() {
 
     list.sort((a, b) => {
       if (sort === "name") return a.name.localeCompare(b.name);
-      if (sort === "day") return onlineSample(b) - onlineSample(a);
-      if (sort === "week") return weekOnlineSample(b) - weekOnlineSample(a);
+      if (sort === "day") return onlineSample(b, live) - onlineSample(a, live);
+      if (sort === "week") return weekOnlineSample(b, live) - weekOnlineSample(a, live);
       const sr = statusRank(a.status) - statusRank(b.status);
       if (sr !== 0) return sr;
-      return onlineSample(b) - onlineSample(a);
+      return onlineSample(b, live) - onlineSample(a, live);
     });
     return list;
-  }, [rows, q, filter, sort]);
+  }, [rows, q, filter, sort, nowMs, liveDay]);
 
   const selectedRow = rows.find((r) => r.user_id === selected) || null;
 
@@ -532,20 +603,20 @@ export default function MonitorPage() {
                           <StatusChip status={r.status} breakType={r.break_type} />
                           <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 4, fontWeight: 600 }}>
                             {isAway(r.status)
-                              ? `Idle ${fmtDur(r.idle_seconds)}`
+                              ? `Idle ${fmtDur(liveIdleSeconds(r, nowMs))}`
                               : r.last_heartbeat_at
                                 ? ago(r.last_heartbeat_at)
                                 : "never"}
                           </div>
                         </td>
                         <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.good.fg, whiteSpace: "nowrap" }}>
-                          {fmtDur(onlineSample(r))}
+                          {fmtDur(onlineSample(r, live))}
                         </td>
                         <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.info.fg, whiteSpace: "nowrap" }}>
-                          {fmtDur(generalBreakSample(r))}
+                          {fmtDur(generalBreakSample(r, live))}
                         </td>
                         <td className="mono" style={{ padding: "10px", fontWeight: 700, color: TONES.info.fg, whiteSpace: "nowrap" }}>
-                          {fmtDur(mealBreakSample(r))}
+                          {fmtDur(mealBreakSample(r, live))}
                         </td>
                       </tr>
                     );
@@ -567,8 +638,8 @@ export default function MonitorPage() {
                 {selectedRow.team ? ` · ${selectedRow.team}` : ""} · {deviceOf(selectedRow.user_agent)}
               </div>
               {(() => {
-                const v = verdict(selectedRow);
-                const flag = flagOf(selectedRow);
+                const v = verdict(selectedRow, live);
+                const flag = flagOf(selectedRow, live);
                 return (
                   <>
                     <div
@@ -593,14 +664,14 @@ export default function MonitorPage() {
                 );
               })()}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-                <Mini label="Logged in today" value={fmtDur(onlineSample(selectedRow))} />
-                <Mini label="General break today" value={fmtDur(generalBreakSample(selectedRow))} />
-                <Mini label="Meal break today" value={fmtDur(mealBreakSample(selectedRow))} />
-                <Mini label="Day vs 8h" value={`${dayProgress(selectedRow)}%`} />
-                <Mini label="Logged in this week" value={fmtDur(weekOnlineSample(selectedRow))} />
-                <Mini label="General break week" value={fmtDur(selectedRow.week_general_break_seconds || 0)} />
-                <Mini label="Meal break week" value={fmtDur(selectedRow.week_lunch_break_seconds || 0)} />
-                <Mini label="Week vs 40h" value={`${weekProgress(selectedRow)}%`} />
+                <Mini label="Logged in today" value={fmtDur(onlineSample(selectedRow, live))} />
+                <Mini label="General break today" value={fmtDur(generalBreakSample(selectedRow, live))} />
+                <Mini label="Meal break today" value={fmtDur(mealBreakSample(selectedRow, live))} />
+                <Mini label="Day vs 8h" value={`${dayProgress(selectedRow, live)}%`} />
+                <Mini label="Logged in this week" value={fmtDur(weekOnlineSample(selectedRow, live))} />
+                <Mini label="General break week" value={fmtDur(weekGeneralBreakSample(selectedRow, live))} />
+                <Mini label="Meal break week" value={fmtDur(weekMealBreakSample(selectedRow, live))} />
+                <Mini label="Week vs 40h" value={`${weekProgress(selectedRow, live)}%`} />
               </div>
               {selectedRow.week_start && selectedRow.week_end ? (
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.inkSoft, marginBottom: 10 }}>
