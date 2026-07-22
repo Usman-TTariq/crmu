@@ -52,7 +52,48 @@ export interface FieldDef {
   compute?: (r: Rec) => unknown;
   /** Shown in read-only fields when value is blank (e.g. Docs: Closer left empty) */
   emptyHint?: string;
+  /** Show * and block save when blank (Closer intake / create) */
+  required?: boolean;
 }
+
+/** Closer Pipeline fields that must be filled on create/save. */
+export const CLOSER_REQUIRED_FIELDS: { k: string; label: string }[] = [
+  { k: "lead_source", label: "Lead Source" },
+  { k: "assigned_date", label: "Assigned Date" },
+  { k: "closer", label: "Closer (owner)" },
+  { k: "stage", label: "Stage" },
+  { k: "business_name", label: "Legal Business Name" },
+  { k: "dba_name", label: "DBA - Business Name" },
+  { k: "business_type", label: "Business Type" },
+  { k: "business_category", label: "Business Category" },
+  { k: "first_name", label: "First Name" },
+  { k: "last_name", label: "Last Name" },
+  { k: "phone", label: "Phone Number" },
+  { k: "mobile_phone", label: "Mobile Phone Number" },
+  { k: "email", label: "Email" },
+  { k: "monthly_volume", label: "Monthly Volume ($)" },
+  { k: "avg_ticket_size", label: "Average Ticket Size" },
+  { k: "highest_ticket_size", label: "Highest Ticket Size" },
+  { k: "tin_ein", label: "TIN/EIN" },
+  { k: "ssn", label: "Social Sec #" },
+  { k: "processing_type", label: "Processing Type" },
+  { k: "processing_rate", label: "Processing Rate (% + Per Transaction)" },
+  { k: "provider", label: "Provider" },
+  { k: "equipment", label: "Equipment (With per equipment price)" },
+  { k: "lease_amount", label: "Lease Amount" },
+  { k: "lease_term", label: "Term (48mo/36mo)" },
+  { k: "business_address", label: "Business Address" },
+  { k: "state", label: "State" },
+  { k: "city", label: "City" },
+  { k: "zip_code", label: "Zip Code" },
+  { k: "shipping_address", label: "Shipping Address" },
+  { k: "residential_address", label: "Residential Address" },
+  { k: "notes", label: "Notes" },
+];
+
+const closerReq = new Set(CLOSER_REQUIRED_FIELDS.map((f) => f.k));
+const withCloserRequired = (f: FieldDef): FieldDef =>
+  closerReq.has(f.k) ? { ...f, required: true } : f;
 
 // SLA fatal check, ported from onbFatal (real dates)
 export const mspIsFatal = (r: Rec): boolean => {
@@ -430,7 +471,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
     { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
-  ],
+  ].map(withCloserRequired),
   documentation: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
     { k: "closed_date", label: "Closed Date", type: "date", readOnly: true },

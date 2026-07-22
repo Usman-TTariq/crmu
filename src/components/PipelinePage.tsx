@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { isBlank, today } from "@/lib/format";
+import { CLOSER_REQUIRED_FIELDS } from "@/lib/schemas";
 import { SCHEMAS, TAB_TABLE, mspIsFatal } from "@/lib/schemas";
 import {
   TABS,
@@ -486,6 +487,17 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       const fails = checks.filter((k) => draft[k] !== "Yes");
       if (fails.length) {
         app.pushToasts(["Cannot qualify: all 6 checks must be Yes."]);
+        return;
+      }
+    }
+    if (tab === "closer") {
+      const missing = CLOSER_REQUIRED_FIELDS.filter((f) => isBlank(draft[f.k])).map((f) => f.label);
+      if (missing.length) {
+        app.pushToasts([
+          `Fill all required fields (*): ${missing.slice(0, 6).join(", ")}${
+            missing.length > 6 ? ` +${missing.length - 6} more` : ""
+          }.`,
+        ]);
         return;
       }
     }

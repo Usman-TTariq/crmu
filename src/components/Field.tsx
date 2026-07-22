@@ -304,6 +304,11 @@ export default function Field({
       }}
     >
       {f.label}
+      {f.required ? (
+        <span style={{ color: C.blue, marginLeft: 3 }} aria-hidden>
+          *
+        </span>
+      ) : null}
     </label>
   );
   const ro = readOnly || f.readOnly || (f.managerOnly && !manager);

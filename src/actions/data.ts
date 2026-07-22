@@ -7,10 +7,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSession, requireAuth, requireSession } from "@/lib/session";
-import { EDITABLE_COLUMNS, TAB_TABLE, DATE_FIELD } from "@/lib/schemas";
+import { CLOSER_REQUIRED_FIELDS, EDITABLE_COLUMNS, TAB_TABLE, DATE_FIELD } from "@/lib/schemas";
 import { RECORD_DELETE_EMAILS, TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import type { Rec, Attachment, LeadComment, RetentionComment } from "@/lib/types";
-import { isDayTimeframe, phoneDigits, sortLeadComments, type Timeframe } from "@/lib/format";
+import { isBlank, isDayTimeframe, phoneDigits, sortLeadComments, type Timeframe } from "@/lib/format";
 import { logActivity } from "@/lib/activity-log";
 
 /** Roster profiles linked to these auth emails stay hidden from Team Setup. */
@@ -1134,8 +1134,17 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       else values.created_by = session.userId;
     }
 
-    // Closer: Driving License + Voided Cheque before Docs Received / Closed
+    // Closer: all intake fields required; DL + Voided Cheque before Docs Received / Closed
     if (payload.tab === "closer") {
+      const check = { ...payload.values, ...values };
+      const missing = CLOSER_REQUIRED_FIELDS.filter((f) => isBlank(check[f.k])).map((f) => f.label);
+      if (missing.length) {
+        return {
+          error: `Fill all required fields (*): ${missing.slice(0, 8).join(", ")}${
+            missing.length > 8 ? ` +${missing.length - 8} more` : ""
+          }.`,
+        };
+      }
       const first = String(values.first_name ?? payload.values.first_name ?? "").trim();
       const last = String(values.last_name ?? payload.values.last_name ?? "").trim();
       const joined = [first, last].filter(Boolean).join(" ");
@@ -1387,6 +1396,18 @@ export async function createManualCloserRecord(payload: {
           (CLOSER_CREATE_MANAGER_ROLES.has(role) ? identity : "");
     if (!closerName) {
       return { error: "Closer is required. Select who owns this deal." };
+    }
+
+    const requiredCheck = { ...v, closer: closerName };
+    const missingRequired = CLOSER_REQUIRED_FIELDS.filter((f) => isBlank(requiredCheck[f.k])).map(
+      (f) => f.label
+    );
+    if (missingRequired.length) {
+      return {
+        error: `Fill all required fields (*): ${missingRequired.slice(0, 8).join(", ")}${
+          missingRequired.length > 8 ? ` +${missingRequired.length - 8} more` : ""
+        }.`,
+      };
     }
 
     const businessName = String(v.business_name || "").trim();
