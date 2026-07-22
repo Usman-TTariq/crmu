@@ -103,6 +103,9 @@ export default function ActiveLogins() {
 
   if (!app.canSeeCeo) return null;
 
+  const sessionCount = sessions.length;
+  const peopleCount = new Set(sessions.map((s) => s.user_id).filter(Boolean)).size;
+
   const kickUser = async (s: SessionRow) => {
     setBusy(s.user_id);
     const res = await signOutUserEverywhere({ userId: s.user_id });
@@ -129,7 +132,7 @@ export default function ActiveLogins() {
           setOpen((v) => !v);
           if (!open) load();
         }}
-        title="Active logins"
+        title={`${peopleCount} people · ${sessionCount} sessions`}
         style={{
           border: `1px solid ${open ? C.blue : C.line}`,
           borderRadius: 10,
@@ -157,7 +160,7 @@ export default function ActiveLogins() {
             fontWeight: 800,
           }}
         >
-          {sessions.length}
+          {peopleCount}
         </span>
       </button>
 
@@ -189,7 +192,8 @@ export default function ActiveLogins() {
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: C.ink }}>Active Logins</div>
               <div style={{ fontSize: 11.5, color: C.inkFaint, marginTop: 1 }}>
-                {sessions.length} live session{sessions.length === 1 ? "" : "s"} &middot; device, IP and activity per login
+                {peopleCount} people &middot; {sessionCount} session{sessionCount === 1 ? "" : "s"}{" "}
+                &middot; device, IP and activity per login
               </div>
             </div>
             <button

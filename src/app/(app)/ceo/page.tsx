@@ -36,6 +36,8 @@ export default function CeoDashboardPage() {
 
   useEffect(() => {
     let alive = true;
+    setD(null);
+    setErr("");
     fetchCeoPage({ tf: app.tf }).then((res) => {
       if (!alive) return;
       if (res.error) setErr(res.error);
@@ -160,10 +162,10 @@ export default function CeoDashboardPage() {
 
       <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14, marginBottom: 14, alignItems: "stretch" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
-          <Panel title="Conversion Funnel · lead to live · all time" color={C.blueDeep}>
+          <Panel title={"Conversion Funnel · lead to live · " + app.tf} color={C.blueDeep}>
             <FunnelChart steps={funnel} />
           </Panel>
-          <Panel title="Lead Source Mix · where leads come from" color={C.blue}>
+          <Panel title={"Lead Source Mix · " + app.tf} color={C.blue}>
             <SegmentedDonut centerLabel="LEADS" items={sources.filter((x) => x.count > 0)} />
           </Panel>
           <Panel title="MSP Approval Rates" color="#6D28D9" style={{ flex: 1 }}>
@@ -186,13 +188,13 @@ export default function CeoDashboardPage() {
               <Donut
                 value={n("opsAll") ? opsRate : null}
                 label="OPS Approval"
-                sub="all time"
+                sub={"target 85% · " + app.tf.toLowerCase()}
                 color={opsRate >= 85 ? TONES.good.fg : C.blue}
               />
               <Donut
                 value={onbRateAll}
                 label="Onboarding Approval"
-                sub="target 85% · all time"
+                sub={"target 85% · " + app.tf.toLowerCase()}
                 color={onbRateAll !== null && onbRateAll >= 85 ? TONES.good.fg : C.blue}
               />
               <Donut
