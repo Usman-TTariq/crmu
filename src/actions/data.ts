@@ -509,18 +509,48 @@ async function enrichPipelineRows(
     });
   }
 
-  if (tab === "documentation" && leadIds.length) {
-    const { data: leads } = await admin
-      .from("leads")
-      .select("lead_id, lead_source")
-      .in("lead_id", leadIds);
-    const sourceByLead = new Map(
-      (leads || []).map((l) => [String(l.lead_id), String(l.lead_source || "")])
+  // Forward Lead Gen + Closer notes into later stages (drawer / full fetch).
+  // Documentation also needs lead_source on list rows.
+  if (
+    leadIds.length &&
+    (tab === "documentation" ||
+      (mode === "full" && (tab === "ops" || tab === "msp")))
+  ) {
+    const wantNotes = mode === "full";
+    const leadSelect =
+      tab === "documentation"
+        ? wantNotes
+          ? "lead_id, lead_source, notes"
+          : "lead_id, lead_source"
+        : "lead_id, notes";
+    const [leadsRes, closerRes] = await Promise.all([
+      admin.from("leads").select(leadSelect).in("lead_id", leadIds),
+      wantNotes
+        ? admin.from("closer_deals").select("lead_id, notes").in("lead_id", leadIds)
+        : Promise.resolve({ data: [] as { lead_id: string; notes?: string }[] }),
+    ]);
+    const leadMap = new Map(
+      (leadsRes.data || []).map((l) => [String(l.lead_id), l as { lead_source?: string; notes?: string }])
     );
-    out = out.map((r) => ({
-      ...r,
-      lead_source: sourceByLead.get(String(r.lead_id || "")) || r.lead_source || "",
-    }));
+    const closerNotes = new Map(
+      (closerRes.data || []).map((c) => [String(c.lead_id), String(c.notes || "")])
+    );
+    out = out.map((r) => {
+      const lid = String(r.lead_id || "");
+      const lead = leadMap.get(lid);
+      return {
+        ...r,
+        ...(tab === "documentation"
+          ? { lead_source: lead?.lead_source ?? r.lead_source ?? "" }
+          : {}),
+        ...(wantNotes
+          ? {
+              lead_gen_notes: lead?.notes ?? "",
+              closer_notes: closerNotes.get(lid) || "",
+            }
+          : {}),
+      };
+    });
   }
 
   if ((tab === "closer" || tab === "ops" || tab === "documentation") && leadIds.length) {
