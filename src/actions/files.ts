@@ -38,7 +38,14 @@ export async function logAttachmentUpload(payload: {
   await logActivity({
     action: "file.upload",
     entityId: payload.leadId,
-    entityTab: payload.stage === "documentation" ? "documentation" : payload.stage === "ops" ? "ops" : "closer",
+    entityTab:
+      payload.stage === "documentation"
+        ? "documentation"
+        : payload.stage === "ops"
+          ? "ops"
+          : payload.stage === "msp"
+            ? "msp"
+            : "closer",
     summary: `Uploaded ${payload.fileName} · ${payload.leadId}`,
     meta: { stage: payload.stage, fileName: payload.fileName },
   });
