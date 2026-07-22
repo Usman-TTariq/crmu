@@ -11,6 +11,13 @@ import Field from "@/components/Field";
 import Journey from "@/components/Journey";
 import { defaultZipForCity, normalizeStateCode } from "@/lib/us-locations";
 
+function isEmptyFieldValue(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  if (Array.isArray(v)) return v.length === 0;
+  const s = String(v).trim();
+  return !s || s === "-" || s === "--";
+}
+
 function withNormalizedState(rec: Rec): Rec {
   if (!rec.state) return rec;
   const code = normalizeStateCode(rec.state);
@@ -93,7 +100,7 @@ export default function Drawer({
   }, []);
 
   // Parent can push fresh data after open (list → full fetch) without remounting.
-  // Draft is initialized once; sync read-only enrichment + comments when record updates.
+  // Draft is initialized once; sync enrichment / comments when record updates.
   useEffect(() => {
     setDraft((d) => {
       const next: Rec = {
@@ -102,7 +109,6 @@ export default function Drawer({
         comments: record.comments ?? d.comments,
         ...(record.__newComment === "" ? { __newComment: "" } : null),
       };
-      // Forwarded notes / files loaded after drawer open
       const noteKeys = new Set([
         "closer_notes",
         "documentation_notes",
@@ -114,73 +120,105 @@ export default function Drawer({
         "qa_notes_fwd",
         "lead_notes",
       ]);
-      for (const k of [
-        "closer_notes",
-        "documentation_notes",
-        "documentation_rework_comments",
-        "ops_notes",
-        "ops_reasoning_fwd",
-        "ops_rework_reasoning",
-        "lead_gen_notes",
-        "qa_notes_fwd",
-        "lead_notes",
-        "attachments",
-        "lead_source",
-        "email",
-        "business_address",
-        "city",
-        "zip_code",
-        "lead_origin",
-        "lead_gen_agent",
-        "lead_gen_team",
-        "current_processor",
-        "current_device",
-        "current_rate",
-        "returned_after_ops_rework",
-      ] as const) {
-        if (record[k] === undefined) continue;
-        const incoming = record[k];
-        // Don't replace real notes text with blank / "-" from a partial fetch
-        if (
-          noteKeys.has(k) &&
-          (incoming === "" || incoming === "-" || incoming == null) &&
-          next[k] != null &&
-          String(next[k]).trim() !== "" &&
-          String(next[k]) !== "-"
-        ) {
-          continue;
+      // Docs/OPS editable fields — never overwrite while the user is typing
+      const protectEdit =
+        tab.k === "documentation"
+          ? new Set(["pm_name", "decision", "fail_reason", "review_date", "notes", "__newComment"])
+          : tab.k === "ops"
+            ? new Set([
+                "brand",
+                "dl_recd",
+                "voided_check",
+                "bank_stmt",
+                "owner_name_verified",
+                "owner_phone_verified",
+                "business_verified",
+                "ops_status",
+                "reasoning",
+                "ops_agent",
+                "ops_date",
+                "accuracy_review",
+                "notes",
+                "__newComment",
+              ])
+            : null;
+
+      if (protectEdit) {
+        // Merge full enriched record into draft (Closer intake, LG notes, etc.)
+        for (const [k, incoming] of Object.entries(record)) {
+          if (protectEdit.has(k) || k === "lead_comments" || k === "comments") continue;
+          if (incoming === undefined) continue;
+          if (
+            noteKeys.has(k) &&
+            (incoming === "" || incoming === "-" || incoming == null) &&
+            next[k] != null &&
+            String(next[k]).trim() !== "" &&
+            String(next[k]) !== "-"
+          ) {
+            continue;
+          }
+          next[k] = incoming === "-" ? "" : incoming;
         }
-        next[k] = incoming === "-" ? "" : incoming;
+      } else {
+        for (const k of [
+          "closer_notes",
+          "documentation_notes",
+          "documentation_rework_comments",
+          "ops_notes",
+          "ops_reasoning_fwd",
+          "ops_rework_reasoning",
+          "lead_gen_notes",
+          "qa_notes_fwd",
+          "lead_notes",
+          "attachments",
+          "lead_source",
+          "email",
+          "business_address",
+          "city",
+          "zip_code",
+          "lead_origin",
+          "lead_gen_agent",
+          "lead_gen_team",
+          "current_processor",
+          "current_device",
+          "current_rate",
+          "returned_after_ops_rework",
+          "dba_name",
+          "business_type",
+          "business_category",
+          "first_name",
+          "last_name",
+          "mobile_phone",
+          "avg_ticket_size",
+          "highest_ticket_size",
+          "tin_ein",
+          "ssn",
+          "processing_type",
+          "processing_rate",
+          "provider",
+          "equipment",
+          "lease_amount",
+          "lease_term",
+          "shipping_address",
+          "residential_address",
+        ] as const) {
+          if (record[k] === undefined) continue;
+          const incoming = record[k];
+          if (
+            noteKeys.has(k) &&
+            (incoming === "" || incoming === "-" || incoming == null) &&
+            next[k] != null &&
+            String(next[k]).trim() !== "" &&
+            String(next[k]) !== "-"
+          ) {
+            continue;
+          }
+          next[k] = incoming === "-" ? "" : incoming;
+        }
       }
       return next;
     });
-  }, [
-    record.lead_comments,
-    record.comments,
-    record.__newComment,
-    record.closer_notes,
-    record.documentation_notes,
-    record.documentation_rework_comments,
-    record.ops_notes,
-    record.ops_reasoning_fwd,
-    record.ops_rework_reasoning,
-    record.lead_gen_notes,
-    record.qa_notes_fwd,
-    record.lead_notes,
-    record.attachments,
-    record.lead_source,
-    record.email,
-    record.business_address,
-    record.city,
-    record.zip_code,
-    record.lead_origin,
-    record.lead_gen_agent,
-    record.lead_gen_team,
-    record.current_processor,
-    record.current_device,
-    record.current_rate,
-    record.returned_after_ops_rework,
-  ]);
+  }, [record, tab.k]);
 
   const onChange = (f: { k: string }, v: unknown) =>
     setDraft((d) => {
@@ -210,9 +248,21 @@ export default function Drawer({
     (f) =>
       !(f.k === "lost_reason" && draft.stage !== "Closed Lost") &&
       !(f.k === "fail_reason" && draft.decision !== "Fail") &&
-      // Uploads need a lead_id in storage — hide until the record exists
+      // Hide empty OPS-return pill when not after rework
+      !(f.k === "after_ops_rework" && !draft.returned_after_ops_rework) &&
       !(isNew && f.type === "files")
   );
+  const emptyCloserLabels =
+    tab.k === "documentation"
+      ? visible
+          .filter((f) => f.emptyHint && /Closer/i.test(f.emptyHint || ""))
+          .filter((f) => {
+            const raw =
+              f.type === "computed" && f.compute ? f.compute(draft) : draft[f.k];
+            return isEmptyFieldValue(raw);
+          })
+          .map((f) => f.label)
+      : [];
   const fullFields = visible.filter((f) => !f.long && f.type !== "thread" && f.type !== "files");
   const longFields = visible.filter((f) => f.long || f.type === "thread" || f.type === "files");
   const isExtraEditable = (k: string) => !!extraEditableKeys?.includes(k);
@@ -321,6 +371,26 @@ export default function Drawer({
           >
             <Zap size={15} style={{ color: C.blueDeep, marginTop: 1, flexShrink: 0 }} />
             <div style={{ fontSize: 12.5, color: C.blueDeep, lineHeight: 1.4 }}>{tab.note}</div>
+          </div>
+        ) : null}
+
+        {emptyCloserLabels.length ? (
+          <div
+            style={{
+              margin: "14px 22px 0",
+              background: TONES.warn.bg,
+              border: `1px solid ${TONES.warn.fg}44`,
+              borderRadius: 10,
+              padding: "10px 12px",
+              fontSize: 12.5,
+              color: TONES.warn.fg,
+              lineHeight: 1.45,
+            }}
+          >
+            <div style={{ fontWeight: 800, marginBottom: 4 }}>
+              Closer left these fields empty ({emptyCloserLabels.length})
+            </div>
+            <div style={{ fontWeight: 600 }}>{emptyCloserLabels.join(" · ")}</div>
           </div>
         ) : null}
 

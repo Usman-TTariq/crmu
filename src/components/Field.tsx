@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { C, TONES } from "@/lib/theme";
 import {
   isBlank,
@@ -18,6 +18,189 @@ import FileField from "@/components/FileField";
 import AddressField from "@/components/AddressField";
 import EditableSelect from "@/components/EditableSelect";
 import { normalizeStateCode } from "@/lib/us-locations";
+import { useApp } from "@/components/app-context";
+
+function commentInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function splitCommentBody(body: string): { tag: string; text: string } {
+  const m = body.match(/^\[([^\]]+)\]\s*\n?([\s\S]*)$/);
+  if (!m) return { tag: "", text: body };
+  return { tag: m[1], text: (m[2] || "").trim() };
+}
+
+function CommentThread({
+  label,
+  value,
+  onChange,
+  canCompose,
+  fieldKey,
+}: {
+  label: React.ReactNode;
+  value: Rec;
+  onChange: (f: { k: string }, v: unknown) => void;
+  canCompose: boolean;
+  fieldKey: string;
+}) {
+  const app = useApp();
+  const me = String(app.session?.profile?.full_name || "").trim().toLowerCase();
+  const list = sortLeadComments(
+    Array.isArray(value[fieldKey]) ? (value[fieldKey] as LeadComment[]) : []
+  );
+  const scrollerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [list.length, list[list.length - 1]?.id, list[list.length - 1]?.created_at]);
+
+  return (
+    <div>
+      {label}
+      <div
+        ref={scrollerRef}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          marginBottom: canCompose ? 12 : 0,
+          background: "#eceff3",
+          border: `1px solid ${C.line}`,
+          borderRadius: 14,
+          padding: "14px 12px",
+          maxHeight: 360,
+          overflowY: "auto",
+        }}
+      >
+        {list.length === 0 ? (
+          <div style={{ fontSize: 13, color: C.inkFaint, textAlign: "center", padding: "18px 8px" }}>
+            No comments yet.
+          </div>
+        ) : (
+          list.map((c) => {
+            const author = String(c.author || "").trim() || "Unknown";
+            const mine = !!me && author.toLowerCase() === me;
+            const { tag, text } = splitCommentBody(String(c.body || ""));
+            const bubbleBg = mine ? "#2b3038" : C.surface;
+            const bubbleFg = mine ? "#fff" : C.ink;
+            const metaFg = mine ? "rgba(255,255,255,0.65)" : C.inkFaint;
+            return (
+              <div
+                key={c.id || `${c.author}-${c.created_at}`}
+                style={{
+                  display: "flex",
+                  flexDirection: mine ? "row-reverse" : "row",
+                  alignItems: "flex-end",
+                  gap: 8,
+                  maxWidth: "100%",
+                }}
+              >
+                {!mine ? (
+                  <div
+                    title={author}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: "50%",
+                      background: C.blueSoft,
+                      color: C.blueDeep,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {commentInitials(author)}
+                  </div>
+                ) : null}
+                <div style={{ maxWidth: "min(78%, 420px)", minWidth: 0 }}>
+                  {!mine ? (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: C.inkSoft,
+                        margin: "0 0 3px 4px",
+                      }}
+                    >
+                      {author}
+                    </div>
+                  ) : null}
+                  <div
+                    style={{
+                      background: bubbleBg,
+                      color: bubbleFg,
+                      borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                      padding: "9px 12px",
+                      boxShadow: "0 1px 2px rgba(18,21,26,0.08)",
+                    }}
+                  >
+                    {tag ? (
+                      <div
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 800,
+                          letterSpacing: "0.04em",
+                          textTransform: "uppercase",
+                          color: mine ? "rgba(255,255,255,0.75)" : C.blueDeep,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {tag}
+                      </div>
+                    ) : null}
+                    <div
+                      style={{
+                        fontSize: 13.5,
+                        lineHeight: 1.45,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {text || String(c.body || "")}
+                    </div>
+                    <div
+                      className="mono"
+                      style={{
+                        fontSize: 10.5,
+                        color: metaFg,
+                        marginTop: 5,
+                        textAlign: mine ? "right" : "left",
+                      }}
+                    >
+                      {stamp(c.created_at)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+      {canCompose ? (
+        <textarea
+          value={String(value.__newComment ?? "")}
+          onChange={(e) => onChange({ k: "__newComment" }, e.target.value)}
+          rows={2}
+          placeholder="Type a message…"
+          style={{
+            ...base,
+            resize: "vertical",
+            borderRadius: 16,
+            background: C.bg,
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
 
 const base: React.CSSProperties = {
   width: "100%",
@@ -161,8 +344,28 @@ export default function Field({
 
   if (f.type === "computed") {
     const v = f.compute ? f.compute(value) : value[f.k];
+    if (isBlank(v) || v === "-" || String(v).trim() === "--") {
+      if (!f.emptyHint) return null;
+      return (
+        <div>
+          {lbl}
+          <div
+            style={{
+              ...base,
+              background: TONES.warn.bg,
+              border: `1px dashed ${TONES.warn.fg}55`,
+              color: TONES.warn.fg,
+              fontWeight: 600,
+              fontStyle: "italic",
+            }}
+          >
+            {f.emptyHint}
+          </div>
+        </div>
+      );
+    }
     const txt = f.isPill
-      ? String(v ?? "-")
+      ? String(v)
       : f.fmt === "money"
       ? money(v)
       : f.fmt === "pct"
@@ -171,7 +374,7 @@ export default function Field({
       ? stamp(v)
       : f.fmt === "num"
       ? numfmt(v)
-      : String(v ?? "-");
+      : String(v);
     return (
       <div>
         {lbl}
@@ -186,57 +389,14 @@ export default function Field({
   }
 
   if (f.type === "thread") {
-    const list = sortLeadComments(
-      Array.isArray(value[f.k]) ? (value[f.k] as LeadComment[]) : []
-    );
-    const canCompose = (!ro || !!allowComment) && !!value.lead_id;
     return (
-      <div>
-        {lbl}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: canCompose ? 10 : 0 }}>
-          {list.length === 0 ? (
-            <div style={{ fontSize: 13, color: C.inkFaint }}>No comments yet.</div>
-          ) : (
-            list.map((c) => (
-              <div
-                key={c.id || `${c.author}-${c.created_at}`}
-                style={{
-                  background: C.lineSoft,
-                  border: `1px solid ${C.line}`,
-                  borderRadius: 10,
-                  padding: "8px 11px",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: C.blueDeep,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <span>{c.author}</span>
-                  <span className="mono" style={{ color: C.inkFaint, fontWeight: 500 }}>
-                    {stamp(c.created_at)}
-                  </span>
-                </div>
-                <div style={{ fontSize: 13.5, color: C.ink, marginTop: 3, whiteSpace: "pre-wrap" }}>{c.body}</div>
-              </div>
-            ))
-          )}
-        </div>
-        {canCompose ? (
-          <textarea
-            value={String(value.__newComment ?? "")}
-            onChange={(e) => onChange({ k: "__newComment" }, e.target.value)}
-            rows={2}
-            placeholder="Add a comment. It is saved with your name and the time, and cannot be edited or deleted afterward."
-            style={{ ...base, resize: "vertical" }}
-          />
-        ) : null}
-      </div>
+      <CommentThread
+        label={lbl}
+        value={value}
+        onChange={onChange}
+        canCompose={(!ro || !!allowComment) && !!value.lead_id}
+        fieldKey={f.k}
+      />
     );
   }
 
@@ -255,22 +415,48 @@ export default function Field({
   }
 
   if (ro) {
+    const blankVal = (raw: unknown) =>
+      isBlank(raw) || String(raw).trim() === "-" || String(raw).trim() === "--";
+    const emptyBox = (hint: string) => (
+      <div>
+        {lbl}
+        <div
+          style={{
+            ...base,
+            background: TONES.warn.bg,
+            border: `1px dashed ${TONES.warn.fg}55`,
+            color: TONES.warn.fg,
+            fontWeight: 600,
+            fontStyle: "italic",
+          }}
+        >
+          {hint}
+        </div>
+      </div>
+    );
     if (f.type === "phone") {
-      const shown = isBlank(value[f.k]) ? "" : formatUsPhone(value[f.k]) || String(value[f.k]);
+      const rawPhone = value[f.k];
+      if (blankVal(rawPhone)) {
+        return f.emptyHint ? emptyBox(f.emptyHint) : null;
+      }
+      const shown = formatUsPhone(rawPhone) || String(rawPhone);
       return (
         <div>
           {lbl}
           <PhoneShell muted>
             <span className="mono" style={{ flex: 1, minWidth: 0, padding: "10px 0", fontWeight: 600 }}>
-              {shown || "-"}
+              {shown}
             </span>
           </PhoneShell>
         </div>
       );
     }
-    // Forwarded notes / long text: show real text (pre-wrap), never a lone dash placeholder
+    // Read-only: real text, or closer/LG empty hint (never a lone "-")
     const raw = value[f.k];
-    const text = isBlank(raw) || raw === "-" ? "" : String(raw);
+    if (blankVal(raw)) {
+      return f.emptyHint ? emptyBox(f.emptyHint) : null;
+    }
+    const text = String(raw);
     const isNotesLike =
       !!f.long ||
       /(_notes|_comments|_reasoning|notes|reasoning|fail_reason)$/i.test(f.k);
@@ -282,12 +468,12 @@ export default function Field({
           style={{
             ...base,
             background: C.lineSoft,
-            color: text ? C.inkSoft : C.inkFaint,
+            color: C.inkSoft,
             whiteSpace: isNotesLike ? "pre-wrap" : undefined,
             minHeight: isNotesLike ? 44 : undefined,
           }}
         >
-          {text || (isNotesLike ? "" : "-")}
+          {text}
         </div>
       </div>
     );

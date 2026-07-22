@@ -50,6 +50,8 @@ export interface FieldDef {
   fmt?: "money" | "pct" | "num" | "stamp";
   managerOnly?: boolean;
   compute?: (r: Rec) => unknown;
+  /** Shown in read-only fields when value is blank (e.g. Docs: Closer left empty) */
+  emptyHint?: string;
 }
 
 // SLA fatal check, ported from onbFatal (real dates)
@@ -432,13 +434,118 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
   documentation: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
     { k: "closed_date", label: "Closed Date", type: "date", readOnly: true },
-    { k: "lead_source", label: "Lead Source", type: "select", opts: LEAD_SOURCES, readOnly: true },
-    { k: "business_name", label: "Business Name", type: "text", readOnly: true },
-    { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
-    { k: "phone", label: "Phone", type: "phone", mono: true, readOnly: true },
-    { k: "state", label: "State", type: "text", readOnly: true },
-    { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
+    { k: "lead_source", label: "Lead Source", type: "text", readOnly: true },
     { k: "closer", label: "Closer", type: "text", readOnly: true },
+    {
+      k: "lead_gen_agent",
+      label: "Lead Gen Agent",
+      type: "computed",
+      isPill: true,
+      compute: (r) => r.lead_gen_agent || "",
+    },
+    {
+      k: "lead_gen_team",
+      label: "Team",
+      type: "computed",
+      isPill: true,
+      compute: (r) => r.lead_gen_team || "",
+    },
+    // Closer intake (read-only forward from Closer Pipeline)
+    { k: "business_name", label: "Legal Business Name", type: "text", readOnly: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "dba_name", label: "DBA - Business Name", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "business_type", label: "Business Type", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "business_category", label: "Business Category", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "first_name", label: "First Name", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "last_name", label: "Last Name", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    {
+      k: "owner_name",
+      label: "Owner Name",
+      type: "computed",
+      isPill: true,
+      emptyHint: "Empty — not filled by Closer",
+      compute: (r) => {
+        const joined = [r.first_name, r.last_name].map((x) => String(x || "").trim()).filter(Boolean).join(" ");
+        return joined || r.owner_name || "";
+      },
+    },
+    { k: "phone", label: "Phone Number", type: "phone", mono: true, readOnly: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "mobile_phone", label: "Mobile Phone Number", type: "phone", mono: true, readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "email", label: "Email", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "avg_ticket_size", label: "Average Ticket Size", type: "num", fmt: "money", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "highest_ticket_size", label: "Highest Ticket Size", type: "num", fmt: "money", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "tin_ein", label: "TIN/EIN", type: "text", mono: true, readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "ssn", label: "Social Sec #", type: "text", mono: true, readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "processing_type", label: "Processing Type", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    {
+      k: "processing_rate",
+      label: "Processing Rate (% + Per Transaction)",
+      type: "text",
+      readOnly: true,
+      hideTable: true,
+      emptyHint: "Empty — not filled by Closer",
+    },
+    { k: "provider", label: "Provider", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    {
+      k: "equipment",
+      label: "Equipment (With per equipment price)",
+      type: "text",
+      long: true,
+      readOnly: true,
+      hideTable: true,
+      emptyHint: "Empty — not filled by Closer",
+    },
+    { k: "lease_amount", label: "Lease Amount", type: "num", fmt: "money", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "lease_term", label: "Term (48mo/36mo)", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "business_address", label: "Business Address", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "state", label: "State", type: "text", readOnly: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "city", label: "City", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "zip_code", label: "Zip Code", type: "text", readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "shipping_address", label: "Shipping Address", type: "text", long: true, readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    { k: "residential_address", label: "Residential Address", type: "text", long: true, readOnly: true, hideTable: true, emptyHint: "Empty — not filled by Closer" },
+    {
+      k: "current_processor",
+      label: "Lead Gen · Current Processor",
+      type: "text",
+      readOnly: true,
+      hideTable: true,
+      emptyHint: "Empty — not provided by Lead Gen",
+    },
+    {
+      k: "current_device",
+      label: "Lead Gen · Current Device",
+      type: "text",
+      readOnly: true,
+      hideTable: true,
+      emptyHint: "Empty — not provided by Lead Gen",
+    },
+    {
+      k: "current_rate",
+      label: "Lead Gen · Current Rate %",
+      type: "text",
+      readOnly: true,
+      hideTable: true,
+      emptyHint: "Empty — not provided by Lead Gen",
+    },
+    {
+      k: "lead_notes",
+      label: "Lead Gen Notes",
+      type: "text",
+      long: true,
+      readOnly: true,
+      hideTable: true,
+      emptyHint: "Empty — not provided by Lead Gen",
+    },
+    {
+      k: "qa_notes_fwd",
+      label: "QA Notes",
+      type: "text",
+      long: true,
+      readOnly: true,
+      hideTable: true,
+      emptyHint: "Empty — not provided by QA",
+    },
+    // Documentation decision
     { k: "pm_name", label: "Project Manager", type: "select", opts: (c) => c.projectManagers },
     { k: "decision", label: "Decision", type: "select", opts: DOC_DECISIONS, isPill: true },
     {
@@ -464,6 +571,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
       long: true,
       readOnly: true,
       hideTable: true,
+      emptyHint: "Empty — not filled by Closer",
     },
     {
       k: "ops_rework_reasoning",
@@ -472,6 +580,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
       long: true,
       readOnly: true,
       hideTable: true,
+      emptyHint: "Empty — no OPS rework yet",
     },
     {
       k: "ops_notes",
@@ -480,6 +589,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
       long: true,
       readOnly: true,
       hideTable: true,
+      emptyHint: "Empty — not filled by OPS",
     },
     { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
     { k: "notes", label: "Documentation Notes", type: "text", long: true, hideTable: true },

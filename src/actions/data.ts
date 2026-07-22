@@ -325,6 +325,15 @@ function applyOpsQueueFilter<T extends { not: (col: string, op: string, val: str
   return query.not("ops_status", "in", "(Rework,Reworked)");
 }
 
+/** Closer/OPS-created leads live in Closer Pipeline — keep them out of Lead Gen. */
+function applyLeadgenOriginFilter<T extends { eq: (col: string, val: string) => T }>(
+  query: T,
+  tab: TabKey
+): T {
+  if (tab !== "leadgen") return query;
+  return query.eq("lead_origin", "leadgen");
+}
+
 /** `list` skips drawer-only extras (comments / signed file URLs) for faster paging. */
 async function enrichPipelineRows(
   tab: TabKey,
@@ -536,19 +545,141 @@ async function enrichPipelineRows(
     });
   }
 
-  // Documentation needs lead_source on list rows.
+  // Documentation list: lead_source. Full drawer: Closer intake + Lead Gen/QA details.
   if (tab === "documentation" && leadIds.length) {
-    const { data: leadSrc } = await admin
-      .from("leads")
-      .select("lead_id, lead_source")
-      .in("lead_id", leadIds);
-    const srcMap = new Map(
-      (leadSrc || []).map((l) => [String(l.lead_id), String(l.lead_source || "")])
-    );
-    out = out.map((r) => ({
-      ...r,
-      lead_source: srcMap.get(String(r.lead_id || "")) || r.lead_source || "",
-    }));
+    if (mode !== "full") {
+      const { data: leadSrc } = await admin
+        .from("leads")
+        .select("lead_id, lead_source")
+        .in("lead_id", leadIds);
+      const srcMap = new Map(
+        (leadSrc || []).map((l) => [String(l.lead_id), String(l.lead_source || "")])
+      );
+      out = out.map((r) => ({
+        ...r,
+        lead_source: srcMap.get(String(r.lead_id || "")) || r.lead_source || "",
+      }));
+    } else {
+      const closerIntakeCols =
+        "lead_id, notes, dba_name, business_type, business_category, first_name, last_name, mobile_phone, email, avg_ticket_size, highest_ticket_size, tin_ein, ssn, processing_type, processing_rate, provider, equipment, lease_amount, lease_term, business_address, city, zip_code, shipping_address, residential_address, business_name, owner_name, phone, state, monthly_volume, closer";
+      const [leadsRes, closerRes, qaRes] = await Promise.all([
+        admin
+          .from("leads")
+          .select(
+            "lead_id, lead_source, email, business_address, city, zip_code, lead_gen_agent, current_processor, current_device, current_rate, notes"
+          )
+          .in("lead_id", leadIds),
+        admin
+          .from("closer_deals")
+          .select(closerIntakeCols)
+          .in("lead_id", leadIds)
+          .then(async (res) => {
+            if (!res.error) return res;
+            return admin
+              .from("closer_deals")
+              .select("lead_id, notes, business_name, owner_name, phone, state, monthly_volume, closer")
+              .in("lead_id", leadIds);
+          }),
+        admin.from("qa_records").select("lead_id, qa_notes").in("lead_id", leadIds),
+      ]);
+      const leadMap = new Map(
+        (leadsRes.data || []).map((l) => [String(l.lead_id), l as Record<string, unknown>])
+      );
+      const closerMap = new Map(
+        (closerRes.data || []).map((c) => [String(c.lead_id), c as Record<string, unknown>])
+      );
+      const qaNotesByLead = new Map(
+        (qaRes.data || []).map((q) => [String(q.lead_id), String(q.qa_notes || "")])
+      );
+      const agentNames = [
+        ...new Set(
+          [...leadMap.values()]
+            .map((l) => String(l.lead_gen_agent || "").trim())
+            .filter(Boolean)
+        ),
+      ];
+      const teamByAgent = new Map<string, string>();
+      if (agentNames.length) {
+        const { data: profiles } = await admin
+          .from("profiles")
+          .select("full_name, team")
+          .in("full_name", agentNames);
+        for (const p of profiles || []) {
+          teamByAgent.set(String(p.full_name), String(p.team || ""));
+        }
+      }
+      const clean = (v: unknown) => {
+        const s = String(v ?? "").trim();
+        return !s || s === "-" || s === "--" ? "" : s;
+      };
+      const pick = (a: unknown, b: unknown) => clean(a) || clean(b) || "";
+      const intakeKeys = [
+        "dba_name",
+        "business_type",
+        "business_category",
+        "first_name",
+        "last_name",
+        "mobile_phone",
+        "email",
+        "avg_ticket_size",
+        "highest_ticket_size",
+        "tin_ein",
+        "ssn",
+        "processing_type",
+        "processing_rate",
+        "provider",
+        "equipment",
+        "lease_amount",
+        "lease_term",
+        "business_address",
+        "city",
+        "zip_code",
+        "shipping_address",
+        "residential_address",
+      ] as const;
+      out = out.map((r) => {
+        const lid = String(r.lead_id || "");
+        const lead = leadMap.get(lid);
+        const closer = closerMap.get(lid);
+        const agent = String(lead?.lead_gen_agent || "");
+        const fwd: Record<string, unknown> = {};
+        for (const k of intakeKeys) {
+          fwd[k] = clean(closer?.[k]);
+        }
+        fwd.email = pick(closer?.email, lead?.email);
+        fwd.business_address = pick(closer?.business_address, lead?.business_address);
+        fwd.city = pick(closer?.city, lead?.city);
+        fwd.zip_code = pick(closer?.zip_code, lead?.zip_code);
+        // Fill first/last from owner_name when intake names are incomplete
+        let first = String(fwd.first_name || "").trim();
+        let last = String(fwd.last_name || "").trim();
+        const owner = pick(closer?.owner_name, r.owner_name);
+        if ((!first || !last) && owner) {
+          const parts = owner.split(/\s+/).filter(Boolean);
+          if (!first && parts.length) first = parts[0];
+          if (!last && parts.length > 1) last = parts.slice(1).join(" ");
+        }
+        fwd.first_name = first;
+        fwd.last_name = last;
+        // DBA often left blank — show legal name so PM still sees a trading name
+        if (!String(fwd.dba_name || "").trim()) {
+          fwd.dba_name = pick(closer?.business_name, r.business_name);
+        }
+        return {
+          ...r,
+          ...fwd,
+          lead_source: clean(lead?.lead_source || r.lead_source),
+          lead_gen_agent: agent,
+          lead_gen_team: teamByAgent.get(agent) || "",
+          current_processor: clean(lead?.current_processor),
+          current_device: clean(lead?.current_device),
+          current_rate: clean(lead?.current_rate),
+          lead_notes: clean(lead?.notes),
+          qa_notes_fwd: clean(qaNotesByLead.get(lid)),
+          closer_notes: clean(closer?.notes || r.closer_notes),
+        };
+      });
+    }
   }
 
   // Shared notes: Closer ↔ Documentation ↔ OPS (full drawer fetch).
@@ -819,6 +950,7 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
     query = applyTf(query, df, payload.tf) as typeof query;
     query = applyQaDecisionFilter(query, payload.tab, payload.qaDecision) as typeof query;
     query = applyOpsQueueFilter(query, payload.tab) as typeof query;
+    query = applyLeadgenOriginFilter(query, payload.tab) as typeof query;
     if (payload.q?.trim()) {
       query = applySearch(query, payload.tab, payload.q) as typeof query;
     }
@@ -1493,6 +1625,7 @@ export async function fetchRowsTotal(payload: {
     query = applyTf(query, df, payload.tf) as typeof query;
     query = applyQaDecisionFilter(query, payload.tab, payload.qaDecision) as typeof query;
     query = applyOpsQueueFilter(query, payload.tab) as typeof query;
+    query = applyLeadgenOriginFilter(query, payload.tab) as typeof query;
     if (payload.q?.trim()) {
       query = applySearch(query, payload.tab, payload.q) as typeof query;
     }
@@ -1529,6 +1662,7 @@ export async function fetchTabCounts(payload: {
       let q = supabase.from(table).select("id", { count: "exact", head: true });
       q = applyTf(q, t.dated ? DATE_FIELD[t.k] : undefined, payload.tf) as typeof q;
       q = applyOpsQueueFilter(q, t.k) as typeof q;
+      q = applyLeadgenOriginFilter(q, t.k) as typeof q;
       const { count } = await q;
       counts[t.k] = count || 0;
     })
