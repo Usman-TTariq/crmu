@@ -288,6 +288,13 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "closer", label: "Closer (owner)", type: "select", opts: (c) => c.closers, readOnly: true },
     { k: "stage", label: "Stage", type: "select", opts: CLOSER_STAGES },
     {
+      k: "qa_outcome",
+      label: "QA Outcome",
+      type: "computed",
+      isPill: true,
+      compute: (r) => r.qa_outcome || "Not in QA",
+    },
+    {
       k: "ops_outcome",
       label: "OPS Outcome",
       type: "computed",
@@ -297,7 +304,8 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
         if (r.ops_status === "Approved") return "OPS Approved";
         if (r.ops_status === "Pending" && r.returned_after_ops_dispute) return "Back to OPS QA";
         if (r.ops_status === "Pending") return "In OPS QA";
-        return "";
+        if (r.ops_status === "Rework") return "OPS Rework";
+        return "Not in OPS";
       },
     },
     {

@@ -412,13 +412,16 @@ async function enrichPipelineRows(
           .select("lead_id, status, reason, review_note, created_at")
           .in("lead_id", leadIds)
           .order("created_at", { ascending: false }),
-        admin.from("qa_records").select("lead_id, qa_notes").in("lead_id", leadIds),
+        admin.from("qa_records").select("lead_id, qa_decision, qa_notes").in("lead_id", leadIds),
       ]);
       const leadMap = new Map(
         (leadsRes.data || []).map((l) => [String(l.lead_id), l as Record<string, unknown>])
       );
-      const qaNotesByLead = new Map(
-        (qaRes.data || []).map((q) => [String(q.lead_id), String(q.qa_notes || "")])
+      const qaByLead = new Map(
+        (qaRes.data || []).map((q) => [
+          String(q.lead_id),
+          { decision: String(q.qa_decision || ""), notes: String(q.qa_notes || "") },
+        ])
       );
       const agentNames = [
         ...new Set(
@@ -478,7 +481,8 @@ async function enrichPipelineRows(
           current_device: extra?.current_device ?? "",
           current_rate: extra?.current_rate ?? "",
           lead_notes: extra?.notes ?? "",
-          qa_notes_fwd: qaNotesByLead.get(lid) || "",
+          qa_outcome: qaByLead.get(lid)?.decision || "Not in QA",
+          qa_notes_fwd: qaByLead.get(lid)?.notes || "",
           ops_status: ops?.ops_status ?? "",
           ops_reasoning: ops?.reasoning ?? "",
           returned_after_ops_dispute: !!ops?.returned_after_ops_dispute,
