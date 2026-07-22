@@ -378,7 +378,7 @@ async function enrichPipelineRows(
   } else if (tab === "closer") {
     out = await enrichAuditNames(out, admin);
     if (leadIds.length) {
-      const [leadsRes, opsRes, dispRes] = await Promise.all([
+      const [leadsRes, opsRes, dispRes, qaRes] = await Promise.all([
         admin
           .from("leads")
           .select(
@@ -394,9 +394,13 @@ async function enrichPipelineRows(
           .select("lead_id, status, reason, review_note, created_at")
           .in("lead_id", leadIds)
           .order("created_at", { ascending: false }),
+        admin.from("qa_records").select("lead_id, qa_notes").in("lead_id", leadIds),
       ]);
       const leadMap = new Map(
         (leadsRes.data || []).map((l) => [String(l.lead_id), l as Record<string, unknown>])
+      );
+      const qaNotesByLead = new Map(
+        (qaRes.data || []).map((q) => [String(q.lead_id), String(q.qa_notes || "")])
       );
       const agentNames = [
         ...new Set(
@@ -453,6 +457,7 @@ async function enrichPipelineRows(
           current_device: extra?.current_device ?? "",
           current_rate: extra?.current_rate ?? "",
           lead_notes: extra?.notes ?? "",
+          qa_notes_fwd: qaNotesByLead.get(lid) || "",
           ops_status: ops?.ops_status ?? "",
           ops_reasoning: ops?.reasoning ?? "",
           returned_after_ops_dispute: !!ops?.returned_after_ops_dispute,
@@ -523,17 +528,23 @@ async function enrichPipelineRows(
           ? "lead_id, lead_source, notes"
           : "lead_id, lead_source"
         : "lead_id, notes";
-    const [leadsRes, closerRes] = await Promise.all([
+    const [leadsRes, closerRes, qaRes] = await Promise.all([
       admin.from("leads").select(leadSelect).in("lead_id", leadIds),
       wantNotes
         ? admin.from("closer_deals").select("lead_id, notes").in("lead_id", leadIds)
         : Promise.resolve({ data: [] as { lead_id: string; notes?: string }[] }),
+      wantNotes
+        ? admin.from("qa_records").select("lead_id, qa_notes").in("lead_id", leadIds)
+        : Promise.resolve({ data: [] as { lead_id: string; qa_notes?: string }[] }),
     ]);
     const leadMap = new Map(
       (leadsRes.data || []).map((l) => [String(l.lead_id), l as { lead_source?: string; notes?: string }])
     );
     const closerNotes = new Map(
       (closerRes.data || []).map((c) => [String(c.lead_id), String(c.notes || "")])
+    );
+    const qaNotes = new Map(
+      (qaRes.data || []).map((q) => [String(q.lead_id), String(q.qa_notes || "")])
     );
     out = out.map((r) => {
       const lid = String(r.lead_id || "");
@@ -546,6 +557,7 @@ async function enrichPipelineRows(
         ...(wantNotes
           ? {
               lead_gen_notes: lead?.notes ?? "",
+              qa_notes_fwd: qaNotes.get(lid) || "",
               closer_notes: closerNotes.get(lid) || "",
             }
           : {}),
