@@ -206,7 +206,7 @@ create table if not exists public.ops_verifications (
   owner_name_verified   text not null default '' check (owner_name_verified in ('','Yes','No')),
   owner_phone_verified  text not null default '' check (owner_phone_verified in ('','Yes','No')),
   business_verified     text not null default '' check (business_verified in ('','Yes','No')),
-  ops_status            text not null default 'Pending' check (ops_status in ('Pending','Approved','Disapproved','Reworked')),
+  ops_status            text not null default 'Pending' check (ops_status in ('Pending','Approved','Disapproved','Rework')),
   reasoning             text not null default '',
   ops_agent             text not null default '',
   ops_date              date,

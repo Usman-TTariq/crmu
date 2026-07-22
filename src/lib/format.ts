@@ -90,3 +90,24 @@ export const isPresetTimeframe = (tf: string): tf is PresetTimeframe =>
 
 /** True when tf is a concrete calendar day (YYYY-MM-DD). */
 export const isDayTimeframe = (tf: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(tf);
+
+/** Rework thread: oldest first; same second → OPS Rework → Docs Fail → Docs Pass. */
+export function sortLeadComments<T extends { body?: string; created_at?: string; id?: string }>(
+  list: T[]
+): T[] {
+  const kindRank = (body: string) => {
+    if (body.startsWith("[OPS Rework]")) return 0;
+    if (body.startsWith("[Documentation Fail]")) return 1;
+    if (body.startsWith("[Documentation Pass]")) return 2;
+    return 3;
+  };
+  return [...list].sort((a, b) => {
+    const ta = new Date(String(a.created_at || 0)).getTime();
+    const tb = new Date(String(b.created_at || 0)).getTime();
+    if (ta !== tb) return ta - tb;
+    const ka = kindRank(String(a.body || ""));
+    const kb = kindRank(String(b.body || ""));
+    if (ka !== kb) return ka - kb;
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
+}

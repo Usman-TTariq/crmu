@@ -60,7 +60,7 @@ export const CLOSER_STAGES = [
   "Not Interested",
 ];
 export const FULFILLMENT_STAGES = ["Pending", "Equipment Shipped", "Installed", "Live"];
-export const OPS_STATUS = ["Pending", "Approved", "Disapproved", "Reworked"];
+export const OPS_STATUS = ["Pending", "Approved", "Disapproved", "Rework"];
 export const QA_DECISIONS = ["Pending", "Qualified", "Disqualified"];
 export const SQL_STATUS = ["Pending", "Assigned"];
 export const FUNDING_STATUS = ["Pending", "Submitted", "Funded", "Declined"];
@@ -111,8 +111,8 @@ export const TABS: TabDef[] = [
   { k: "sqlassign", label: "SQL Assignment", emoji: "\u{1F3AF}", div: "SALES", dated: true, note: "Pick a closer (load shown) and set Status to Assigned to push it to the Closer Pipeline." },
   { k: "closer", label: "Closer Pipeline", emoji: "\u{1F91D}", div: "SALES", dated: true, singular: "Lead", note: "Add Lead creates a closer-direct deal (skips Lead Gen / QA / SQL). Closed sends it to Documentation. Closed Lost needs a reason and stays in history. Not Interested closes the deal without Documentation/OPS." },
   { k: "saleskpi", label: "Sales KPIs", emoji: "\u{1F4C8}", kind: "kpi", div: "SALES" },
-  { k: "documentation", label: "Documentation", emoji: "\u{1F4C1}", div: "DOCUMENTATION", dated: true, singular: "Review", note: "Project Manager reviews closer docs. Pass sends the deal to OPS QA. Fail returns it to Closer as Docs Pending. Rows highlighted after OPS Reworked show OPS reasoning — Fail sends those back to Closer." },
-  { k: "ops", label: "OPS QA", emoji: "\u{1F50E}", div: "OPS", dated: true, singular: "Lead", note: "OPS QA verifies documents and records a reasoning for every decision. Approving with anything unverified auto-disapproves. Approved sends it to Onboarding. Reworked returns the deal to Documentation with your reasoning." },
+  { k: "documentation", label: "Documentation", emoji: "\u{1F4C1}", div: "DOCUMENTATION", dated: true, singular: "Review", note: "Project Manager reviews closer docs. Pass sends the deal to OPS QA. Fail returns it to Closer as Docs Pending. Rows highlighted after OPS Rework show OPS reasoning — Fail sends those back to Closer." },
+  { k: "ops", label: "OPS QA", emoji: "\u{1F50E}", div: "OPS", dated: true, singular: "Lead", note: "OPS QA verifies documents and records a reasoning for every decision. Approving with anything unverified auto-disapproves. Approved sends it to Onboarding. Rework returns the deal to Documentation with your reasoning." },
   { k: "msp", label: "Onboarding", emoji: "\u{1F6E0}\uFE0F", div: "OPS", dated: true, note: "Up to 3 MSP attempts, each Yes or No. Any Yes makes Final Status Approved and moves it to Fulfillment. All No keeps it Pending (never auto-rejected). Use Archived to close it out. A 2nd or 3rd attempt later than 24h after a failure is a fatal error and turns the row red." },
   { k: "fulfillment", label: "Fulfillment", emoji: "\u{1F4E6}", div: "OPS", dated: true, note: "Deploy equipment and set the merchant live." },
   { k: "leasing", label: "Leasing", emoji: "\u{1F4C4}", div: "OPS", dated: true, note: "Funding Status Funded opens a Customer Success record." },
@@ -179,7 +179,7 @@ export const ROLES: RoleDef[] = [
     view: ["documentation"],
     edit: ["documentation"],
     home: "documentation",
-    scope: "Reviews closer documents. Pass → OPS QA; Fail → Closer Docs Pending. Handles OPS Reworked returns (highlighted).",
+    scope: "Reviews closer documents. Pass → OPS QA; Fail → Closer Docs Pending. Handles OPS Rework returns (highlighted).",
   },
   {
     key: "ops_manager",

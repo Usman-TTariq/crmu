@@ -2,7 +2,16 @@
 
 import React from "react";
 import { C, TONES } from "@/lib/theme";
-import { isBlank, money, pct, numfmt, stamp, today, formatUsPhone } from "@/lib/format";
+import {
+  isBlank,
+  money,
+  pct,
+  numfmt,
+  stamp,
+  today,
+  formatUsPhone,
+  sortLeadComments,
+} from "@/lib/format";
 import type { FieldDef, OptsCtx } from "@/lib/schemas";
 import type { Attachment, LeadComment, Rec } from "@/lib/types";
 import FileField from "@/components/FileField";
@@ -177,7 +186,9 @@ export default function Field({
   }
 
   if (f.type === "thread") {
-    const list = Array.isArray(value[f.k]) ? (value[f.k] as LeadComment[]) : [];
+    const list = sortLeadComments(
+      Array.isArray(value[f.k]) ? (value[f.k] as LeadComment[]) : []
+    );
     const canCompose = (!ro || !!allowComment) && !!value.lead_id;
     return (
       <div>

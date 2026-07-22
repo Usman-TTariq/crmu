@@ -10,7 +10,7 @@ import { getSession, requireAuth, requireSession } from "@/lib/session";
 import { EDITABLE_COLUMNS, TAB_TABLE, DATE_FIELD } from "@/lib/schemas";
 import { RECORD_DELETE_EMAILS, TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import type { Rec, Attachment, LeadComment, RetentionComment } from "@/lib/types";
-import { isDayTimeframe, phoneDigits, type Timeframe } from "@/lib/format";
+import { isDayTimeframe, phoneDigits, sortLeadComments, type Timeframe } from "@/lib/format";
 import { logActivity } from "@/lib/activity-log";
 
 /** Roster profiles linked to these auth emails stay hidden from Team Setup. */
@@ -314,6 +314,15 @@ function applyQaDecisionFilter<T extends { eq: (col: string, val: string) => T }
   const v = (qaDecision || "").trim();
   if (!QA_DECISION_FILTERS.has(v)) return query;
   return query.eq("qa_decision", v);
+}
+
+/** Rework leads are back in Documentation — hide from OPS queue + sidebar count. */
+function applyOpsQueueFilter<T extends { not: (col: string, op: string, val: string) => T }>(
+  query: T,
+  tab: TabKey
+): T {
+  if (tab !== "ops") return query;
+  return query.not("ops_status", "in", "(Rework,Reworked)");
 }
 
 /** `list` skips drawer-only extras (comments / signed file URLs) for faster paging. */
@@ -696,18 +705,23 @@ async function enrichPipelineRows(
 
   // Comments are drawer-only (hideTable) — skip on list pages for faster paging.
   if (mode === "full" && PIPELINE_COMMENT_TABS.includes(tab) && leadIds.length) {
-    const { data: comments } = await supabase
+    // Admin: OPS/Docs agents can open the row but RLS sometimes hides the thread
+    const { data: comments } = await admin
       .from("lead_comments")
       .select("*")
       .in("lead_id", leadIds)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
     const byLead = new Map<string, LeadComment[]>();
     ((comments || []) as LeadComment[]).forEach((c) => {
       const list = byLead.get(c.lead_id) || [];
       list.push(c);
       byLead.set(c.lead_id, list);
     });
-    out = out.map((r) => ({ ...r, lead_comments: byLead.get(r.lead_id as string) || [] }));
+    out = out.map((r) => ({
+      ...r,
+      lead_comments: sortLeadComments(byLead.get(r.lead_id as string) || []),
+    }));
   }
 
   if (mode === "full" && tab === "retention" && leadIds.length) {
@@ -804,6 +818,7 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
       : supabase.from(table).select(cols);
     query = applyTf(query, df, payload.tf) as typeof query;
     query = applyQaDecisionFilter(query, payload.tab, payload.qaDecision) as typeof query;
+    query = applyOpsQueueFilter(query, payload.tab) as typeof query;
     if (payload.q?.trim()) {
       query = applySearch(query, payload.tab, payload.q) as typeof query;
     }
@@ -1124,8 +1139,8 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       messages.push(
         `${biz} disapproved in OPS. Closer was notified and may dispute with AVP.`
       );
-    if (payload.tab === "ops" && v.ops_status === "Reworked")
-      messages.push(`${biz} marked Reworked. Returned to Documentation for PM review.`);
+    if (payload.tab === "ops" && v.ops_status === "Rework")
+      messages.push(`${biz} marked Rework. Returned to Documentation for PM review.`);
     if (payload.tab === "msp" && v.final_status === "Archived")
       messages.push(`${biz} archived in Onboarding.`);
     if (payload.tab === "msp" && (v.a1_result === "Yes" || v.a2_result === "Yes" || v.a3_result === "Yes"))
@@ -1415,14 +1430,15 @@ export async function fetchLeadComments(payload: {
     await requireAuth();
     const leadId = String(payload.leadId || "").trim();
     if (!leadId) return { comments: [] };
-    const supabase = await createClient();
-    const { data, error } = await supabase
+    const admin = createAdminClient();
+    const { data, error } = await admin
       .from("lead_comments")
       .select("*")
       .eq("lead_id", leadId)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
     if (error) return { comments: [], error: error.message };
-    return { comments: (data || []) as LeadComment[] };
+    return { comments: sortLeadComments((data || []) as LeadComment[]) };
   } catch (e) {
     return { comments: [], error: e instanceof Error ? e.message : "Failed to load comments." };
   }
@@ -1476,6 +1492,7 @@ export async function fetchRowsTotal(payload: {
     let query = supabase.from(table).select("id", { count: "exact", head: true });
     query = applyTf(query, df, payload.tf) as typeof query;
     query = applyQaDecisionFilter(query, payload.tab, payload.qaDecision) as typeof query;
+    query = applyOpsQueueFilter(query, payload.tab) as typeof query;
     if (payload.q?.trim()) {
       query = applySearch(query, payload.tab, payload.q) as typeof query;
     }
@@ -1511,6 +1528,7 @@ export async function fetchTabCounts(payload: {
       if (!table) return;
       let q = supabase.from(table).select("id", { count: "exact", head: true });
       q = applyTf(q, t.dated ? DATE_FIELD[t.k] : undefined, payload.tf) as typeof q;
+      q = applyOpsQueueFilter(q, t.k) as typeof q;
       const { count } = await q;
       counts[t.k] = count || 0;
     })

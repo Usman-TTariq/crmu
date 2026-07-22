@@ -225,8 +225,17 @@ set search_path = public
 as $$
 declare
   docs_comments text;
+  was_rework boolean := false;
+  fail_body text;
 begin
   if new.decision = 'Pass' and (tg_op = 'INSERT' or old.decision is distinct from 'Pass') then
+    select (o.ops_status = 'Rework') into was_rework
+    from public.ops_verifications o
+    where o.lead_id = new.lead_id;
+
+    was_rework := coalesce(was_rework, false)
+      or coalesce(new.returned_after_ops_rework, false);
+
     docs_comments := trim(both from concat_ws(
       E'\n\n',
       nullif(trim(coalesce(new.notes, '')), ''),
@@ -254,14 +263,32 @@ begin
       closer = excluded.closer,
       monthly_volume = excluded.monthly_volume,
       ops_status = case
-        when public.ops_verifications.ops_status = 'Reworked' then 'Pending'
+        when public.ops_verifications.ops_status = 'Rework' then 'Pending'
         else public.ops_verifications.ops_status
+      end,
+      reasoning = case
+        when public.ops_verifications.ops_status = 'Rework' then
+          coalesce(
+            nullif(trim(public.ops_verifications.reasoning), ''),
+            nullif(trim(new.ops_rework_reasoning), ''),
+            public.ops_verifications.reasoning
+          )
+        else public.ops_verifications.reasoning
       end,
       documentation_rework_comments = case
         when coalesce(docs_comments, '') <> '' then docs_comments
         else public.ops_verifications.documentation_rework_comments
       end,
       updated_at = now();
+
+    if was_rework and coalesce(docs_comments, '') <> '' then
+      insert into public.lead_comments (lead_id, author, body)
+      values (
+        new.lead_id,
+        coalesce(nullif(trim(new.pm_name), ''), 'Documentation'),
+        '[Documentation Pass]' || E'\n' || docs_comments
+      );
+    end if;
 
     update public.documentation_reviews
     set returned_after_ops_rework = false,
@@ -275,6 +302,16 @@ begin
     set stage = 'Docs Pending',
         updated_at = now()
     where lead_id = new.lead_id;
+
+    fail_body := coalesce(nullif(trim(new.fail_reason), ''), nullif(trim(new.notes), ''));
+    if fail_body is not null then
+      insert into public.lead_comments (lead_id, author, body)
+      values (
+        new.lead_id,
+        coalesce(nullif(trim(new.pm_name), ''), 'Documentation'),
+        '[Documentation Fail]' || E'\n' || fail_body
+      );
+    end if;
   end if;
 
   return new;
@@ -297,8 +334,8 @@ as $$
 declare
   missing int := 0;
 begin
-  if new.ops_status = 'Reworked' and coalesce(new.reasoning, '') = '' then
-    raise exception 'Reworked needs a reasoning.';
+  if new.ops_status = 'Rework' and coalesce(new.reasoning, '') = '' then
+    raise exception 'Rework needs a reasoning.';
   end if;
 
   if new.ops_status = 'Approved' then
@@ -330,6 +367,8 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  rework_body text;
 begin
   if new.ops_status = 'Approved'
      and (tg_op = 'INSERT' or old.ops_status is distinct from 'Approved') then
@@ -341,8 +380,8 @@ begin
     on conflict (lead_id) do nothing;
   end if;
 
-  if new.ops_status = 'Reworked'
-     and (tg_op = 'INSERT' or old.ops_status is distinct from 'Reworked') then
+  if new.ops_status = 'Rework'
+     and (tg_op = 'INSERT' or old.ops_status is distinct from 'Rework') then
     update public.documentation_reviews
     set decision = 'Pending',
         fail_reason = '',
@@ -352,6 +391,21 @@ begin
         pm_rework_comments = '',
         updated_at = now()
     where lead_id = new.lead_id;
+
+    if coalesce(trim(new.reasoning), '') <> '' then
+      rework_body := '[OPS Rework]' || E'\n' || trim(new.reasoning);
+      if not exists (
+        select 1 from public.lead_comments c
+        where c.lead_id = new.lead_id and c.body = rework_body
+      ) then
+        insert into public.lead_comments (lead_id, author, body)
+        values (
+          new.lead_id,
+          coalesce(nullif(trim(new.ops_agent), ''), 'OPS QA'),
+          rework_body
+        );
+      end if;
+    end if;
   end if;
 
   return new;

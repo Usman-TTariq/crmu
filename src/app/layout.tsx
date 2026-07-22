@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { Cormorant_Garamond, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 
@@ -30,7 +31,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${display.variable} ${ui.variable} h-full antialiased`}>
-      <body className="min-h-full min-w-0 w-full flex flex-col overflow-x-clip">{children}</body>
+      <body className="min-h-full min-w-0 w-full flex flex-col overflow-x-clip">
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }

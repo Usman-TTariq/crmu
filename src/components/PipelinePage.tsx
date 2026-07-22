@@ -497,8 +497,8 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       app.pushToasts(["Fail needs a reason."]);
       return;
     }
-    if (tab === "ops" && draft.ops_status === "Reworked" && isBlank(draft.reasoning)) {
-      app.pushToasts(["Reworked needs a reasoning."]);
+    if (tab === "ops" && draft.ops_status === "Rework" && isBlank(draft.reasoning)) {
+      app.pushToasts(["Rework needs a reasoning."]);
       return;
     }
     if (

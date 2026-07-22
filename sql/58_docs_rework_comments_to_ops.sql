@@ -112,7 +112,7 @@ begin
       closer = excluded.closer,
       monthly_volume = excluded.monthly_volume,
       ops_status = case
-        when public.ops_verifications.ops_status = 'Reworked' then 'Pending'
+        when public.ops_verifications.ops_status = 'Rework' then 'Pending'
         else public.ops_verifications.ops_status
       end,
       documentation_rework_comments = case
@@ -162,8 +162,8 @@ begin
     on conflict (lead_id) do nothing;
   end if;
 
-  if new.ops_status = 'Reworked'
-     and (tg_op = 'INSERT' or old.ops_status is distinct from 'Reworked') then
+  if new.ops_status = 'Rework'
+     and (tg_op = 'INSERT' or old.ops_status is distinct from 'Rework') then
     update public.documentation_reviews
     set decision = 'Pending',
         fail_reason = '',
