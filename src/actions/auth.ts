@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity-log";
 import { getSession } from "@/lib/session";
+import { roleByKey } from "@/lib/constants";
 
 export interface SignInPayload {
   email: string;
@@ -23,19 +24,23 @@ export async function warmAuth(): Promise<void> {
 
 /**
  * Server-side password auth (browser→Supabase often fails with "Failed to fetch"
- * due to CORS / network blocks). Auth only — no profile lookup, no redirect throw.
- * Client navigates after cookies are set. Audit log is AppShell logSignIn.
+ * due to CORS / network blocks). Returns this user's role home so login never
+ * reuses another account's saved /ceo (or similar) from localStorage.
+ * Audit log is AppShell logSignIn.
  */
 export async function signIn(
   payload: SignInPayload
-): Promise<{ error?: string; ok?: boolean }> {
+): Promise<{ error?: string; ok?: boolean; home?: string }> {
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({
     email: String(payload.email || "").trim(),
     password: payload.password,
   });
   if (error) return { error: error.message };
-  return { ok: true };
+
+  const session = await getSession();
+  const home = session ? `/${roleByKey(session.profile.role_key).home}` : "/";
+  return { ok: true, home };
 }
 
 /** Fire-and-forget sign-in audit (called once from AppShell after landing). */

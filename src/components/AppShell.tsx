@@ -86,7 +86,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     void logSignIn();
   }, []);
 
-  // Remember role home so the next login can skip the / → /ceo bounce.
+  const viewTabsKey = app.viewTabs.join(",");
+
+  // Remember role home so the next login can skip the / → home bounce.
   useEffect(() => {
     try {
       localStorage.setItem("crm_home", `/${app.role.home}`);
@@ -94,6 +96,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
   }, [app.role.home]);
+
+  // If URL is a tab this role cannot open (e.g. /ceo after shared-browser login), bounce home.
+  useEffect(() => {
+    const key = pathTabKey(pathname, app.role.home);
+    const allowed = visibleTabs.some((t) => t.k === key);
+    if (!allowed && key !== app.role.home) {
+      router.replace(`/${app.role.home}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, app.role.home, viewTabsKey]);
 
   useEffect(() => {
     if (!navOpen) return;
@@ -107,8 +119,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       document.body.style.overflow = "";
     };
   }, [navOpen]);
-
-  const viewTabsKey = app.viewTabs.join(",");
 
   // Warm route chunks so the next click doesn't wait on first compile/fetch.
   useEffect(() => {

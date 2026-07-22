@@ -28,10 +28,10 @@ export default function LoginPage() {
       setBusy(false);
       return;
     }
-    let home = "/";
+    // Always use this account's role home — never a previous user's /ceo etc.
+    const home = res.home && res.home.startsWith("/") ? res.home : "/";
     try {
-      const saved = localStorage.getItem(HOME_KEY);
-      if (saved && saved.startsWith("/")) home = saved;
+      localStorage.setItem(HOME_KEY, home);
     } catch {
       /* ignore */
     }
