@@ -514,7 +514,7 @@ async function enrichPipelineRows(
     });
   }
 
-  // Forward Lead Gen + Closer notes into later stages (drawer / full fetch).
+  // Forward Lead Gen / QA / Closer notes into later stages (drawer / full fetch).
   // Documentation also needs lead_source on list rows.
   if (
     leadIds.length &&
@@ -522,14 +522,18 @@ async function enrichPipelineRows(
       (mode === "full" && (tab === "ops" || tab === "msp")))
   ) {
     const wantNotes = mode === "full";
-    const leadSelect =
+    type LeadFwd = { lead_id: string; lead_source?: string; notes?: string };
+    const leadsPromise =
       tab === "documentation"
         ? wantNotes
-          ? "lead_id, lead_source, notes"
-          : "lead_id, lead_source"
-        : "lead_id, notes";
+          ? admin
+              .from("leads")
+              .select("lead_id, lead_source, notes")
+              .in("lead_id", leadIds)
+          : admin.from("leads").select("lead_id, lead_source").in("lead_id", leadIds)
+        : admin.from("leads").select("lead_id, notes").in("lead_id", leadIds);
     const [leadsRes, closerRes, qaRes] = await Promise.all([
-      admin.from("leads").select(leadSelect).in("lead_id", leadIds),
+      leadsPromise,
       wantNotes
         ? admin.from("closer_deals").select("lead_id, notes").in("lead_id", leadIds)
         : Promise.resolve({ data: [] as { lead_id: string; notes?: string }[] }),
@@ -538,7 +542,7 @@ async function enrichPipelineRows(
         : Promise.resolve({ data: [] as { lead_id: string; qa_notes?: string }[] }),
     ]);
     const leadMap = new Map(
-      (leadsRes.data || []).map((l) => [String(l.lead_id), l as { lead_source?: string; notes?: string }])
+      ((leadsRes.data || []) as LeadFwd[]).map((l) => [String(l.lead_id), l])
     );
     const closerNotes = new Map(
       (closerRes.data || []).map((c) => [String(c.lead_id), String(c.notes || "")])
