@@ -14,6 +14,11 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Closer-direct / OPS-manual leads skip auto QA
+  if new.lead_origin in ('closer_direct', 'ops_manual') then
+    return new;
+  end if;
+
   insert into public.qa_records
     (lead_id, qa_date, lead_gen_agent, lead_source, business_name, owner_name, phone, email,
      business_address, city, zip_code, state, current_processor, current_device, current_rate,
@@ -34,7 +39,7 @@ after insert on public.leads
 for each row execute function private.on_lead_insert();
 
 -- ---------------------------------------------------------------------------
--- Rule 2: QA Qualified requires 6 checks Yes + volume > 5000.
+-- Rule 2: QA Qualified requires 6 checks Yes (volume is informational only).
 --         Qualified -> auto-create SQL assignment.
 -- ---------------------------------------------------------------------------
 create or replace function private.on_qa_change()
@@ -47,9 +52,8 @@ begin
   if new.qa_decision = 'Qualified' then
     if new.us_business  <> 'Yes' or new.owner_reached  <> 'Yes'
     or new.interested   <> 'Yes' or new.physical_loc   <> 'Yes'
-    or new.not_restricted <> 'Yes'
-    or coalesce(new.monthly_volume, 0) <= 5000 then
-      raise exception 'Cannot qualify: all 6 checks must be Yes and volume over $5k.';
+    or new.not_restricted <> 'Yes' then
+      raise exception 'Cannot qualify: all 6 checks must be Yes.';
     end if;
 
     insert into public.sql_assignments
@@ -175,6 +179,7 @@ begin
       decision       = 'Pending',
       fail_reason    = '',
       review_date    = null,
+      returned_after_ops_rework = false,
       updated_at     = now();
   end if;
   return new;
@@ -222,7 +227,24 @@ begin
     values
       (new.lead_id, coalesce(new.closed_date, current_date), new.business_name,
        new.owner_name, new.phone, new.closer, new.monthly_volume, 'Pending')
-    on conflict (lead_id) do nothing;
+    on conflict (lead_id) do update set
+      closed_date = excluded.closed_date,
+      business_name = excluded.business_name,
+      owner_name = excluded.owner_name,
+      phone = excluded.phone,
+      closer = excluded.closer,
+      monthly_volume = excluded.monthly_volume,
+      ops_status = case
+        when public.ops_verifications.ops_status = 'Reworked' then 'Pending'
+        else public.ops_verifications.ops_status
+      end,
+      updated_at = now();
+
+    update public.documentation_reviews
+    set returned_after_ops_rework = false,
+        updated_at = now()
+    where lead_id = new.lead_id
+      and returned_after_ops_rework = true;
   end if;
 
   if new.decision = 'Fail' and (tg_op = 'INSERT' or old.decision is distinct from 'Fail') then
@@ -252,6 +274,10 @@ as $$
 declare
   missing int := 0;
 begin
+  if new.ops_status = 'Reworked' and coalesce(new.reasoning, '') = '' then
+    raise exception 'Reworked needs a reasoning.';
+  end if;
+
   if new.ops_status = 'Approved' then
     select count(*) into missing
     from (values (new.dl_recd), (new.voided_check), (new.bank_stmt),
@@ -282,7 +308,8 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.ops_status = 'Approved' then
+  if new.ops_status = 'Approved'
+     and (tg_op = 'INSERT' or old.ops_status is distinct from 'Approved') then
     insert into public.msp_onboarding
       (lead_id, business_name, owner_name, monthly_volume, ops_approved_date, final_status)
     values
@@ -290,6 +317,19 @@ begin
        coalesce(new.ops_date, current_date), 'Pending')
     on conflict (lead_id) do nothing;
   end if;
+
+  if new.ops_status = 'Reworked'
+     and (tg_op = 'INSERT' or old.ops_status is distinct from 'Reworked') then
+    update public.documentation_reviews
+    set decision = 'Pending',
+        fail_reason = '',
+        review_date = null,
+        returned_after_ops_rework = true,
+        ops_rework_reasoning = coalesce(new.reasoning, ''),
+        updated_at = now()
+    where lead_id = new.lead_id;
+  end if;
+
   return new;
 end;
 $$;

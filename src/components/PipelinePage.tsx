@@ -3,9 +3,16 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
-import { num, isBlank, today } from "@/lib/format";
+import { isBlank, today } from "@/lib/format";
 import { SCHEMAS, TAB_TABLE, mspIsFatal } from "@/lib/schemas";
-import { TABS, ADDABLE, OWNER_FIELD, QA_DECISIONS, type TabKey } from "@/lib/constants";
+import {
+  TABS,
+  ADDABLE,
+  OWNER_FIELD,
+  QA_DECISIONS,
+  isLiveTransferSource,
+  type TabKey,
+} from "@/lib/constants";
 import type { Rec } from "@/lib/types";
 import { useApp } from "@/components/app-context";
 import DataTable from "@/components/DataTable";
@@ -107,7 +114,7 @@ function buildDefault(tab: TabKey): Rec {
   if (tab === "closer") {
     return {
       ...base,
-      lead_source: "Closer Direct",
+      lead_source: "Referral",
       business_name: "",
       dba_name: "",
       business_type: "",
@@ -470,8 +477,8 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     if (tab === "qa" && draft.qa_decision === "Qualified") {
       const checks = ["us_business", "owner_reached", "interested", "physical_loc", "not_restricted"];
       const fails = checks.filter((k) => draft[k] !== "Yes");
-      if (fails.length || num(draft.monthly_volume) <= 5000) {
-        app.pushToasts(["Cannot qualify: all 6 checks must be Yes and volume over $5k."]);
+      if (fails.length) {
+        app.pushToasts(["Cannot qualify: all 6 checks must be Yes."]);
         return;
       }
     }
@@ -481,6 +488,10 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     }
     if (tab === "documentation" && draft.decision === "Fail" && isBlank(draft.fail_reason)) {
       app.pushToasts(["Fail needs a reason."]);
+      return;
+    }
+    if (tab === "ops" && draft.ops_status === "Reworked" && isBlank(draft.reasoning)) {
+      app.pushToasts(["Reworked needs a reasoning."]);
       return;
     }
     if (
@@ -752,8 +763,17 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
                     : tab === "leadgen"
                       ? (r) => (r.duplicate_of ? TONES.dup.bg : null)
                       : tab === "qa"
-                        ? (r) => (r.returned_after_dispute ? TONES.info.bg : null)
-                        : undefined
+                        ? (r) =>
+                            isLiveTransferSource(r.lead_source)
+                              ? "#F8C8CB"
+                              : r.returned_after_dispute
+                                ? TONES.info.bg
+                                : null
+                        : tab === "sqlassign" || tab === "closer"
+                          ? (r) => (isLiveTransferSource(r.lead_source) ? "#F8C8CB" : null)
+                          : tab === "documentation"
+                            ? (r) => (r.returned_after_ops_rework ? "#F8C8CB" : null)
+                            : undefined
                 }
                 onAdd={canEdit && ADDABLE.includes(tab) ? openAdd : undefined}
                 addLabel={"Add " + (tabDef.singular || "Row")}

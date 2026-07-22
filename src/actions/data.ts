@@ -483,17 +483,25 @@ async function enrichPipelineRows(
       .select("closer")
       .not("stage", "in", '("Closed","Closed Won","Closed Lost","Not Interested")');
     const leadsPromise = leadIds.length
-      ? admin.from("leads").select("lead_id, lead_gen_agent").in("lead_id", leadIds)
-      : Promise.resolve({ data: [] as { lead_id: string; lead_gen_agent: string }[] });
+      ? admin.from("leads").select("lead_id, lead_gen_agent, lead_source").in("lead_id", leadIds)
+      : Promise.resolve({
+          data: [] as { lead_id: string; lead_gen_agent: string; lead_source?: string }[],
+        });
     const [{ data: open }, { data: leadRows }] = await Promise.all([openPromise, leadsPromise]);
     const loads = new Map<string, number>();
     (open || []).forEach((d) => loads.set(d.closer, (loads.get(d.closer) || 0) + 1));
-    const agentByLead = new Map(
-      (leadRows || []).map((l) => [String(l.lead_id), String(l.lead_gen_agent || "")])
+    const leadMeta = new Map(
+      (leadRows || []).map((l) => [
+        String(l.lead_id),
+        {
+          agent: String(l.lead_gen_agent || ""),
+          lead_source: String(l.lead_source || ""),
+        },
+      ])
     );
     const agentNames = [
       ...new Set(
-        [...agentByLead.values()].map((n) => n.trim()).filter(Boolean)
+        [...leadMeta.values()].map((m) => m.agent.trim()).filter(Boolean)
       ),
     ];
     const teamByAgent = new Map<string, string>();
@@ -507,71 +515,100 @@ async function enrichPipelineRows(
       }
     }
     out = out.map((r) => {
-      const agent = agentByLead.get(String(r.lead_id || "")) || "";
+      const meta = leadMeta.get(String(r.lead_id || ""));
+      const agent = meta?.agent || "";
       return {
         ...r,
         closer_open_load: loads.get(String(r.assigned_closer || "")) || 0,
         lead_gen_agent: agent,
         lead_gen_team: teamByAgent.get(agent) || "",
+        lead_source: meta?.lead_source || r.lead_source || "",
       };
     });
   }
 
-  // Forward notes into later stages (drawer / full fetch).
-  // Docs: closer notes only. OPS / Onboarding: Lead Gen + QA + Closer.
-  // Documentation also needs lead_source on list rows.
+  // Documentation needs lead_source on list rows.
+  if (tab === "documentation" && leadIds.length) {
+    const { data: leadSrc } = await admin
+      .from("leads")
+      .select("lead_id, lead_source")
+      .in("lead_id", leadIds);
+    const srcMap = new Map(
+      (leadSrc || []).map((l) => [String(l.lead_id), String(l.lead_source || "")])
+    );
+    out = out.map((r) => ({
+      ...r,
+      lead_source: srcMap.get(String(r.lead_id || "")) || r.lead_source || "",
+    }));
+  }
+
+  // Shared notes: Closer ↔ Documentation ↔ OPS (full drawer fetch).
+  // OPS / Onboarding also get Lead Gen + QA notes.
   if (
+    mode === "full" &&
     leadIds.length &&
-    (tab === "documentation" ||
-      (mode === "full" && (tab === "ops" || tab === "msp")))
+    (tab === "closer" || tab === "documentation" || tab === "ops" || tab === "msp")
   ) {
-    const wantNotes = mode === "full";
-    const wantAllNotes = wantNotes && (tab === "ops" || tab === "msp");
-    type LeadFwd = { lead_id: string; lead_source?: string; notes?: string };
-    const leadsPromise =
-      tab === "documentation"
-        ? wantAllNotes
-          ? admin
-              .from("leads")
-              .select("lead_id, lead_source, notes")
-              .in("lead_id", leadIds)
-          : admin.from("leads").select("lead_id, lead_source").in("lead_id", leadIds)
-        : admin.from("leads").select("lead_id, notes").in("lead_id", leadIds);
-    const [leadsRes, closerRes, qaRes] = await Promise.all([
-      leadsPromise,
-      wantNotes
+    const wantLgQa = tab === "ops" || tab === "msp";
+    const [leadsRes, closerRes, docsRes, opsRes, qaRes] = await Promise.all([
+      wantLgQa
+        ? admin.from("leads").select("lead_id, notes").in("lead_id", leadIds)
+        : Promise.resolve({ data: [] as { lead_id: string; notes?: string }[] }),
+      tab !== "closer"
         ? admin.from("closer_deals").select("lead_id, notes").in("lead_id", leadIds)
         : Promise.resolve({ data: [] as { lead_id: string; notes?: string }[] }),
-      wantAllNotes
+      tab !== "documentation"
+        ? admin.from("documentation_reviews").select("lead_id, notes").in("lead_id", leadIds)
+        : Promise.resolve({ data: [] as { lead_id: string; notes?: string }[] }),
+      tab !== "ops"
+        ? admin
+            .from("ops_verifications")
+            .select("lead_id, notes, reasoning")
+            .in("lead_id", leadIds)
+        : Promise.resolve({
+            data: [] as { lead_id: string; notes?: string; reasoning?: string }[],
+          }),
+      wantLgQa
         ? admin.from("qa_records").select("lead_id, qa_notes").in("lead_id", leadIds)
         : Promise.resolve({ data: [] as { lead_id: string; qa_notes?: string }[] }),
     ]);
-    const leadMap = new Map(
-      ((leadsRes.data || []) as LeadFwd[]).map((l) => [String(l.lead_id), l])
+    const leadNotes = new Map(
+      (leadsRes.data || []).map((l) => [String(l.lead_id), String(l.notes || "")])
     );
     const closerNotes = new Map(
       (closerRes.data || []).map((c) => [String(c.lead_id), String(c.notes || "")])
+    );
+    const docsNotes = new Map(
+      (docsRes.data || []).map((d) => [String(d.lead_id), String(d.notes || "")])
+    );
+    const opsByLead = new Map(
+      (opsRes.data || []).map((o) => [
+        String(o.lead_id),
+        { notes: String(o.notes || ""), reasoning: String(o.reasoning || "") },
+      ])
     );
     const qaNotes = new Map(
       (qaRes.data || []).map((q) => [String(q.lead_id), String(q.qa_notes || "")])
     );
     out = out.map((r) => {
       const lid = String(r.lead_id || "");
-      const lead = leadMap.get(lid);
+      const ops = opsByLead.get(lid);
       return {
         ...r,
-        ...(tab === "documentation"
-          ? { lead_source: lead?.lead_source ?? r.lead_source ?? "" }
+        ...(tab !== "closer" ? { closer_notes: closerNotes.get(lid) || "" } : {}),
+        ...(tab !== "documentation"
+          ? { documentation_notes: docsNotes.get(lid) || "" }
           : {}),
-        ...(wantNotes
+        ...(tab !== "ops"
           ? {
-              closer_notes: closerNotes.get(lid) || "",
-              ...(wantAllNotes
-                ? {
-                    lead_gen_notes: lead?.notes ?? "",
-                    qa_notes_fwd: qaNotes.get(lid) || "",
-                  }
-                : {}),
+              ops_notes: ops?.notes || "",
+              ops_reasoning_fwd: ops?.reasoning || "",
+            }
+          : {}),
+        ...(wantLgQa
+          ? {
+              lead_gen_notes: leadNotes.get(lid) || "",
+              qa_notes_fwd: qaNotes.get(lid) || "",
             }
           : {}),
       };
@@ -939,7 +976,49 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       delete fallback.created_by;
       ({ error } = await write(fallback));
     }
-    if (error) return { error: error.message };
+    // sql/52 intake columns missing — save core closer fields only
+    if (
+      error &&
+      payload.tab === "closer" &&
+      /column|schema cache|could not find/i.test(error.message)
+    ) {
+      const intakeKeys = [
+        "dba_name",
+        "business_type",
+        "business_category",
+        "first_name",
+        "last_name",
+        "mobile_phone",
+        "email",
+        "avg_ticket_size",
+        "highest_ticket_size",
+        "tin_ein",
+        "ssn",
+        "processing_type",
+        "processing_rate",
+        "provider",
+        "equipment",
+        "lease_amount",
+        "lease_term",
+        "business_address",
+        "city",
+        "zip_code",
+        "shipping_address",
+        "residential_address",
+      ];
+      const fallback = { ...values };
+      for (const k of intakeKeys) delete fallback[k];
+      ({ error } = await write(fallback));
+      if (error) {
+        return {
+          error:
+            error.message +
+            " If this mentions a missing column, run sql/52_closer_intake_fields.sql on Supabase.",
+        };
+      }
+    } else if (error) {
+      return { error: error.message };
+    }
     if (!payload.id && payload.tab === "leadgen") messages.push("Lead created and sent to QA.");
 
     // Pipeline lead comments (append-only)
@@ -995,6 +1074,8 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       messages.push(
         `${biz} disapproved in OPS. Closer was notified and may dispute with AVP.`
       );
+    if (payload.tab === "ops" && v.ops_status === "Reworked")
+      messages.push(`${biz} marked Reworked. Returned to Documentation for PM review.`);
     if (payload.tab === "msp" && v.final_status === "Archived")
       messages.push(`${biz} archived in Onboarding.`);
     if (payload.tab === "msp" && (v.a1_result === "Yes" || v.a2_result === "Yes" || v.a3_result === "Yes"))
@@ -1126,7 +1207,7 @@ export async function createManualCloserRecord(payload: {
       .insert({
         date_created: v.date_created || undefined,
         lead_gen_agent: "",
-        lead_source: String(v.lead_source || "Closer Direct"),
+        lead_source: String(v.lead_source || "Referral"),
         lead_origin: "closer_direct",
         business_name: businessName,
         owner_name: ownerName,
@@ -1148,19 +1229,27 @@ export async function createManualCloserRecord(payload: {
     if (leadErr) return { error: leadErr.message };
 
     const assignedDate = String(v.assigned_date || "").trim() || null;
-    const { error: closerErr } = await supabase.from("closer_deals").insert({
+    const coreCloser: Record<string, unknown> = {
       lead_id: lead.lead_id,
       business_name: businessName,
+      owner_name: ownerName,
+      phone,
+      state,
+      monthly_volume: monthlyVolume,
+      assigned_date: assignedDate,
+      closer: closerName,
+      stage: String(v.stage || "No Answer") || "No Answer",
+      notes: String(v.notes || ""),
+      created_by: session.userId,
+    };
+    const intakeCloser: Record<string, unknown> = {
       dba_name: String(v.dba_name || ""),
       business_type: String(v.business_type || ""),
       business_category: String(v.business_category || ""),
       first_name: firstName,
       last_name: lastName,
-      owner_name: ownerName,
-      phone,
       mobile_phone: String(v.mobile_phone || ""),
       email,
-      monthly_volume: monthlyVolume,
       avg_ticket_size: numOrNull(v.avg_ticket_size),
       highest_ticket_size: numOrNull(v.highest_ticket_size),
       tin_ein: String(v.tin_ein || ""),
@@ -1174,16 +1263,35 @@ export async function createManualCloserRecord(payload: {
       business_address: businessAddress,
       city,
       zip_code: zip,
-      state,
       shipping_address: String(v.shipping_address || ""),
       residential_address: String(v.residential_address || ""),
-      assigned_date: assignedDate,
-      closer: closerName,
-      stage: String(v.stage || "No Answer") || "No Answer",
-      notes: String(v.notes || ""),
-      created_by: session.userId,
-    });
-    if (closerErr) return { error: closerErr.message };
+    };
+
+    const isMissingCol = (msg: string) =>
+      /column|schema cache|could not find/i.test(msg);
+
+    let closerErr = (
+      await supabase.from("closer_deals").insert({ ...coreCloser, ...intakeCloser })
+    ).error;
+
+    // sql/52 not applied yet — create with core columns, then best-effort intake update
+    if (closerErr && isMissingCol(closerErr.message)) {
+      closerErr = (await supabase.from("closer_deals").insert(coreCloser)).error;
+      if (!closerErr) {
+        await supabase.from("closer_deals").update(intakeCloser).eq("lead_id", lead.lead_id);
+      }
+    }
+
+    if (closerErr) {
+      await supabase.from("leads").delete().eq("lead_id", lead.lead_id);
+      return {
+        error:
+          closerErr.message +
+          (/column|schema cache/i.test(closerErr.message)
+            ? " Run sql/52_closer_intake_fields.sql on Supabase."
+            : ""),
+      };
+    }
 
     await logActivity({
       action: "record.create",

@@ -105,6 +105,10 @@ export default function Drawer({
       // Forwarded notes / files loaded after drawer open
       for (const k of [
         "closer_notes",
+        "documentation_notes",
+        "ops_notes",
+        "ops_reasoning_fwd",
+        "ops_rework_reasoning",
         "lead_gen_notes",
         "qa_notes_fwd",
         "lead_notes",
@@ -120,6 +124,7 @@ export default function Drawer({
         "current_processor",
         "current_device",
         "current_rate",
+        "returned_after_ops_rework",
       ] as const) {
         if (record[k] !== undefined) next[k] = record[k];
       }
@@ -130,6 +135,10 @@ export default function Drawer({
     record.comments,
     record.__newComment,
     record.closer_notes,
+    record.documentation_notes,
+    record.ops_notes,
+    record.ops_reasoning_fwd,
+    record.ops_rework_reasoning,
     record.lead_gen_notes,
     record.qa_notes_fwd,
     record.lead_notes,
@@ -145,6 +154,7 @@ export default function Drawer({
     record.current_processor,
     record.current_device,
     record.current_rate,
+    record.returned_after_ops_rework,
   ]);
 
   const onChange = (f: { k: string }, v: unknown) =>

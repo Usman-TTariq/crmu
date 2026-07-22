@@ -180,6 +180,8 @@ create table if not exists public.documentation_reviews (
   fail_reason     text not null default '',
   review_date     date,
   notes           text not null default '',
+  returned_after_ops_rework boolean not null default false,
+  ops_rework_reasoning text not null default '',
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
@@ -203,7 +205,7 @@ create table if not exists public.ops_verifications (
   owner_name_verified   text not null default '' check (owner_name_verified in ('','Yes','No')),
   owner_phone_verified  text not null default '' check (owner_phone_verified in ('','Yes','No')),
   business_verified     text not null default '' check (business_verified in ('','Yes','No')),
-  ops_status            text not null default 'Pending' check (ops_status in ('Pending','Approved','Disapproved')),
+  ops_status            text not null default 'Pending' check (ops_status in ('Pending','Approved','Disapproved','Reworked')),
   reasoning             text not null default '',
   ops_agent             text not null default '',
   ops_date              date,

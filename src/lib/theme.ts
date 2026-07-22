@@ -29,6 +29,8 @@ export const TONES: Record<string, Tone> = {
 };
 
 export const TONE_MAP: Record<string, keyof typeof TONES> = {
+  "Live Transfer": "bad",
+  Reworked: "warn",
   Qualified: "good", Approved: "good", Closed: "good", "Closed Won": "good", Funded: "good", Live: "good",
   Retained: "good", Yes: "good", Active: "good", Passed: "good", Pass: "good", Installed: "good", "On Track": "good",
   Pending: "warn", "Follow Up": "warn", "Docs Pending": "warn", Submitted: "warn",

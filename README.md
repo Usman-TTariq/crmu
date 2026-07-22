@@ -47,7 +47,7 @@ where full_name = 'CEO';
 ## Rules baked into the database
 
 - New lead → QA record auto-created (Pending)
-- QA Qualified needs all 6 checks Yes + volume > $5k → SQL assignment created
+- QA Qualified needs all 6 checks Yes (monthly volume is informational) → SQL assignment created
 - SQL Assigned + closer → closer deal (No Answer)
 - Closed Won → OPS verification; Closed Lost requires a reason
 - OPS Approved with any unverified doc → auto-flips Disapproved
