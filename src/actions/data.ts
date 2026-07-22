@@ -805,9 +805,12 @@ async function enrichPipelineRows(
     });
   }
 
-  if ((tab === "closer" || tab === "ops" || tab === "documentation") && leadIds.length) {
-    // Shared pack: Closer ↔ Docs ↔ OPS QA all see the same lead documents.
-    const stageFilter = ["closer", "documentation", "ops"];
+  if (
+    (tab === "closer" || tab === "ops" || tab === "documentation" || tab === "msp") &&
+    leadIds.length
+  ) {
+    // Shared pack: Closer ↔ Docs ↔ OPS ↔ Onboarding see the same lead documents.
+    const stageFilter = ["closer", "documentation", "ops", "msp"];
     // Admin: cross-role RLS often hides another stage's attachments.
     const { data: atts } = await admin
       .from("attachments")

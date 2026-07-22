@@ -96,8 +96,10 @@ function AttachmentRow({
               : a.stage === "documentation"
                 ? " · from Docs"
                 : a.stage === "ops"
-                  ? " · OPS"
-                  : ""}
+                  ? " · from OPS"
+                  : a.stage === "msp"
+                    ? " · from Onboarding"
+                    : ""}
           </div>
         ) : null}
       </div>
@@ -151,7 +153,7 @@ export default function FileField({
   label,
 }: {
   leadId: string;
-  stage: "closer" | "ops" | "documentation";
+  stage: "closer" | "ops" | "documentation" | "msp";
   list: Attachment[];
   readOnly: boolean;
   onChange: (next: Attachment[]) => void;

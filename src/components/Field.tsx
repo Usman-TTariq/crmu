@@ -287,7 +287,7 @@ export default function Field({
   autoFocus?: boolean;
   locked?: boolean;
   lockedValue?: string;
-  fileStage?: "closer" | "ops" | "documentation";
+  fileStage?: "closer" | "ops" | "documentation" | "msp";
   /** Allow appending comments even when the drawer is read-only */
   allowComment?: boolean;
 }) {

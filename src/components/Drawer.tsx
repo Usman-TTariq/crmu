@@ -286,7 +286,13 @@ export default function Drawer({
       ).k;
 
   const fileStage =
-    tab.k === "ops" ? "ops" : tab.k === "documentation" ? "documentation" : "closer";
+    tab.k === "ops"
+      ? "ops"
+      : tab.k === "documentation"
+        ? "documentation"
+        : tab.k === "msp"
+          ? "msp"
+          : "closer";
 
   if (!mounted) return null;
 

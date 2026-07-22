@@ -333,7 +333,7 @@ create table if not exists public.lead_comments (
 create table if not exists public.attachments (
   id            uuid primary key default gen_random_uuid(),
   lead_id       text not null references public.leads (lead_id) on delete cascade,
-  stage         text not null check (stage in ('closer','ops','documentation')),
+  stage         text not null check (stage in ('closer','ops','documentation','msp')),
   storage_path  text not null unique,
   file_name     text not null,
   file_size     bigint not null,

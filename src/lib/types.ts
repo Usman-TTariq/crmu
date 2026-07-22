@@ -25,7 +25,7 @@ export type AttachmentDocType =
 export interface Attachment {
   id: string;
   lead_id: string;
-  stage: "closer" | "ops" | "documentation";
+  stage: "closer" | "ops" | "documentation" | "msp";
   storage_path: string;
   file_name: string;
   file_size: number;
