@@ -1136,7 +1136,7 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
 
     // Closer: all intake fields required; DL + Voided Cheque before Docs Received / Closed
     if (payload.tab === "closer") {
-      const check = { ...payload.values, ...values };
+      const check: Record<string, unknown> = { ...payload.values, ...values };
       const missing = CLOSER_REQUIRED_FIELDS.filter((f) => isBlank(check[f.k])).map((f) => f.label);
       if (missing.length) {
         return {
@@ -1398,7 +1398,7 @@ export async function createManualCloserRecord(payload: {
       return { error: "Closer is required. Select who owns this deal." };
     }
 
-    const requiredCheck = { ...v, closer: closerName };
+    const requiredCheck: Record<string, unknown> = { ...v, closer: closerName };
     const missingRequired = CLOSER_REQUIRED_FIELDS.filter((f) => isBlank(requiredCheck[f.k])).map(
       (f) => f.label
     );
