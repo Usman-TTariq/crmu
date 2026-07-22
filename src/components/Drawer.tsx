@@ -103,9 +103,21 @@ export default function Drawer({
         ...(record.__newComment === "" ? { __newComment: "" } : null),
       };
       // Forwarded notes / files loaded after drawer open
+      const noteKeys = new Set([
+        "closer_notes",
+        "documentation_notes",
+        "documentation_rework_comments",
+        "ops_notes",
+        "ops_reasoning_fwd",
+        "ops_rework_reasoning",
+        "lead_gen_notes",
+        "qa_notes_fwd",
+        "lead_notes",
+      ]);
       for (const k of [
         "closer_notes",
         "documentation_notes",
+        "documentation_rework_comments",
         "ops_notes",
         "ops_reasoning_fwd",
         "ops_rework_reasoning",
@@ -126,7 +138,19 @@ export default function Drawer({
         "current_rate",
         "returned_after_ops_rework",
       ] as const) {
-        if (record[k] !== undefined) next[k] = record[k];
+        if (record[k] === undefined) continue;
+        const incoming = record[k];
+        // Don't replace real notes text with blank / "-" from a partial fetch
+        if (
+          noteKeys.has(k) &&
+          (incoming === "" || incoming === "-" || incoming == null) &&
+          next[k] != null &&
+          String(next[k]).trim() !== "" &&
+          String(next[k]) !== "-"
+        ) {
+          continue;
+        }
+        next[k] = incoming === "-" ? "" : incoming;
       }
       return next;
     });
@@ -136,6 +160,7 @@ export default function Drawer({
     record.__newComment,
     record.closer_notes,
     record.documentation_notes,
+    record.documentation_rework_comments,
     record.ops_notes,
     record.ops_reasoning_fwd,
     record.ops_rework_reasoning,

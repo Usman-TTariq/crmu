@@ -202,6 +202,9 @@ begin
   if new.decision = 'Fail' and coalesce(new.fail_reason, '') = '' then
     raise exception 'Fail needs a reason.';
   end if;
+  if new.decision = 'Fail' then
+    new.pm_rework_comments := coalesce(new.fail_reason, '');
+  end if;
   if new.decision in ('Pass', 'Fail') and new.review_date is null then
     new.review_date := current_date;
   end if;
@@ -220,13 +223,29 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  docs_comments text;
 begin
   if new.decision = 'Pass' and (tg_op = 'INSERT' or old.decision is distinct from 'Pass') then
+    docs_comments := trim(both from concat_ws(
+      E'\n\n',
+      nullif(trim(coalesce(new.notes, '')), ''),
+      case
+        when coalesce(trim(new.fail_reason), '') <> '' then
+          'Fail reason: ' || trim(new.fail_reason)
+        when coalesce(trim(new.pm_rework_comments), '') <> '' then
+          'Fail reason: ' || trim(new.pm_rework_comments)
+        else null
+      end
+    ));
+
     insert into public.ops_verifications
-      (lead_id, closed_date, business_name, owner_name, phone, closer, monthly_volume, ops_status)
+      (lead_id, closed_date, business_name, owner_name, phone, closer, monthly_volume,
+       ops_status, documentation_rework_comments)
     values
       (new.lead_id, coalesce(new.closed_date, current_date), new.business_name,
-       new.owner_name, new.phone, new.closer, new.monthly_volume, 'Pending')
+       new.owner_name, new.phone, new.closer, new.monthly_volume, 'Pending',
+       coalesce(docs_comments, ''))
     on conflict (lead_id) do update set
       closed_date = excluded.closed_date,
       business_name = excluded.business_name,
@@ -237,6 +256,10 @@ begin
       ops_status = case
         when public.ops_verifications.ops_status = 'Reworked' then 'Pending'
         else public.ops_verifications.ops_status
+      end,
+      documentation_rework_comments = case
+        when coalesce(docs_comments, '') <> '' then docs_comments
+        else public.ops_verifications.documentation_rework_comments
       end,
       updated_at = now();
 
@@ -326,6 +349,7 @@ begin
         review_date = null,
         returned_after_ops_rework = true,
         ops_rework_reasoning = coalesce(new.reasoning, ''),
+        pm_rework_comments = '',
         updated_at = now()
     where lead_id = new.lead_id;
   end if;

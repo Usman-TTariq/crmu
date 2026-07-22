@@ -818,12 +818,16 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
             tab === "closer"
               ? {
                   ...app.opts,
-                  // AVP / Sales Head can own a closer-direct deal even if title ≠ Closer
                   closers: [
                     ...new Set(
                       [
                         ...app.opts.closers,
-                        String(app.session.profile.full_name || "").trim(),
+                        // Only when creating: managers may assign the deal to themselves
+                        ...(drawer.isNew &&
+                        ["avp_sales", "sales_head", "ceo", "super_admin"].includes(app.role.key)
+                          ? [String(app.session.profile.full_name || "").trim()]
+                          : []),
+                        // Keep current owner visible even if title changed
                         String(drawer.record.closer || "").trim(),
                       ].filter(Boolean)
                     ),

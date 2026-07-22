@@ -257,11 +257,26 @@ export default function Field({
         </div>
       );
     }
+    // Forwarded notes / long text: show real text (pre-wrap), never a lone dash placeholder
+    const raw = value[f.k];
+    const text = isBlank(raw) || raw === "-" ? "" : String(raw);
+    const isNotesLike =
+      !!f.long ||
+      /(_notes|_comments|_reasoning|notes|reasoning|fail_reason)$/i.test(f.k);
     return (
       <div>
         {lbl}
-        <div className={f.mono ? "mono" : ""} style={{ ...base, background: C.lineSoft, color: C.inkSoft }}>
-          {isBlank(value[f.k]) ? "-" : String(value[f.k])}
+        <div
+          className={f.mono ? "mono" : ""}
+          style={{
+            ...base,
+            background: C.lineSoft,
+            color: text ? C.inkSoft : C.inkFaint,
+            whiteSpace: isNotesLike ? "pre-wrap" : undefined,
+            minHeight: isNotesLike ? 44 : undefined,
+          }}
+        >
+          {text || (isNotesLike ? "" : "-")}
         </div>
       </div>
     );

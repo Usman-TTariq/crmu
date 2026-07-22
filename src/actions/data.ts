@@ -558,8 +558,27 @@ async function enrichPipelineRows(
         ? admin.from("closer_deals").select("lead_id, notes").in("lead_id", leadIds)
         : Promise.resolve({ data: [] as { lead_id: string; notes?: string }[] }),
       tab !== "documentation"
-        ? admin.from("documentation_reviews").select("lead_id, notes").in("lead_id", leadIds)
-        : Promise.resolve({ data: [] as { lead_id: string; notes?: string }[] }),
+        ? admin
+            .from("documentation_reviews")
+            .select("lead_id, notes, fail_reason, ops_rework_reasoning, pm_rework_comments")
+            .in("lead_id", leadIds)
+            .then(async (res) => {
+              if (!res.error) return res;
+              // sql/54 or sql/58 not applied yet — fall back to notes only
+              return admin
+                .from("documentation_reviews")
+                .select("lead_id, notes")
+                .in("lead_id", leadIds);
+            })
+        : Promise.resolve({
+            data: [] as {
+              lead_id: string;
+              notes?: string;
+              fail_reason?: string;
+              ops_rework_reasoning?: string;
+              pm_rework_comments?: string;
+            }[],
+          }),
       tab !== "ops"
         ? admin
             .from("ops_verifications")
@@ -578,8 +597,22 @@ async function enrichPipelineRows(
     const closerNotes = new Map(
       (closerRes.data || []).map((c) => [String(c.lead_id), String(c.notes || "")])
     );
-    const docsNotes = new Map(
-      (docsRes.data || []).map((d) => [String(d.lead_id), String(d.notes || "")])
+    const docsByLead = new Map(
+      ((docsRes.data || []) as {
+        lead_id: string;
+        notes?: string;
+        fail_reason?: string;
+        ops_rework_reasoning?: string;
+        pm_rework_comments?: string;
+      }[]).map((d) => [
+        String(d.lead_id),
+        {
+          notes: String(d.notes || ""),
+          fail_reason: String(d.fail_reason || ""),
+          ops_rework_reasoning: String(d.ops_rework_reasoning || ""),
+          pm_rework_comments: String(d.pm_rework_comments || ""),
+        },
+      ])
     );
     const opsByLead = new Map(
       (opsRes.data || []).map((o) => [
@@ -593,11 +626,28 @@ async function enrichPipelineRows(
     out = out.map((r) => {
       const lid = String(r.lead_id || "");
       const ops = opsByLead.get(lid);
+      const docs = docsByLead.get(lid);
+      const liveDocsNotes = String(docs?.notes || "").trim();
+      const failBits = [docs?.fail_reason, docs?.pm_rework_comments]
+        .map((s) => String(s || "").trim())
+        .filter((s) => s && s !== "-");
+      const failLine = failBits.length ? `Fail reason: ${failBits[0]}` : "";
+      const composedDocsComments = [liveDocsNotes, failLine].filter(Boolean).join("\n\n");
+      const stamped = String(r.documentation_rework_comments || "").trim();
+      const docsComments =
+        (stamped && stamped !== "-" ? stamped : "") || composedDocsComments;
+      const reworkReason = [docs?.ops_rework_reasoning, r.ops_rework_reasoning]
+        .map((s) => String(s || "").trim())
+        .find((s) => s && s !== "-") || "";
       return {
         ...r,
         ...(tab !== "closer" ? { closer_notes: closerNotes.get(lid) || "" } : {}),
         ...(tab !== "documentation"
-          ? { documentation_notes: docsNotes.get(lid) || "" }
+          ? {
+              documentation_notes: liveDocsNotes,
+              documentation_rework_comments: docsComments,
+              ops_rework_reasoning: reworkReason,
+            }
           : {}),
         ...(tab !== "ops"
           ? {

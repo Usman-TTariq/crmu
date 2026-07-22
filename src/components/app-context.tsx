@@ -133,11 +133,25 @@ export function AppProvider({
 
   const opts: OptsCtx = useMemo(() => {
     const byTitle = (...titles: string[]) =>
-      profiles.filter((p) => titles.includes(p.title) && p.is_active).map((p) => p.full_name);
+      profiles
+        .filter((p) => titles.includes(p.title) && p.is_active !== false)
+        .map((p) => String(p.full_name || "").trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+    // Closers: title Closer / Tier 3, or role_key closer (covers title typos)
+    const closers = [
+      ...new Set([
+        ...byTitle("Closer", "Tier 3"),
+        ...profiles
+          .filter((p) => p.role_key === "closer" && p.is_active !== false)
+          .map((p) => String(p.full_name || "").trim())
+          .filter(Boolean),
+      ]),
+    ].sort((a, b) => a.localeCompare(b));
     return {
       leadgenAgents: byTitle("Lead Gen Agent", "Lead Gen Supervisor"),
       qaAgents: byTitle("QA Agent"),
-      closers: byTitle("Closer", "Tier 3"),
+      closers,
       opsVerifiers: byTitle("QA & Funding Lead", "OPS QA & Onboarding", "Quality Assurance"),
       onboarders: byTitle("Onboarding Lead", "OPS QA & Onboarding", "Onboarding Agent"),
       csAgents: byTitle("Customer Success Head", "Customer Success Lead", "Customer Success Agent"),

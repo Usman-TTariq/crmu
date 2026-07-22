@@ -545,6 +545,22 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
       hideTable: true,
     },
     {
+      k: "ops_rework_reasoning",
+      label: "OPS Rework Reasoning",
+      type: "text",
+      long: true,
+      readOnly: true,
+      hideTable: true,
+    },
+    {
+      k: "documentation_rework_comments",
+      label: "Documentation Rework Comments",
+      type: "text",
+      long: true,
+      readOnly: true,
+      hideTable: true,
+    },
+    {
       k: "documentation_notes",
       label: "Documentation Notes",
       type: "text",

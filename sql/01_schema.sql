@@ -182,6 +182,7 @@ create table if not exists public.documentation_reviews (
   notes           text not null default '',
   returned_after_ops_rework boolean not null default false,
   ops_rework_reasoning text not null default '',
+  pm_rework_comments text not null default '',
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
@@ -211,6 +212,7 @@ create table if not exists public.ops_verifications (
   ops_date              date,
   accuracy_review       text not null default '' check (accuracy_review in ('','Pass','Fail')),
   notes                 text not null default '',
+  documentation_rework_comments text not null default '',
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now()
 );
