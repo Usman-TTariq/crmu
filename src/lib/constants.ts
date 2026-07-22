@@ -225,7 +225,7 @@ export const MONITOR_ROLES = ["ceo", "super_admin", "sales_head", "ops_manager"]
 /** Stats Counselling — CEO / Super Admin / Sales Head only (not ops_manager). */
 export const COUNSELLING_ROLES = ["ceo", "super_admin", "sales_head"];
 /** When true, nav shows lock and nobody can open Stats Counselling. */
-export const COUNSELLING_LOCKED = true;
+export const COUNSELLING_LOCKED = false;
 
 // Owner field per row scope (matches profile full name stored on records)
 export const OWNER_FIELD: Record<RowScope, string> = {
