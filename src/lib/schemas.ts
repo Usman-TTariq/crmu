@@ -92,8 +92,9 @@ export const CLOSER_REQUIRED_FIELDS: { k: string; label: string }[] = [
 ];
 
 const closerReq = new Set(CLOSER_REQUIRED_FIELDS.map((f) => f.k));
-const withCloserRequired = (f: FieldDef): FieldDef =>
-  closerReq.has(f.k) ? { ...f, required: true } : f;
+/** Keeps FieldDef contextual typing on the array literal (unlike bare `.map`). */
+const markCloserRequired = (fields: FieldDef[]): FieldDef[] =>
+  fields.map((f) => (closerReq.has(f.k) ? { ...f, required: true } : f));
 
 // SLA fatal check, ported from onbFatal (real dates)
 export const mspIsFatal = (r: Rec): boolean => {
@@ -269,7 +270,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
     { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
   ],
-  closer: [
+  closer: markCloserRequired([
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
     { k: "created_at", label: "Created At", type: "computed", mono: true, fmt: "stamp", compute: (r) => r.created_at },
     { k: "updated_at", label: "Last Edited", type: "computed", mono: true, fmt: "stamp", compute: (r) => r.updated_at },
@@ -471,7 +472,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     },
     { k: "notes", label: "Notes", type: "text", long: true, hideTable: true },
     { k: "lead_comments", label: "Comments (log)", type: "thread", long: true, hideTable: true },
-  ].map(withCloserRequired),
+  ]),
   documentation: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
     { k: "closed_date", label: "Closed Date", type: "date", readOnly: true },
