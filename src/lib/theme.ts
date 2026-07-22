@@ -41,7 +41,7 @@ export const TONE_MAP: Record<string, keyof typeof TONES> = {
   "Coming after dispute": "info",
   "After dispute": "info",
   Churned: "bad", No: "bad", Fail: "bad", Rejected: "bad", Cancelled: "bad", "Fatal Error": "bad", "Closed by MSP": "bad", Chargeback: "bad",
-  New: "info", Assigned: "info", "Docs Received": "info", "No Answer": "neutral", "Not in QA": "neutral",
+  New: "info", Assigned: "info", "Docs Received": "info", "No Answer": "neutral", "Not in QA": "neutral", "Not in OPS": "neutral",
 };
 
 export const toneFor = (v: unknown): Tone => {
