@@ -241,7 +241,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
       hideTable: true,
     },
     { k: "assigned_date", label: "Assigned Date", type: "date" },
-    { k: "closer", label: "Closer", type: "select", opts: (c) => c.closers, readOnly: true },
+    { k: "closer", label: "Closer (owner)", type: "select", opts: (c) => c.closers, readOnly: true },
     { k: "stage", label: "Stage", type: "select", opts: CLOSER_STAGES },
     {
       k: "ops_outcome",

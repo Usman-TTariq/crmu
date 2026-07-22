@@ -1162,6 +1162,7 @@ export async function createManualOpsRecord(payload: {
 }
 
 const CLOSER_CREATE_ROLES = new Set(["closer", "ceo", "super_admin", "sales_head", "avp_sales"]);
+const CLOSER_CREATE_MANAGER_ROLES = new Set(["ceo", "super_admin", "sales_head", "avp_sales"]);
 
 // ---------------------------------------------------------------------------
 // Closer-direct lead: parent leads row + closer_deals (skips QA / SQL)
@@ -1176,12 +1177,20 @@ export async function createManualCloserRecord(payload: {
       return { error: "You cannot create closer leads." };
     }
 
-    const supabase = await createClient();
+    // Admin client: closers can INSERT leads but often cannot SELECT them back
+    // (RLS), so `.insert().select()` fails with HTTP 200 + error body and no deal.
+    const admin = createAdminClient();
     const v = payload.values;
-    const identity = session.profile.full_name;
+    const identity = String(session.profile.full_name || "").trim();
+    // Closers always own their creates. Managers must pick a closer — if blank, assign to self.
     const closerName =
-      role === "closer" ? identity : String(v.closer || "").trim();
-    if (!closerName) return { error: "Closer is required." };
+      role === "closer"
+        ? identity
+        : String(v.closer || "").trim() ||
+          (CLOSER_CREATE_MANAGER_ROLES.has(role) ? identity : "");
+    if (!closerName) {
+      return { error: "Closer is required. Select who owns this deal." };
+    }
 
     const businessName = String(v.business_name || "").trim();
     if (!businessName) return { error: "Legal business name is required." };
@@ -1202,7 +1211,7 @@ export async function createManualCloserRecord(payload: {
     const zip = String(v.zip_code || "");
     const state = String(v.state || "");
 
-    const { data: lead, error: leadErr } = await supabase
+    const { data: lead, error: leadErr } = await admin
       .from("leads")
       .insert({
         date_created: v.date_created || undefined,
@@ -1271,19 +1280,19 @@ export async function createManualCloserRecord(payload: {
       /column|schema cache|could not find/i.test(msg);
 
     let closerErr = (
-      await supabase.from("closer_deals").insert({ ...coreCloser, ...intakeCloser })
+      await admin.from("closer_deals").insert({ ...coreCloser, ...intakeCloser })
     ).error;
 
     // sql/52 not applied yet — create with core columns, then best-effort intake update
     if (closerErr && isMissingCol(closerErr.message)) {
-      closerErr = (await supabase.from("closer_deals").insert(coreCloser)).error;
+      closerErr = (await admin.from("closer_deals").insert(coreCloser)).error;
       if (!closerErr) {
-        await supabase.from("closer_deals").update(intakeCloser).eq("lead_id", lead.lead_id);
+        await admin.from("closer_deals").update(intakeCloser).eq("lead_id", lead.lead_id);
       }
     }
 
     if (closerErr) {
-      await supabase.from("leads").delete().eq("lead_id", lead.lead_id);
+      await admin.from("leads").delete().eq("lead_id", lead.lead_id);
       return {
         error:
           closerErr.message +

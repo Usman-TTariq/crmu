@@ -463,8 +463,15 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   const openAdd = useCallback(() => {
     const rec = buildDefault(tab);
     if (ownerField && ownerValue) rec[ownerField] = ownerValue;
+    // AVP / Sales Head creating on Closer: default owner to self (can change in form)
+    if (
+      tab === "closer" &&
+      ["avp_sales", "sales_head", "ceo", "super_admin"].includes(app.role.key)
+    ) {
+      rec.closer = app.session.profile.full_name;
+    }
     setDrawer({ record: rec, isNew: true });
-  }, [tab, ownerField, ownerValue]);
+  }, [tab, ownerField, ownerValue, app.role.key, app.session.profile.full_name]);
 
   // Header "Add" button
   useEffect(() => {
@@ -520,6 +527,17 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     if (isNew && tab === "ops") {
       res = await createManualOpsRecord({ values });
     } else if (isNew && tab === "closer") {
+      if (
+        app.role.key !== "closer" &&
+        isBlank(values.closer) &&
+        app.session.profile.full_name
+      ) {
+        values.closer = app.session.profile.full_name;
+      }
+      if (app.role.key !== "closer" && isBlank(values.closer)) {
+        app.pushToasts(["Select a Closer before creating this lead."]);
+        return;
+      }
       res = await createManualCloserRecord({ values });
     } else {
       res = await saveRecord({
@@ -796,7 +814,23 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           fields={fields}
           record={drawer.record}
           isNew={drawer.isNew}
-          opts={app.opts}
+          opts={
+            tab === "closer"
+              ? {
+                  ...app.opts,
+                  // AVP / Sales Head can own a closer-direct deal even if title ≠ Closer
+                  closers: [
+                    ...new Set(
+                      [
+                        ...app.opts.closers,
+                        String(app.session.profile.full_name || "").trim(),
+                        String(drawer.record.closer || "").trim(),
+                      ].filter(Boolean)
+                    ),
+                  ],
+                }
+              : app.opts
+          }
           readOnly={
             !canEdit ||
             // Lead Gen agents may create, but cannot edit an existing lead's fields
