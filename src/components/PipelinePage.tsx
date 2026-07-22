@@ -513,6 +513,12 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       app.pushToasts(["Rework needs a reasoning."]);
       return;
     }
+    if (tab === "ops" && draft.ops_status === "Approved") {
+      if (draft.dl_recd !== "Yes" || draft.voided_check !== "Yes") {
+        app.pushToasts(["Approve needs DL Recd and Voided Check both set to Yes."]);
+        return;
+      }
+    }
     if (
       tab === "closer" &&
       (draft.stage === "Docs Received" || draft.stage === "Closed" || draft.stage === "Closed Won")

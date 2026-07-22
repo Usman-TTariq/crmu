@@ -324,8 +324,8 @@ after insert or update on public.documentation_reviews
 for each row execute function private.after_documentation_change();
 
 -- ---------------------------------------------------------------------------
--- Rule 5: OPS — Approving with any unverified doc auto-flips to Disapproved.
---         Approved -> auto-create MSP onboarding record.
+-- Rule 5: OPS — Approve requires DL Recd + Voided Check = Yes only.
+--         Other verify fields are optional. Approved -> MSP onboarding.
 -- ---------------------------------------------------------------------------
 create or replace function private.before_ops_change()
 returns trigger
@@ -340,15 +340,13 @@ begin
 
   if new.ops_status = 'Approved' then
     select count(*) into missing
-    from (values (new.dl_recd), (new.voided_check), (new.bank_stmt),
-                 (new.owner_name_verified), (new.owner_phone_verified),
-                 (new.business_verified)) as checks(v)
+    from (values (new.dl_recd), (new.voided_check)) as checks(v)
     where v <> 'Yes';
 
     if missing > 0 then
       new.ops_status := 'Disapproved';
       if coalesce(new.reasoning, '') = '' then
-        new.reasoning := missing || ' item(s) unverified';
+        new.reasoning := 'DL Recd and Voided Check must both be Yes to approve';
       end if;
     end if;
   end if;
