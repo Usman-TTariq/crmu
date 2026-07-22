@@ -91,6 +91,13 @@ function AttachmentRow({
         {!compact ? (
           <div className="mono" style={{ fontSize: 11, color: C.inkSoft }}>
             {a.file_ext.toUpperCase()} &middot; {fileSizeLabel(a.file_size)}
+            {a.stage === "closer"
+              ? " · from Closer"
+              : a.stage === "documentation"
+                ? " · from Docs"
+                : a.stage === "ops"
+                  ? " · OPS"
+                  : ""}
           </div>
         ) : null}
       </div>
@@ -443,11 +450,23 @@ export default function FileField({
   return (
     <div>
       {label}
+      {stage === "ops" && list.some((a) => a.stage !== "ops") ? (
+        <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 8, fontWeight: 600 }}>
+          Closer / Docs files are carried forward (view only). You can attach extra OPS files below.
+        </div>
+      ) : null}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {list.length === 0 ? (
           <div style={{ fontSize: 13, color: C.inkFaint }}>No documents attached.</div>
         ) : (
-          list.map((a) => <AttachmentRow key={a.id} a={a} readOnly={readOnly} onRemove={remove} />)
+          list.map((a) => (
+            <AttachmentRow
+              key={a.id}
+              a={a}
+              readOnly={readOnly || a.stage !== stage}
+              onRemove={remove}
+            />
+          ))
         )}
       </div>
       {!readOnly ? (

@@ -666,7 +666,13 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "ops_agent", label: "OPS QA Agent", type: "select", opts: (c) => c.opsVerifiers },
     { k: "ops_date", label: "OPS Date", type: "date" },
     { k: "accuracy_review", label: "Accuracy Check", type: "select", opts: ["Pass", "Fail"], isPill: true, managerOnly: true },
-    { k: "attachments", label: "Documents", type: "files" },
+    {
+      k: "attachments",
+      label: "Documents (Closer + Docs carried forward)",
+      type: "files",
+      long: true,
+      hideTable: true,
+    },
     {
       k: "lead_gen_notes",
       label: "Lead Gen Notes",

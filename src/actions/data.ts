@@ -806,8 +806,15 @@ async function enrichPipelineRows(
   }
 
   if ((tab === "closer" || tab === "ops" || tab === "documentation") && leadIds.length) {
-    const stageFilter = tab === "documentation" ? ["closer", "documentation"] : [tab];
-    const { data: atts } = await supabase
+    // Docs: closer uploads + docs-stage. OPS QA: carry forward closer + docs + ops uploads.
+    const stageFilter =
+      tab === "documentation"
+        ? ["closer", "documentation"]
+        : tab === "ops"
+          ? ["closer", "documentation", "ops"]
+          : ["closer"];
+    // Admin: OPS agents often cannot SELECT closer_deals, so RLS hides closer attachments.
+    const { data: atts } = await admin
       .from("attachments")
       .select("*")
       .in("stage", stageFilter)
@@ -816,7 +823,7 @@ async function enrichPipelineRows(
     if (mode === "full") {
       await Promise.all(
         ((atts || []) as Attachment[]).map(async (a) => {
-          const { data: signed } = await supabase.storage
+          const { data: signed } = await admin.storage
             .from("documents")
             .createSignedUrl(a.storage_path, 3600);
           const list = byLead.get(a.lead_id) || [];
