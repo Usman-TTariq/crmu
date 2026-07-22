@@ -603,8 +603,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
         </div>
       ) : null}
 
-      {tab === "leadgen" &&
-      (app.role.key === "lg_sup" || app.role.key === "team_captain") ? (
+      {tab === "leadgen" && app.role.key === "lg_sup" ? (
         <DisputePanel variant="qa" onChanged={() => void refresh()} />
       ) : null}
 
@@ -830,18 +829,14 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           }}
           extraEditableKeys={
             tab === "leadgen" &&
-            (app.role.key === "lg_agent" ||
-              app.role.key === "lg_sup" ||
-              app.role.key === "team_captain") &&
+            (app.role.key === "lg_agent" || app.role.key === "lg_sup") &&
             !drawer.isNew
               ? ["notes"]
               : undefined
           }
           onSaveNotes={
             tab === "leadgen" &&
-            (app.role.key === "lg_agent" ||
-              app.role.key === "lg_sup" ||
-              app.role.key === "team_captain") &&
+            (app.role.key === "lg_agent" || app.role.key === "lg_sup") &&
             !drawer.isNew
               ? async (notes) => {
                   const leadId = String(drawer.record.lead_id || "");

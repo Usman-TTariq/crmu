@@ -38,7 +38,7 @@ function closerBadges(rows: BoardCloserRow[]): (r: BoardCloserRow) => Badge | nu
 const TEAM_ORDER = ["Olympus", "Phoenix", "Spartan", "Titans"];
 const TITLE_ORDER = [
   "CEO", "Super Admin",   "Sales Head & QA", "Head of Workforce Performance and Quality", "AVP Sales", "Floor Manager",
-  "Lead Gen Supervisor", "Team Captain", "Lead Gen Agent", "Closer", "Tier 3", "QA Agent",
+  "Lead Gen Supervisor", "Lead Gen Agent", "Closer", "Tier 3", "QA Agent",
   "Project Manager",
   "Manager", "Assistant Manager", "QA & Funding Lead", "OPS QA & Onboarding", "Quality Assurance",
   "Onboarding Lead", "Onboarding Agent",
@@ -182,8 +182,29 @@ export default function TeamSetupPage() {
 
   const openAdd = useCallback(() => {
     setDrawer({
-      record: { id: "", full_name: "", title: "", dept: "SALES", team: "", role_key: "lg_agent", target: "", notes: "" },
+      record: {
+        id: "",
+        full_name: "",
+        title: "",
+        dept: "SALES",
+        team: "",
+        is_team_captain: "No",
+        role_key: "lg_agent",
+        target: "",
+        notes: "",
+      },
       isNew: true,
+    });
+  }, []);
+
+  const openEdit = useCallback((r: Rec) => {
+    setDrawer({
+      record: {
+        ...r,
+        is_team_captain:
+          r.is_team_captain === true || r.is_team_captain === "Yes" ? "Yes" : "No",
+      },
+      isNew: false,
     });
   }, []);
 
@@ -203,7 +224,11 @@ export default function TeamSetupPage() {
       app.pushToasts(["Pick a title so the access role can be assigned."]);
       return;
     }
-    const values = derivedRole ? { ...draft, role_key: derivedRole } : draft;
+    const values = {
+      ...(derivedRole ? { ...draft, role_key: derivedRole } : draft),
+      is_team_captain:
+        draft.is_team_captain === true || draft.is_team_captain === "Yes",
+    };
     const res = await saveRecord({ tab: "teamsetup", id: isNew ? null : String(draft.id), values });
     if (res.error) {
       app.pushToasts([res.error]);
@@ -627,7 +652,7 @@ export default function TeamSetupPage() {
           <DataTable
             fields={fields}
             rows={filtered}
-            onRow={(r) => setDrawer({ record: r, isNew: false })}
+            onRow={(r) => openEdit(r)}
             groupOf={rosterGroup}
             rowActionsLabel="View as"
             rowActions={

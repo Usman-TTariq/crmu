@@ -5,7 +5,7 @@
 import {
   LEAD_SOURCES, PROCESSORS, MSP_PROVIDERS, LEASING_COS, ONB_BRANDS,
   ONB_FINAL, CS_STATUS, YN, CLOSER_STAGES, FULFILLMENT_STAGES, OPS_STATUS,
-  DOC_DECISIONS, QA_DECISIONS, SQL_STATUS, FUNDING_STATUS, DEPTS, SALES_TEAMS,
+  DOC_DECISIONS, QA_DECISIONS, SQL_STATUS, FUNDING_STATUS,   DEPTS, SALES_TEAMS, YN,
   TITLE_ROLE_MAP, roleByKey, type TabKey,
 } from "@/lib/constants";
 
@@ -480,6 +480,22 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "title", label: "Title", type: "select", opts: TITLES },
     { k: "dept", label: "Dept", type: "select", opts: DEPTS },
     { k: "team", label: "Team", type: "select", opts: SALES_TEAMS },
+    {
+      k: "is_team_captain",
+      label: "Team Captain",
+      type: "select",
+      opts: YN,
+      hideTable: true,
+      // Label only — does not change Access Role / permissions.
+    },
+    {
+      k: "captain_label",
+      label: "Captain",
+      type: "computed",
+      isPill: true,
+      compute: (r) =>
+        r.is_team_captain === true || r.is_team_captain === "Yes" ? "Captain" : "—",
+    },
     // Access role is derived from the title (TITLE_ROLE_MAP) when saving.
     {
       k: "role_key", label: "Access Role", type: "computed", isPill: true, hideTable: true,
@@ -532,7 +548,7 @@ export const EDITABLE_COLUMNS: Record<string, string[]> = {
     "shipping_cost", "funding_status", "funding_date", "invoice_no", "notes",
   ],
   retention: ["team", "agent_name", "status", "substitute", "handover_notes"],
-  teamsetup: ["full_name", "title", "dept", "team", "target", "role_key", "notes"],
+  teamsetup: ["full_name", "title", "dept", "team", "is_team_captain", "target", "role_key", "notes"],
 };
 
 export const TAB_TABLE: Record<string, string> = {

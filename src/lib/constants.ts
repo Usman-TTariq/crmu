@@ -80,7 +80,7 @@ export const TABS: TabDef[] = [
   { k: "leasing", label: "Leasing", emoji: "\u{1F4C4}", div: "OPS", dated: true, note: "Funding Status Funded opens a Customer Success record." },
   { k: "retention", label: "Customer Success", emoji: "\u{1F497}", div: "OPS", note: "Live merchants for follow-up. Comments are an append-only log stamped with name and time; merchants that churn or cancel are tracked here and on the dashboard." },
   { k: "opskpi", label: "OPS KPIs", emoji: "\u{1F4C8}", kind: "kpi", div: "OPS" },
-  { k: "teamsetup", label: "Team Setup", emoji: "\u2699\uFE0F", div: "SALES", note: "Roster and live closer workload." },
+  { k: "teamsetup", label: "Team Setup", emoji: "\u2699\uFE0F", div: "SALES", note: "Roster and live closer workload. Team Captain is a label only — pick any title (Closer, Supervisor, …) and mark Captain for that team." },
 ];
 
 export const SALES_TABS: TabKey[] = ["leadgen", "qa", "sqlassign", "closer", "saleskpi", "teamsetup"];
@@ -169,14 +169,6 @@ export const ROLES: RoleDef[] = [
     home: "leadgen",
     scope: "View team leads. Approve or disapprove Lead Gen disputes on disqualified leads.",
   },
-  {
-    key: "team_captain",
-    label: "Team Captain [SALES]",
-    view: ["leadgen"],
-    edit: [],
-    home: "leadgen",
-    scope: "Team captain. View your team's Lead Gen leads. Approve or disapprove disputes on disqualified leads.",
-  },
   { key: "qa_agent", label: "QA Agent [SALES]", view: ["qa"], edit: ["qa"], home: "qa", row: { qa: "ownQA" }, scope: "Only the leads assigned to you for QA." },
   { key: "closer", label: "Closer [SALES]", view: ["closer"], edit: ["closer"], home: "closer", row: { closer: "ownCloser" }, scope: "Only the deals assigned to you. You can also create direct leads that skip Lead Gen / QA and enter your pipeline. OPS-disapproved deals can be disputed to AVP Sales." },
   { key: "ops_verifier", label: "QA & Funding Lead [OPS]", view: ["ops", "documentation"], edit: ["ops"], home: "ops", scope: "Leads OPS QA. Sees, edits, assigns and revokes all OPS verification. Can view Documentation." },
@@ -217,8 +209,6 @@ export const MONITOR_ROLES = ["ceo", "super_admin", "sales_head", "ops_manager"]
 export const COUNSELLING_ROLES = ["ceo", "super_admin", "sales_head"];
 /** When true, nav shows lock and nobody can open Stats Counselling. */
 export const COUNSELLING_LOCKED = true;
-/** Lead Gen team leads — supervisor + captain (team-scoped view + disputes). */
-export const LG_TEAM_LEAD_ROLES = ["lg_sup", "team_captain"];
 
 // Owner field per row scope (matches profile full name stored on records)
 export const OWNER_FIELD: Record<RowScope, string> = {
@@ -245,7 +235,6 @@ export const TITLE_ROLE_MAP: Record<string, string> = {
   Finance: "finance",
   "Project Manager": "project_manager",
   "Lead Gen Supervisor": "lg_sup",
-  "Team Captain": "team_captain",
   "Lead Gen Agent": "lg_agent",
   Closer: "closer",
   "Tier 3": "closer",

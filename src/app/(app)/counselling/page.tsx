@@ -267,7 +267,7 @@ function monthLabel(iso: string): string {
 }
 
 function roleBucket(roleKey: string): "lg" | "qa" | "closer" | "other" {
-  if (roleKey === "lg_agent" || roleKey === "lg_sup" || roleKey === "team_captain") return "lg";
+  if (roleKey === "lg_agent" || roleKey === "lg_sup") return "lg";
   if (roleKey === "qa_agent") return "qa";
   if (roleKey === "closer") return "closer";
   return "other";
