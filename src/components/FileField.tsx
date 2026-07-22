@@ -9,10 +9,10 @@ import { createClient } from "@/lib/supabase/client";
 import type { Attachment, AttachmentDocType } from "@/lib/types";
 
 const CLOSER_SLOTS: { docType: AttachmentDocType; title: string; required?: boolean }[] = [
-  { docType: "driving_license", title: "Driving License", required: true },
-  { docType: "voided_cheque", title: "Voided Cheque", required: true },
+  { docType: "driving_license", title: "Driver's License", required: true },
+  { docType: "business_license", title: "Business License", required: false },
+  { docType: "voided_cheque", title: "Void Cheque", required: true },
   { docType: "bank_statement", title: "Bank Statement" },
-  { docType: "business_license", title: "Business License / EIN" },
   { docType: "proof_of_address", title: "Proof of Address" },
   { docType: "processing_statement", title: "Processing Statement" },
 ];

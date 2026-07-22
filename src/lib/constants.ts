@@ -1,17 +1,42 @@
 // Domain constants ported from the prototype.
 // Person-specific demo roles are generalized into role templates (role_key on profiles).
 
+/** Lead Gen create / edit — original sources only. */
 export const LEAD_SOURCES = [
   "Cold Calling",
   "PPC",
   "Referral",
   "Data Scrap",
   "Organic",
+  "Other",
+];
+
+/** Closer Add Lead — direct / self-sourced deals. */
+export const CLOSER_LEAD_SOURCES = [
   "Closer Direct",
   "Self Generated",
   "Upsell",
   "Other",
 ];
+
+export const BUSINESS_TYPES = [
+  "LLC",
+  "Sole Proprietorship",
+  "Corporation",
+  "Partnership",
+  "Non-Profit",
+  "Other",
+];
+
+export const PROCESSING_TYPES = [
+  "Surcharge",
+  "Interchange",
+  "Dual Pricing",
+  "Flat Rate",
+  "Cash Discount",
+];
+
+export const LEASE_TERMS = ["48mo", "36mo", "24mo", "12mo", "Other"];
 export const PROCESSORS = ["Square", "Toast", "Clover", "Stripe", "NRS", "Cash only", "None", "Other"];
 export const MSP_PROVIDERS = [
   "CardConnect/Soiree", "CardConnect/Genesys", "CardConnect/Meta", "Paysafe", "Nexio",

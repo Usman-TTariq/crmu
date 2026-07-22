@@ -48,7 +48,15 @@ export const toneFor = (v: unknown): Tone => {
   return TONES[TONE_MAP[s] || "neutral"];
 };
 
-export const FUNNEL_COLORS = ["#8e1015", "#ba161c", "#d4454c", "#1F7A8C", "#177143", "#5c6570"];
+export const FUNNEL_COLORS = [
+  "#8e1015",
+  "#ba161c",
+  "#d4454c",
+  "#1F7A8C",
+  "#0E7490",
+  "#177143",
+  "#5c6570",
+];
 export const MIX_COLORS = ["#ba161c", "#1F7A8C", "#177143", "#8F6410", "#6D28D9", "#5D6B80"];
 export const NEUTRAL_CHIP: Tone = { bg: "#EEF1F5", fg: "#12151a" };
 

@@ -329,19 +329,17 @@ export function FunnelChart({ steps }: { steps: FunnelStep[] }) {
               fill={FUNNEL_COLORS[i % FUNNEL_COLORS.length]}
               opacity="0.94"
             />
-            {tw > 84 ? (
-              <text
-                x={CX}
-                y={y + h / 2 + 5}
-                textAnchor="middle"
-                fontSize="15"
-                fontWeight="800"
-                fill="#fff"
-                fontFamily="ui-monospace,Menlo,monospace"
-              >
-                {s.count}
-              </text>
-            ) : null}
+            <text
+              x={CX}
+              y={y + h / 2 + 5}
+              textAnchor="middle"
+              fontSize={tw > 72 ? 15 : 12}
+              fontWeight="800"
+              fill="#fff"
+              fontFamily="ui-monospace,Menlo,monospace"
+            >
+              {s.count}
+            </text>
             <text x={TXT} y={y + 19} fontSize="13" fontWeight="700" fill={C.ink}>
               {s.label}
             </text>

@@ -215,12 +215,13 @@ export default function Drawer({
           top: 0,
           right: 0,
           height: "100%",
-          width: "min(500px, 92vw)",
-          maxWidth: "92vw",
+          width: "min(720px, 96vw)",
+          maxWidth: "96vw",
           background: C.surface,
           boxShadow: "-18px 0 50px rgba(30,26,27,0.22)",
           display: "flex",
           flexDirection: "column",
+          overflow: "hidden",
         }}
       >
         <div
@@ -408,7 +409,7 @@ export default function Drawer({
           </div>
         ) : null}
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px" }}>
+        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "16px 22px", minWidth: 0 }}>
           <div className="drawer-grid">
             {fullFields.map((f) => (
               <Field

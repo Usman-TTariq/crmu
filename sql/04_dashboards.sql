@@ -119,6 +119,7 @@ begin
       jsonb_build_object('label', 'QA Qualified', 'count', (select count(*) from qa_records where qa_decision = 'Qualified')),
       jsonb_build_object('label', 'SQL Assigned', 'count', (select count(*) from sql_assignments where sql_status = 'Assigned')),
       jsonb_build_object('label', 'Closed', 'count', (select count(*) from closer_deals where stage = 'Closed')),
+      jsonb_build_object('label', 'MSP Approved', 'count', (select count(*) from msp_onboarding where final_status = 'Approved')),
       jsonb_build_object('label', 'Funded', 'count', (select count(*) from leasing where funding_status = 'Funded')),
       jsonb_build_object('label', 'Live Merchants', 'count', (select count(*) from fulfillment where fulfillment_stage = 'Live'))
     ),

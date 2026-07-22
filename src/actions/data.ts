@@ -443,13 +443,16 @@ async function enrichPipelineRows(
         const ops = opsMap.get(lid);
         const disp = latestDisp.get(lid);
         const agent = String(extra?.lead_gen_agent || "");
+        // Prefer closer intake values; fall back to Lead Gen when blank.
+        const pick = (local: unknown, fromLead: unknown) =>
+          String(local ?? "").trim() || String(fromLead ?? "").trim() || "";
         return {
           ...r,
           lead_source: extra?.lead_source ?? r.lead_source ?? "",
-          email: extra?.email ?? r.email ?? "",
-          business_address: extra?.business_address ?? r.business_address ?? "",
-          city: extra?.city ?? r.city ?? "",
-          zip_code: extra?.zip_code ?? r.zip_code ?? "",
+          email: pick(r.email, extra?.email),
+          business_address: pick(r.business_address, extra?.business_address),
+          city: pick(r.city, extra?.city),
+          zip_code: pick(r.zip_code, extra?.zip_code),
           lead_origin: extra?.lead_origin ?? r.lead_origin ?? "",
           lead_gen_agent: agent,
           lead_gen_team: teamByAgent.get(agent) || "",
@@ -872,7 +875,20 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       if (k in payload.values) {
         let v = payload.values[k];
         if (v === "" && (k.endsWith("_date") || k === "date_created" || k === "qa_date")) v = null;
-        if (v === "" && ["monthly_volume", "monthly_lease", "approved_funding", "shipping_cost"].includes(k)) v = null;
+        if (
+          v === "" &&
+          [
+            "monthly_volume",
+            "monthly_lease",
+            "approved_funding",
+            "shipping_cost",
+            "avg_ticket_size",
+            "highest_ticket_size",
+            "lease_amount",
+          ].includes(k)
+        ) {
+          v = null;
+        }
         values[k] = v;
       }
     }
@@ -886,6 +902,10 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
 
     // Closer: Driving License + Voided Cheque before Docs Received / Closed
     if (payload.tab === "closer") {
+      const first = String(values.first_name ?? payload.values.first_name ?? "").trim();
+      const last = String(values.last_name ?? payload.values.last_name ?? "").trim();
+      const joined = [first, last].filter(Boolean).join(" ");
+      if (joined) values.owner_name = joined;
       const stage = String(values.stage ?? payload.values.stage ?? "");
       if (stage === "Docs Received" || stage === "Closed" || stage === "Closed Won") {
         const leadId = String(payload.values.lead_id || "");
@@ -1083,13 +1103,23 @@ export async function createManualCloserRecord(payload: {
     if (!closerName) return { error: "Closer is required." };
 
     const businessName = String(v.business_name || "").trim();
-    if (!businessName) return { error: "Business name is required." };
+    if (!businessName) return { error: "Legal business name is required." };
 
-    const volumeRaw = v.monthly_volume;
-    const monthlyVolume =
-      volumeRaw === "" || volumeRaw === undefined || volumeRaw === null
-        ? null
-        : volumeRaw;
+    const firstName = String(v.first_name || "").trim();
+    const lastName = String(v.last_name || "").trim();
+    const ownerName =
+      [firstName, lastName].filter(Boolean).join(" ") || String(v.owner_name || "").trim();
+
+    const numOrNull = (raw: unknown) =>
+      raw === "" || raw === undefined || raw === null ? null : raw;
+
+    const monthlyVolume = numOrNull(v.monthly_volume);
+    const email = String(v.email || "");
+    const phone = String(v.phone || "");
+    const businessAddress = String(v.business_address || "");
+    const city = String(v.city || "");
+    const zip = String(v.zip_code || "");
+    const state = String(v.state || "");
 
     const { data: lead, error: leadErr } = await supabase
       .from("leads")
@@ -1099,16 +1129,16 @@ export async function createManualCloserRecord(payload: {
         lead_source: String(v.lead_source || "Closer Direct"),
         lead_origin: "closer_direct",
         business_name: businessName,
-        owner_name: String(v.owner_name || ""),
-        phone: String(v.phone || ""),
-        email: String(v.email || ""),
-        business_address: String(v.business_address || ""),
-        city: String(v.city || ""),
-        zip_code: String(v.zip_code || ""),
-        state: String(v.state || ""),
-        current_processor: String(v.current_processor || "None"),
-        current_device: String(v.current_device || ""),
-        current_rate: String(v.current_rate || ""),
+        owner_name: ownerName,
+        phone,
+        email,
+        business_address: businessAddress,
+        city,
+        zip_code: zip,
+        state,
+        current_processor: String(v.provider || v.current_processor || "None"),
+        current_device: String(v.equipment || v.current_device || ""),
+        current_rate: String(v.processing_rate || v.current_rate || ""),
         monthly_volume: monthlyVolume,
         notes: String(v.notes || ""),
         created_by: session.userId,
@@ -1121,10 +1151,32 @@ export async function createManualCloserRecord(payload: {
     const { error: closerErr } = await supabase.from("closer_deals").insert({
       lead_id: lead.lead_id,
       business_name: businessName,
-      owner_name: String(v.owner_name || ""),
-      phone: String(v.phone || ""),
-      state: String(v.state || ""),
+      dba_name: String(v.dba_name || ""),
+      business_type: String(v.business_type || ""),
+      business_category: String(v.business_category || ""),
+      first_name: firstName,
+      last_name: lastName,
+      owner_name: ownerName,
+      phone,
+      mobile_phone: String(v.mobile_phone || ""),
+      email,
       monthly_volume: monthlyVolume,
+      avg_ticket_size: numOrNull(v.avg_ticket_size),
+      highest_ticket_size: numOrNull(v.highest_ticket_size),
+      tin_ein: String(v.tin_ein || ""),
+      ssn: String(v.ssn || ""),
+      processing_type: String(v.processing_type || ""),
+      processing_rate: String(v.processing_rate || ""),
+      provider: String(v.provider || ""),
+      equipment: String(v.equipment || ""),
+      lease_amount: numOrNull(v.lease_amount),
+      lease_term: String(v.lease_term || ""),
+      business_address: businessAddress,
+      city,
+      zip_code: zip,
+      state,
+      shipping_address: String(v.shipping_address || ""),
+      residential_address: String(v.residential_address || ""),
       assigned_date: assignedDate,
       closer: closerName,
       stage: String(v.stage || "No Answer") || "No Answer",
