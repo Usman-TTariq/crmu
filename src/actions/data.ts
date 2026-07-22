@@ -514,7 +514,8 @@ async function enrichPipelineRows(
     });
   }
 
-  // Forward Lead Gen / QA / Closer notes into later stages (drawer / full fetch).
+  // Forward notes into later stages (drawer / full fetch).
+  // Docs: closer notes only. OPS / Onboarding: Lead Gen + QA + Closer.
   // Documentation also needs lead_source on list rows.
   if (
     leadIds.length &&
@@ -522,10 +523,11 @@ async function enrichPipelineRows(
       (mode === "full" && (tab === "ops" || tab === "msp")))
   ) {
     const wantNotes = mode === "full";
+    const wantAllNotes = wantNotes && (tab === "ops" || tab === "msp");
     type LeadFwd = { lead_id: string; lead_source?: string; notes?: string };
     const leadsPromise =
       tab === "documentation"
-        ? wantNotes
+        ? wantAllNotes
           ? admin
               .from("leads")
               .select("lead_id, lead_source, notes")
@@ -537,7 +539,7 @@ async function enrichPipelineRows(
       wantNotes
         ? admin.from("closer_deals").select("lead_id, notes").in("lead_id", leadIds)
         : Promise.resolve({ data: [] as { lead_id: string; notes?: string }[] }),
-      wantNotes
+      wantAllNotes
         ? admin.from("qa_records").select("lead_id, qa_notes").in("lead_id", leadIds)
         : Promise.resolve({ data: [] as { lead_id: string; qa_notes?: string }[] }),
     ]);
@@ -560,9 +562,13 @@ async function enrichPipelineRows(
           : {}),
         ...(wantNotes
           ? {
-              lead_gen_notes: lead?.notes ?? "",
-              qa_notes_fwd: qaNotes.get(lid) || "",
               closer_notes: closerNotes.get(lid) || "",
+              ...(wantAllNotes
+                ? {
+                    lead_gen_notes: lead?.notes ?? "",
+                    qa_notes_fwd: qaNotes.get(lid) || "",
+                  }
+                : {}),
             }
           : {}),
       };

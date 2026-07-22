@@ -92,15 +92,60 @@ export default function Drawer({
     };
   }, []);
 
-  // Parent can push fresh comments without remounting / losing the open drawer
+  // Parent can push fresh data after open (list → full fetch) without remounting.
+  // Draft is initialized once; sync read-only enrichment + comments when record updates.
   useEffect(() => {
-    setDraft((d) => ({
-      ...d,
-      lead_comments: record.lead_comments ?? d.lead_comments,
-      comments: record.comments ?? d.comments,
-      ...(record.__newComment === "" ? { __newComment: "" } : null),
-    }));
-  }, [record.lead_comments, record.comments, record.__newComment]);
+    setDraft((d) => {
+      const next: Rec = {
+        ...d,
+        lead_comments: record.lead_comments ?? d.lead_comments,
+        comments: record.comments ?? d.comments,
+        ...(record.__newComment === "" ? { __newComment: "" } : null),
+      };
+      // Forwarded notes / files loaded after drawer open
+      for (const k of [
+        "closer_notes",
+        "lead_gen_notes",
+        "qa_notes_fwd",
+        "lead_notes",
+        "attachments",
+        "lead_source",
+        "email",
+        "business_address",
+        "city",
+        "zip_code",
+        "lead_origin",
+        "lead_gen_agent",
+        "lead_gen_team",
+        "current_processor",
+        "current_device",
+        "current_rate",
+      ] as const) {
+        if (record[k] !== undefined) next[k] = record[k];
+      }
+      return next;
+    });
+  }, [
+    record.lead_comments,
+    record.comments,
+    record.__newComment,
+    record.closer_notes,
+    record.lead_gen_notes,
+    record.qa_notes_fwd,
+    record.lead_notes,
+    record.attachments,
+    record.lead_source,
+    record.email,
+    record.business_address,
+    record.city,
+    record.zip_code,
+    record.lead_origin,
+    record.lead_gen_agent,
+    record.lead_gen_team,
+    record.current_processor,
+    record.current_device,
+    record.current_rate,
+  ]);
 
   const onChange = (f: { k: string }, v: unknown) =>
     setDraft((d) => {

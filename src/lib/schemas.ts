@@ -383,22 +383,6 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
       hideTable: true,
     },
     {
-      k: "lead_gen_notes",
-      label: "Lead Gen Notes",
-      type: "text",
-      long: true,
-      readOnly: true,
-      hideTable: true,
-    },
-    {
-      k: "qa_notes_fwd",
-      label: "QA Notes",
-      type: "text",
-      long: true,
-      readOnly: true,
-      hideTable: true,
-    },
-    {
       k: "closer_notes",
       label: "Closer Notes",
       type: "text",
