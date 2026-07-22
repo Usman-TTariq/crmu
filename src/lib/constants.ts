@@ -174,6 +174,14 @@ export const ROLES: RoleDef[] = [
     scope: "View only: Lead Gen through Customer Success. Cannot edit or assign.",
   },
   {
+    key: "hr_monitor",
+    label: "Employee Monitor [VIEW]",
+    view: ["monitor"],
+    edit: [],
+    home: "monitor",
+    scope: "View only: Employee Monitor (full company presence). No pipeline or other dashboards.",
+  },
+  {
     key: "project_manager",
     label: "Project Manager [DOCUMENTATION]",
     view: ["documentation"],
@@ -249,7 +257,7 @@ export const RECORD_DELETE_EMAILS = ["yasal.khan@tgtnexus.net"];
 export const ADDABLE: TabKey[] = ["leadgen", "closer", "teamsetup"];
 export const USER_ADMIN_ROLES = ["ceo", "super_admin"];
 /** Employee Monitor tab + presence RPCs (scoped board for sales_head / ops_manager). */
-export const MONITOR_ROLES = ["ceo", "super_admin", "sales_head", "ops_manager"];
+export const MONITOR_ROLES = ["ceo", "super_admin", "sales_head", "ops_manager", "hr_monitor"];
 /** Performance Overview — CEO / Super Admin / Sales Head only (not ops_manager). */
 export const COUNSELLING_ROLES = ["ceo", "super_admin", "sales_head"];
 /** When true, nav shows lock and nobody can open Performance Overview. */
@@ -278,6 +286,8 @@ export const TITLE_ROLE_MAP: Record<string, string> = {
   "AVP Sales": "avp_sales",
   "Floor Manager": "floor_manager",
   Finance: "finance",
+  "Employee Monitor": "hr_monitor",
+  "Workforce Monitor": "hr_monitor",
   "Project Manager": "project_manager",
   "Lead Gen Supervisor": "lg_sup",
   "Lead Gen Agent": "lg_agent",
