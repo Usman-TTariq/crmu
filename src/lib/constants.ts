@@ -1,7 +1,17 @@
 // Domain constants ported from the prototype.
 // Person-specific demo roles are generalized into role templates (role_key on profiles).
 
-export const LEAD_SOURCES = ["Cold Calling", "PPC", "Referral", "Data Scrap", "Organic", "Closer Direct", "Other"];
+export const LEAD_SOURCES = [
+  "Cold Calling",
+  "PPC",
+  "Referral",
+  "Data Scrap",
+  "Organic",
+  "Closer Direct",
+  "Self Generated",
+  "Upsell",
+  "Other",
+];
 export const PROCESSORS = ["Square", "Toast", "Clover", "Stripe", "NRS", "Cash only", "None", "Other"];
 export const MSP_PROVIDERS = [
   "CardConnect/Soiree", "CardConnect/Genesys", "CardConnect/Meta", "Paysafe", "Nexio",
