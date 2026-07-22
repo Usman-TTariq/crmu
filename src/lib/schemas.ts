@@ -356,6 +356,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
   documentation: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
     { k: "closed_date", label: "Closed Date", type: "date", readOnly: true },
+    { k: "lead_source", label: "Lead Source", type: "select", opts: LEAD_SOURCES, readOnly: true },
     { k: "business_name", label: "Business Name", type: "text", readOnly: true },
     { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
     { k: "phone", label: "Phone", type: "phone", mono: true, readOnly: true },

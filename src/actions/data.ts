@@ -237,7 +237,7 @@ const SEARCH_FIELDS: Partial<Record<TabKey, string[]>> = {
   ],
   sqlassign: ["lead_id", "business_name", "owner_name", "phone", "assigned_closer", "assigned_by", "sql_status"],
   closer: ["lead_id", "business_name", "owner_name", "phone", "closer", "stage"],
-  documentation: ["lead_id", "business_name", "owner_name", "phone", "pm_name", "decision"],
+  documentation: ["lead_id", "lead_source", "business_name", "owner_name", "phone", "pm_name", "decision"],
   ops: ["lead_id", "business_name", "owner_name", "phone", "closer", "ops_agent", "ops_status", "brand"],
   msp: ["lead_id", "business_name", "owner_name", "onboarding_sp", "final_status", "device", "tracking_number"],
   fulfillment: ["lead_id", "business_name", "owner_name", "fulfillment_stage", "hardware", "serial"],
@@ -507,6 +507,20 @@ async function enrichPipelineRows(
         lead_gen_team: teamByAgent.get(agent) || "",
       };
     });
+  }
+
+  if (tab === "documentation" && leadIds.length) {
+    const { data: leads } = await admin
+      .from("leads")
+      .select("lead_id, lead_source")
+      .in("lead_id", leadIds);
+    const sourceByLead = new Map(
+      (leads || []).map((l) => [String(l.lead_id), String(l.lead_source || "")])
+    );
+    out = out.map((r) => ({
+      ...r,
+      lead_source: sourceByLead.get(String(r.lead_id || "")) || r.lead_source || "",
+    }));
   }
 
   if ((tab === "closer" || tab === "ops" || tab === "documentation") && leadIds.length) {
