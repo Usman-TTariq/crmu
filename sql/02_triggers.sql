@@ -324,7 +324,7 @@ after insert or update on public.documentation_reviews
 for each row execute function private.after_documentation_change();
 
 -- ---------------------------------------------------------------------------
--- Rule 5: OPS — Approve requires DL Recd + Voided Check = Yes only.
+-- Rule 5: OPS — Approve requires DL Recd + Voided Cheque = Yes only.
 --         Other verify fields are optional. Approved -> MSP onboarding.
 -- ---------------------------------------------------------------------------
 create or replace function private.before_ops_change()
@@ -346,7 +346,7 @@ begin
     if missing > 0 then
       new.ops_status := 'Disapproved';
       if coalesce(new.reasoning, '') = '' then
-        new.reasoning := 'DL Recd and Voided Check must both be Yes to approve';
+        new.reasoning := 'DL Recd and Voided Cheque must both be Yes to approve';
       end if;
     end if;
   end if;

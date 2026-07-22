@@ -649,7 +649,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
     { k: "brand", label: "Brand", type: "select", opts: ONB_BRANDS },
     { k: "dl_recd", label: "DL Recd?", type: "select", opts: YN },
-    { k: "voided_check", label: "Voided Check?", type: "select", opts: YN },
+    { k: "voided_check", label: "Voided Cheque?", type: "select", opts: YN },
     { k: "bank_stmt", label: "Bank Stmt?", type: "select", opts: YN },
     { k: "owner_name_verified", label: "Owner Name Verified?", type: "select", opts: YN },
     { k: "owner_phone_verified", label: "Owner Phone Verified?", type: "select", opts: YN },

@@ -1,6 +1,6 @@
 -- ============================================================================
 -- TGT Nexus CRM — 68_ops_qa_dl_void_mandatory.sql
--- OPS QA Approve: only DL Recd + Voided Check must be Yes.
+-- OPS QA Approve: only DL Recd + Voided Cheque must be Yes.
 -- Bank stmt / owner / business verified may be No and still approve → Onboarding.
 -- Safe to re-run.
 -- ============================================================================
@@ -24,7 +24,7 @@ begin
     if missing > 0 then
       new.ops_status := 'Disapproved';
       if coalesce(new.reasoning, '') = '' then
-        new.reasoning := 'DL Recd and Voided Check must both be Yes to approve';
+        new.reasoning := 'DL Recd and Voided Cheque must both be Yes to approve';
       end if;
     end if;
   end if;

@@ -515,7 +515,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     }
     if (tab === "ops" && draft.ops_status === "Approved") {
       if (draft.dl_recd !== "Yes" || draft.voided_check !== "Yes") {
-        app.pushToasts(["Approve needs DL Recd and Voided Check both set to Yes."]);
+        app.pushToasts(["Approve needs DL Recd and Voided Cheque both set to Yes."]);
         return;
       }
     }
