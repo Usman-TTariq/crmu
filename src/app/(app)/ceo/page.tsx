@@ -110,7 +110,7 @@ export default function CeoDashboardPage() {
       >
         <div className="ceo-hero-main" style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", opacity: 0.75, textTransform: "uppercase" }}>
-            Funded lease volume vs target
+            Funded monthly lease vs target
           </div>
           <div className="mono" style={{ fontSize: 34, fontWeight: 800, marginTop: 4 }}>
             {money(revenue)} <span style={{ fontSize: 16, opacity: 0.7, fontWeight: 600 }}>/ {money(leaseTarget)}</span>
