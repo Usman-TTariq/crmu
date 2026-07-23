@@ -45,7 +45,11 @@ export async function logAttachmentUpload(payload: {
           ? "ops"
           : payload.stage === "msp"
             ? "msp"
-            : "closer",
+            : payload.stage === "fulfillment"
+              ? "fulfillment"
+              : payload.stage === "leasing"
+                ? "leasing"
+                : "closer",
     summary: `Uploaded ${payload.fileName} · ${payload.leadId}`,
     meta: { stage: payload.stage, fileName: payload.fileName },
   });

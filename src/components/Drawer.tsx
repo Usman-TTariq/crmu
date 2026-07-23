@@ -292,7 +292,11 @@ export default function Drawer({
         ? "documentation"
         : tab.k === "msp"
           ? "msp"
-          : "closer";
+          : tab.k === "fulfillment"
+            ? "fulfillment"
+            : tab.k === "leasing"
+              ? "leasing"
+              : "closer";
 
   if (!mounted) return null;
 
