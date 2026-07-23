@@ -586,7 +586,11 @@ export default function Field({
       selectValue = normalizeStateCode(selectValue);
     }
     const placeholder =
-      !requiredOk && f.requires ? `Select ${f.requires.replace(/_/g, " ")} first` : "-";
+      !requiredOk && f.requires
+        ? `Select ${f.requires.replace(/_/g, " ")} first`
+        : f.k === "qa_agent" || f.k === "ops_agent"
+          ? "Select agent"
+          : "-";
     if (f.editable) {
       return (
         <div>
@@ -636,15 +640,18 @@ export default function Field({
   }
 
   if (f.long) {
+    const longVal = String(value[f.k] ?? "").trim();
+    const shown = longVal === "-" || longVal === "--" ? "" : String(value[f.k] ?? "");
     return (
       <div>
         {lbl}
         <textarea
           autoFocus={autoFocus}
-          value={String(value[f.k] ?? "")}
+          value={shown}
           onChange={(e) => onChange(f, e.target.value)}
           rows={3}
           style={{ ...base, resize: "vertical" }}
+          placeholder=""
         />
       </div>
     );

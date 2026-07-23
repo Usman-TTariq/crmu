@@ -155,7 +155,12 @@ export function AppProvider({
       leadgenAgents: byTitle("Lead Gen Agent", "Lead Gen Supervisor"),
       qaAgents: byTitle("QA Agent"),
       closers,
-      opsVerifiers: byTitle("QA & Funding Lead", "OPS QA & Onboarding", "Quality Assurance"),
+      // OPS QA Agent dropdown: every active OPS roster member (Manager → CS)
+      opsVerifiers: profiles
+        .filter((p) => p.dept === "OPS" && p.is_active !== false)
+        .map((p) => String(p.full_name || "").trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b)),
       onboarders: byTitle("Onboarding Lead", "OPS QA & Onboarding", "Onboarding Agent"),
       csAgents: byTitle("Customer Success Head", "Customer Success Lead", "Customer Success Agent"),
       projectManagers: byTitle("Project Manager"),

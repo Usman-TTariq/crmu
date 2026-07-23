@@ -120,6 +120,10 @@ export default function Drawer({
   // Draft is initialized once; sync enrichment / comments when record updates.
   useEffect(() => {
     setDraft((d) => {
+      const blankish = (v: unknown) => {
+        const s = String(v ?? "").trim();
+        return !s || s === "-" || s === "--";
+      };
       const next: Rec = {
         ...d,
         lead_comments: record.lead_comments ?? d.lead_comments,
@@ -136,8 +140,9 @@ export default function Drawer({
         "lead_gen_notes",
         "qa_notes_fwd",
         "lead_notes",
+        "qa_notes",
       ]);
-      // Docs/OPS editable fields — never overwrite while the user is typing
+      // Editable fields — don't clobber in-progress typing; still fill when draft is blank.
       const protectEdit =
         tab.k === "documentation"
           ? new Set(["pm_name", "decision", "fail_reason", "review_date", "notes", "__newComment"])
@@ -158,23 +163,43 @@ export default function Drawer({
                 "notes",
                 "__newComment",
               ])
+            : tab.k === "qa"
+              ? new Set([
+                  "qa_date",
+                  "sale_type",
+                  "us_business",
+                  "owner_reached",
+                  "interested",
+                  "physical_loc",
+                  "not_restricted",
+                  "qa_agent",
+                  "qa_decision",
+                  "qa_notes",
+                  "__newComment",
+                ])
             : null;
 
       if (protectEdit) {
-        // Merge full enriched record into draft (Closer intake, LG notes, etc.)
+        // Merge full enriched record into draft (Closer intake, LG/QA notes, etc.)
         for (const [k, incoming] of Object.entries(record)) {
-          if (protectEdit.has(k) || k === "lead_comments" || k === "comments") continue;
+          if (k === "lead_comments" || k === "comments") continue;
           if (incoming === undefined) continue;
+          const cleaned = blankish(incoming) ? "" : incoming === "-" ? "" : incoming;
+          if (protectEdit.has(k)) {
+            // List row often omits long notes — fill from full fetch when draft empty.
+            if (!blankish(next[k])) continue;
+            if (blankish(cleaned)) continue;
+            next[k] = cleaned;
+            continue;
+          }
           if (
             noteKeys.has(k) &&
-            (incoming === "" || incoming === "-" || incoming == null) &&
-            next[k] != null &&
-            String(next[k]).trim() !== "" &&
-            String(next[k]) !== "-"
+            blankish(cleaned) &&
+            !blankish(next[k])
           ) {
             continue;
           }
-          next[k] = incoming === "-" ? "" : incoming;
+          next[k] = cleaned;
         }
       } else {
         for (const k of [
@@ -221,16 +246,11 @@ export default function Drawer({
         ] as const) {
           if (record[k] === undefined) continue;
           const incoming = record[k];
-          if (
-            noteKeys.has(k) &&
-            (incoming === "" || incoming === "-" || incoming == null) &&
-            next[k] != null &&
-            String(next[k]).trim() !== "" &&
-            String(next[k]) !== "-"
-          ) {
+          const cleaned = blankish(incoming) ? "" : incoming;
+          if (noteKeys.has(k) && blankish(cleaned) && !blankish(next[k])) {
             continue;
           }
-          next[k] = incoming === "-" ? "" : incoming;
+          next[k] = cleaned;
         }
       }
       return next;

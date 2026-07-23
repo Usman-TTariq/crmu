@@ -464,9 +464,13 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       // List fetch is light — load full row / comments on open.
       if (
         tab === "leadgen" ||
+        tab === "qa" ||
         tab === "closer" ||
         tab === "ops" ||
         tab === "documentation" ||
+        tab === "msp" ||
+        tab === "fulfillment" ||
+        tab === "leasing" ||
         tab === "retention"
       ) {
         fetchRowByLeadId({ tab, leadId }).then((res) => {
@@ -580,6 +584,15 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     ) {
       rec.closer = app.session.profile.full_name;
     }
+    // OPS managers / leads creating on OPS QA: default agent to self (can change)
+    if (
+      tab === "ops" &&
+      ["ops_verifier", "ops_qa_onb", "ops_manager", "ops_am", "ceo", "super_admin"].includes(
+        app.role.key
+      )
+    ) {
+      rec.ops_agent = app.session.profile.full_name;
+    }
     setDrawer({ record: rec, isNew: true });
   }, [tab, ownerField, ownerValue, app.role.key, app.session.profile.full_name]);
 
@@ -652,7 +665,27 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     delete values.lead_comments;
 
     let res;
+    // QA agents must own the row after save (RLS WITH CHECK) — blank agent blocks notes too.
+    if (tab === "qa" && app.role.key === "qa_agent" && isBlank(values.qa_agent)) {
+      values.qa_agent = app.session.profile.full_name;
+    }
+
     if (isNew && tab === "ops") {
+      if (
+        app.role.key !== "ops_qa_agent" &&
+        isBlank(values.ops_agent) &&
+        app.session.profile.full_name
+      ) {
+        values.ops_agent = app.session.profile.full_name;
+      }
+      if (app.role.key !== "ops_qa_agent" && isBlank(values.ops_agent)) {
+        app.pushToasts(["Select an OPS QA Agent before creating this lead."]);
+        return;
+      }
+      if (isBlank(values.business_name)) {
+        app.pushToasts(["Business name is required."]);
+        return;
+      }
       res = await createManualOpsRecord({ values });
     } else if (isNew && tab === "closer") {
       if (

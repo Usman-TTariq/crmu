@@ -252,7 +252,7 @@ const LIST_SELECT: Partial<Record<TabKey, string>> = {
   leadgen:
     "id, lead_id, date_created, created_at, updated_at, created_by, updated_by, lead_gen_agent, lead_source, business_name, owner_name, phone, email, business_address, city, zip_code, state, current_processor, current_device, current_rate, monthly_volume",
   qa:
-    "id, lead_id, qa_date, lead_gen_agent, lead_source, business_name, owner_name, phone, email, business_address, city, zip_code, state, current_processor, current_device, current_rate, monthly_volume, returned_after_dispute, us_business, owner_reached, interested, physical_loc, not_restricted, qa_agent, qa_decision",
+    "id, lead_id, qa_date, lead_gen_agent, lead_source, business_name, owner_name, phone, email, business_address, city, zip_code, state, current_processor, current_device, sale_type, current_rate, monthly_volume, returned_after_dispute, us_business, owner_reached, interested, physical_loc, not_restricted, qa_agent, qa_decision, qa_notes",
   sqlassign:
     "id, lead_id, qa_date, business_name, owner_name, phone, state, monthly_volume, assigned_closer, assignment_date, assigned_at, assigned_by, sql_status, updated_at",
   closer:
@@ -982,14 +982,27 @@ async function enrichPipelineRows(
     }
   }
 
-  // Shared notes: Closer ↔ Documentation ↔ OPS (full / peek drawer fetch).
-  // OPS / Onboarding also get Lead Gen + QA notes.
+  // Shared notes: Closer ↔ Documentation ↔ OPS ↔ Onboarding ↔ Fulfill/Lease/CS.
+  // OPS+ onward also get Lead Gen + QA notes carried forward.
   if (
     (mode === "full" || mode === "peek") &&
     leadIds.length &&
-    (tab === "closer" || tab === "documentation" || tab === "ops" || tab === "msp")
+    (
+      tab === "closer" ||
+      tab === "documentation" ||
+      tab === "ops" ||
+      tab === "msp" ||
+      tab === "fulfillment" ||
+      tab === "leasing" ||
+      tab === "retention"
+    )
   ) {
-    const wantLgQa = tab === "ops" || tab === "msp";
+    const wantLgQa =
+      tab === "ops" ||
+      tab === "msp" ||
+      tab === "fulfillment" ||
+      tab === "leasing" ||
+      tab === "retention";
     const [leadsRes, closerRes, docsRes, opsRes, qaRes] = await Promise.all([
       wantLgQa
         ? admin.from("leads").select("lead_id, notes").in("lead_id", leadIds)
@@ -1097,8 +1110,14 @@ async function enrichPipelineRows(
           : {}),
         ...(wantLgQa
           ? {
-              lead_gen_notes: leadNotes.get(lid) || "",
-              qa_notes_fwd: qaNotes.get(lid) || "",
+              lead_gen_notes: (() => {
+                const s = String(leadNotes.get(lid) || "").trim();
+                return !s || s === "-" || s === "--" ? "" : s;
+              })(),
+              qa_notes_fwd: (() => {
+                const s = String(qaNotes.get(lid) || "").trim();
+                return !s || s === "-" || s === "--" ? "" : s;
+              })(),
             }
           : {}),
       };
@@ -1599,6 +1618,15 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       }
     }
 
+    // QA agent RLS requires qa_agent = self after update — blank agent blocks all fields including notes.
+    if (
+      payload.tab === "qa" &&
+      session.profile.role_key === "qa_agent" &&
+      !String(values.qa_agent || "").trim()
+    ) {
+      values.qa_agent = session.profile.full_name;
+    }
+
     // .select("id") so RLS-blocked updates (0 rows, no error) are detectable.
     const write = async (vals: Record<string, unknown>) =>
       payload.id
@@ -1754,54 +1782,118 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
   }
 }
 
+const OPS_CREATE_ROLES = new Set([
+  "ops_qa_agent",
+  "ops_verifier",
+  "ops_qa_onb",
+  "ops_manager",
+  "ops_am",
+  "ceo",
+  "super_admin",
+]);
+const OPS_CREATE_MANAGER_ROLES = new Set([
+  "ops_verifier",
+  "ops_qa_onb",
+  "ops_manager",
+  "ops_am",
+  "ceo",
+  "super_admin",
+]);
+
 // ---------------------------------------------------------------------------
-// Manual OPS addition: creates the lead (FK parent) then the OPS record
+// Manual OPS addition: parent leads row (ops_manual) + ops_verifications
+// Skips Lead Gen / QA / SQL / Closer / Docs — assign to an OPS QA agent.
 // ---------------------------------------------------------------------------
 export async function createManualOpsRecord(payload: {
   values: Record<string, unknown>;
 }): Promise<{ ok?: boolean; error?: string; messages?: string[] }> {
   try {
-    await requireAuth();
-    const supabase = await createClient();
-    const v = payload.values;
+    const session = await requireSession();
+    const role = session.profile.role_key;
+    if (!OPS_CREATE_ROLES.has(role)) {
+      return { error: "You cannot create OPS QA leads." };
+    }
 
-    const { data: lead, error: leadErr } = await supabase
+    // Admin client: agents often cannot SELECT leads they just inserted (RLS).
+    const admin = createAdminClient();
+    const v = payload.values;
+    const identity = String(session.profile.full_name || "").trim();
+    // Agents always own their creates. Managers must pick an OPS QA agent.
+    const opsAgent =
+      role === "ops_qa_agent"
+        ? identity
+        : String(v.ops_agent || "").trim() ||
+          (OPS_CREATE_MANAGER_ROLES.has(role) ? identity : "");
+    if (!opsAgent) {
+      return { error: "OPS QA Agent is required. Select who owns this lead." };
+    }
+
+    const businessName = String(v.business_name || "").trim();
+    if (!businessName) return { error: "Business name is required." };
+
+    const ownerName = String(v.owner_name || "").trim();
+    const phone = String(v.phone || "");
+    const monthlyVolume =
+      v.monthly_volume === "" || v.monthly_volume === undefined || v.monthly_volume === null
+        ? null
+        : v.monthly_volume;
+
+    const { data: lead, error: leadErr } = await admin
       .from("leads")
       .insert({
-        business_name: v.business_name || "",
-        owner_name: v.owner_name || "",
-        phone: v.phone || "",
-        monthly_volume: v.monthly_volume === "" ? null : v.monthly_volume,
+        business_name: businessName,
+        owner_name: ownerName,
+        phone,
+        monthly_volume: monthlyVolume,
         lead_source: "Other",
-        notes: "Created manually from OPS.",
+        lead_origin: "ops_manual",
+        notes: String(v.notes || "") || "Created manually from OPS QA.",
+        created_by: session.userId,
       })
       .select("lead_id")
       .single();
     if (leadErr) return { error: leadErr.message };
 
-    const opsValues: Record<string, unknown> = { lead_id: lead.lead_id };
-    for (const k of [
-      ...EDITABLE_COLUMNS.ops,
-      "closed_date", "business_name", "owner_name", "phone", "closer", "monthly_volume",
-    ]) {
-      if (k in v) {
-        let val = v[k];
-        if (val === "" && (k.endsWith("_date") || k === "monthly_volume")) val = null;
-        opsValues[k] = val;
-      }
-    }
+    const opsValues: Record<string, unknown> = {
+      lead_id: lead.lead_id,
+      business_name: businessName,
+      owner_name: ownerName,
+      phone,
+      monthly_volume: monthlyVolume,
+      closer: String(v.closer || "").trim() || "OPS Manual",
+      closed_date: String(v.closed_date || "").trim() || null,
+      brand: String(v.brand || ""),
+      dl_recd: String(v.dl_recd || ""),
+      voided_check: String(v.voided_check || ""),
+      bank_stmt: String(v.bank_stmt || ""),
+      owner_name_verified: String(v.owner_name_verified || ""),
+      owner_phone_verified: String(v.owner_phone_verified || ""),
+      business_verified: String(v.business_verified || ""),
+      ops_status: String(v.ops_status || "Pending") || "Pending",
+      reasoning: String(v.reasoning || ""),
+      ops_agent: opsAgent,
+      ops_date: String(v.ops_date || "").trim() || null,
+      notes: String(v.notes || ""),
+    };
 
-    const { error: opsErr } = await supabase.from("ops_verifications").insert(opsValues);
-    if (opsErr) return { error: opsErr.message };
+    const { error: opsErr } = await admin.from("ops_verifications").insert(opsValues);
+    if (opsErr) {
+      await admin.from("leads").delete().eq("lead_id", lead.lead_id);
+      return { error: opsErr.message };
+    }
 
     await logActivity({
       action: "record.create",
       entityTab: "ops",
       entityId: lead.lead_id,
-      summary: `Manual OPS record · ${lead.lead_id} · ${String(v.business_name || "")}`,
+      summary: `OPS-manual lead · ${lead.lead_id} · ${businessName}`,
+      meta: { ops_agent: opsAgent, origin: "ops_manual" },
     });
 
-    return { ok: true, messages: [`OPS record created as ${lead.lead_id}.`] };
+    return {
+      ok: true,
+      messages: [`Lead created in OPS QA as ${lead.lead_id}.`],
+    };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Create failed." };
   }
