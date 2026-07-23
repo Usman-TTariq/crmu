@@ -1618,6 +1618,30 @@ export async function deleteRecord(payload: { tab: TabKey; id: string }): Promis
     const supabase = await createClient();
     const table = TAB_TABLE[payload.tab];
     if (!table) return { error: "Unknown tab." };
+
+    // Team Setup: remove Auth login too, or the email stays "already registered".
+    if (payload.tab === "teamsetup") {
+      const admin = createAdminClient();
+      const { data: profile } = await admin
+        .from("profiles")
+        .select("user_id")
+        .eq("id", payload.id)
+        .maybeSingle();
+      const authId = profile?.user_id ? String(profile.user_id) : "";
+      const { error } = await admin.from("profiles").delete().eq("id", payload.id);
+      if (error) return { error: error.message };
+      if (authId) {
+        await admin.auth.admin.deleteUser(authId);
+      }
+      await logActivity({
+        action: "record.delete",
+        entityTab: payload.tab,
+        entityId: payload.id,
+        summary: `Deleted teamsetup record`,
+      });
+      return { ok: true };
+    }
+
     const { error } = await supabase.from(table).delete().eq("id", payload.id);
     if (error) return { error: error.message };
     await logActivity({
