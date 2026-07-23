@@ -246,7 +246,7 @@ const LIST_SELECT: Partial<Record<TabKey, string>> = {
   closer:
     "id, lead_id, created_at, updated_at, created_by, updated_by, assigned_date, closer, stage, connected_date, docs_pending_date, docs_recd_date, closed_date, business_name, first_name, last_name, owner_name, phone, monthly_volume, state",
   documentation:
-    "id, lead_id, closed_date, lead_source, closer, business_name, first_name, last_name, owner_name, phone, monthly_volume, state, pm_name, decision, returned_after_ops_rework, review_date",
+    "id, lead_id, closed_date, closer, business_name, owner_name, phone, monthly_volume, state, pm_name, decision, returned_after_ops_rework, review_date",
   ops:
     "id, lead_id, closed_date, business_name, owner_name, phone, closer, monthly_volume, brand, dl_recd, voided_check, bank_stmt, owner_name_verified, owner_phone_verified, business_verified, ops_status, returned_after_ops_dispute, reasoning, ops_agent, ops_date, accuracy_review",
   msp:
@@ -267,7 +267,7 @@ const SEARCH_FIELDS: Partial<Record<TabKey, string[]>> = {
   ],
   sqlassign: ["lead_id", "business_name", "owner_name", "phone", "assigned_closer", "assigned_by", "sql_status"],
   closer: ["lead_id", "business_name", "owner_name", "phone", "closer", "stage"],
-  documentation: ["lead_id", "lead_source", "business_name", "owner_name", "phone", "pm_name", "decision"],
+  documentation: ["lead_id", "business_name", "owner_name", "phone", "closer", "pm_name", "decision"],
   ops: ["lead_id", "business_name", "owner_name", "phone", "closer", "ops_agent", "ops_status", "brand"],
   msp: ["lead_id", "business_name", "owner_name", "onboarding_sp", "final_status", "device", "tracking_number"],
   fulfillment: ["lead_id", "business_name", "owner_name", "fulfillment_stage", "hardware", "serial"],
