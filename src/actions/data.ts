@@ -14,9 +14,21 @@ import {
   DATE_FIELD,
   isCloserClosedStage,
 } from "@/lib/schemas";
-import { RECORD_DELETE_EMAILS, TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
+import {
+  CLOSER_LEAD_SOURCES,
+  CLOSER_STAGES,
+  LEAD_SOURCES,
+  OPS_STATUS,
+  PROCESSORS,
+  RECORD_DELETE_EMAILS,
+  SQL_STATUS,
+  TABS,
+  USER_ADMIN_ROLES,
+  type TabKey,
+} from "@/lib/constants";
 import type { Rec, Attachment, LeadComment, RetentionComment } from "@/lib/types";
 import { isBlank, isDayTimeframe, phoneDigits, sortLeadComments, type Timeframe } from "@/lib/format";
+import { usStateCodes } from "@/lib/us-locations";
 import { logActivity } from "@/lib/activity-log";
 
 /** Dev/server timing for Phase-1 speed work — check Vercel/Next logs for p95. */
@@ -260,7 +272,17 @@ const LIST_SELECT: Partial<Record<TabKey, string>> = {
 
 /** Text columns used by header search (server-side ILIKE). */
 const SEARCH_FIELDS: Partial<Record<TabKey, string[]>> = {
-  leadgen: ["lead_id", "business_name", "owner_name", "phone", "email", "lead_gen_agent", "city", "state"],
+  leadgen: [
+    "lead_id",
+    "business_name",
+    "owner_name",
+    "phone",
+    "email",
+    "lead_gen_agent",
+    "lead_source",
+    "city",
+    "state",
+  ],
   qa: [
     "lead_id", "business_name", "owner_name", "phone", "email", "city", "state",
     "lead_source", "qa_agent", "qa_decision",
@@ -290,6 +312,21 @@ function applySearch<T extends { or: (filters: string) => T }>(
   const pattern = `"%${term}%"`;
   const parts = fields.map((f) => `${f}.ilike.${pattern}`);
   return q.or(parts.join(","));
+}
+
+const NAME_SEARCH_TABS = new Set<TabKey>(["leadgen", "qa", "sqlassign", "closer"]);
+
+/** Toolbar name box — business_name or owner_name. */
+function applyNameSearch<T extends { or: (filters: string) => T }>(
+  q: T,
+  tab: TabKey,
+  nameQ?: string
+): T {
+  if (!NAME_SEARCH_TABS.has(tab)) return q;
+  const term = filterValue((nameQ || "").trim());
+  if (!term) return q;
+  const pattern = `"%${term}%"`;
+  return q.or(`business_name.ilike.${pattern},owner_name.ilike.${pattern}`);
 }
 
 async function enrichAuditNames(
@@ -327,13 +364,42 @@ export interface FetchRowsPayload {
   pageSize?: number;
   /** Header search — server-side ILIKE across tab fields. */
   q?: string;
-  /** QA tab only: Pending | Qualified | Disqualified. */
+  /** QA tab: Pending | Qualified | Disqualified. */
   qaDecision?: string;
+  /** Shared / Lead Gen / QA toolbar filters. */
+  leadSource?: string;
+  leadGenAgent?: string;
+  qaAgent?: string;
+  state?: string;
+  processor?: string;
+  /** Lead Gen: Pending | Qualified | Disqualified | Not in QA */
+  qaOutcome?: string;
+  /** business_name / owner_name ILIKE (leadgen, qa, sql, closer). */
+  nameQ?: string;
+  /** SQL Assignment */
+  assignedCloser?: string;
+  assignedBy?: string;
+  sqlStatus?: string;
+  /** Closer Pipeline */
+  closer?: string;
+  stage?: string;
+  closerLeadSource?: string;
+  /** Closer: OPS status via ops_verifications (Pending/Approved/… or None). */
+  opsStatus?: string;
   /** Skip exact COUNT(*) — reuse prior total on silent live sync. */
   skipCount?: boolean;
 }
 
 const QA_DECISION_FILTERS = new Set(["Pending", "Qualified", "Disqualified"]);
+const LEAD_SOURCE_FILTERS = new Set(LEAD_SOURCES);
+const PROCESSOR_FILTERS = new Set(PROCESSORS);
+const STATE_FILTERS = new Set(usStateCodes());
+const QA_OUTCOME_FILTERS = new Set([...QA_DECISION_FILTERS, "Not in QA"]);
+const SQL_STATUS_FILTERS = new Set(SQL_STATUS);
+const CLOSER_STAGE_FILTERS = new Set(CLOSER_STAGES);
+const CLOSER_LEAD_SOURCE_FILTERS = new Set(CLOSER_LEAD_SOURCES);
+const OPS_STATUS_FILTERS = new Set([...OPS_STATUS, "None"]);
+const LIST_FILTER_TABS = new Set<TabKey>(["leadgen", "qa", "sqlassign", "closer"]);
 
 function applyQaDecisionFilter<T extends { eq: (col: string, val: string) => T }>(
   query: T,
@@ -344,6 +410,144 @@ function applyQaDecisionFilter<T extends { eq: (col: string, val: string) => T }
   const v = (qaDecision || "").trim();
   if (!QA_DECISION_FILTERS.has(v)) return query;
   return query.eq("qa_decision", v);
+}
+
+async function filterLeadIdsByEq(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  table: "qa_records" | "ops_verifications",
+  col: string,
+  value: string
+): Promise<{ ids: string[]; error?: boolean }> {
+  const { data, error } = await supabase.from(table).select("lead_id").eq(col, value);
+  if (error) return { ids: [], error: true };
+  return {
+    ids: [
+      ...new Set(
+        (data || []).map((r) => String(r.lead_id || "").trim()).filter(Boolean)
+      ),
+    ],
+  };
+}
+
+/** Toolbar filters for Lead Gen / QA / SQL / Closer — empty:true = zero matches. */
+async function applyPipelineListFilters(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  tab: TabKey,
+  payload: FetchRowsPayload,
+  supabase: Awaited<ReturnType<typeof createClient>>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<{ query: any; empty?: boolean }> {
+  if (!LIST_FILTER_TABS.has(tab)) return { query };
+
+  let q = query;
+  const state = (payload.state || "").trim().toUpperCase();
+  if (state && STATE_FILTERS.has(state)) {
+    q = q.eq("state", state);
+  }
+
+  if (tab === "leadgen" || tab === "qa") {
+    const source = (payload.leadSource || "").trim();
+    if (source && LEAD_SOURCE_FILTERS.has(source)) {
+      q = q.eq("lead_source", source);
+    }
+    const agent = (payload.leadGenAgent || "").trim();
+    if (agent) {
+      q = q.eq("lead_gen_agent", agent);
+    }
+    const processor = (payload.processor || "").trim();
+    if (processor && PROCESSOR_FILTERS.has(processor)) {
+      q = q.eq("current_processor", processor);
+    }
+  }
+
+  if (tab === "qa") {
+    const qaAgent = (payload.qaAgent || "").trim();
+    if (qaAgent) {
+      q = q.eq("qa_agent", qaAgent);
+    }
+  }
+
+  if (tab === "leadgen") {
+    const outcome = (payload.qaOutcome || "").trim();
+    if (outcome && QA_OUTCOME_FILTERS.has(outcome)) {
+      if (outcome === "Not in QA") {
+        const { data, error } = await supabase.from("qa_records").select("lead_id");
+        if (!error) {
+          const ids = [
+            ...new Set(
+              (data || []).map((r) => String(r.lead_id || "").trim()).filter(Boolean)
+            ),
+          ];
+          if (ids.length) {
+            const list = `(${ids.map((id) => `"${filterValue(id)}"`).join(",")})`;
+            q = q.not("lead_id", "in", list);
+          }
+        }
+      } else {
+        const { ids, error } = await filterLeadIdsByEq(
+          supabase,
+          "qa_records",
+          "qa_decision",
+          outcome
+        );
+        if (!error) {
+          if (!ids.length) return { query: q, empty: true };
+          q = q.in("lead_id", ids);
+        }
+      }
+    }
+  }
+
+  if (tab === "sqlassign") {
+    const closer = (payload.assignedCloser || "").trim();
+    if (closer) q = q.eq("assigned_closer", closer);
+    const by = (payload.assignedBy || "").trim();
+    if (by) q = q.eq("assigned_by", by);
+    const st = (payload.sqlStatus || "").trim();
+    if (st && SQL_STATUS_FILTERS.has(st)) q = q.eq("sql_status", st);
+  }
+
+  if (tab === "closer") {
+    const closer = (payload.closer || "").trim();
+    if (closer) q = q.eq("closer", closer);
+    const stage = (payload.stage || "").trim();
+    if (stage && CLOSER_STAGE_FILTERS.has(stage)) q = q.eq("stage", stage);
+    const cls = (payload.closerLeadSource || "").trim();
+    if (cls && CLOSER_LEAD_SOURCE_FILTERS.has(cls)) {
+      q = q.eq("closer_lead_source", cls);
+    }
+    const ops = (payload.opsStatus || "").trim();
+    if (ops && OPS_STATUS_FILTERS.has(ops)) {
+      if (ops === "None") {
+        const { data, error } = await supabase.from("ops_verifications").select("lead_id");
+        if (!error) {
+          const ids = [
+            ...new Set(
+              (data || []).map((r) => String(r.lead_id || "").trim()).filter(Boolean)
+            ),
+          ];
+          if (ids.length) {
+            const list = `(${ids.map((id) => `"${filterValue(id)}"`).join(",")})`;
+            q = q.not("lead_id", "in", list);
+          }
+        }
+      } else {
+        const { ids, error } = await filterLeadIdsByEq(
+          supabase,
+          "ops_verifications",
+          "ops_status",
+          ops
+        );
+        if (!error) {
+          if (!ids.length) return { query: q, empty: true };
+          q = q.in("lead_id", ids);
+        }
+      }
+    }
+  }
+
+  return { query: q };
 }
 
 /** Rework leads are back in Documentation — hide from OPS queue + sidebar count. */
@@ -1090,9 +1294,19 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
     query = applyQaDecisionFilter(query, payload.tab, payload.qaDecision) as typeof query;
     query = applyOpsQueueFilter(query, payload.tab) as typeof query;
     query = applyLeadgenOriginFilter(query, payload.tab) as typeof query;
+    const listFiltered = await applyPipelineListFilters(query, payload.tab, payload, supabase);
+    if (listFiltered.empty) {
+      logActionTiming("fetchRows", t0, { tab: payload.tab, n: 0, emptyFilter: true });
+      if (payload.skipCount) {
+        return { rows: [], total: 0, page, pageSize, keepTotal: true };
+      }
+      return { rows: [], total: 0, page, pageSize };
+    }
+    query = listFiltered.query;
     if (payload.q?.trim()) {
       query = applySearch(query, payload.tab, payload.q) as typeof query;
     }
+    query = applyNameSearch(query, payload.tab, payload.nameQ) as typeof query;
     // Newest date first; same day → newest created_at (time); then id.
     if (df) {
       query = query
@@ -1879,6 +2093,20 @@ export async function fetchRowsTotal(payload: {
   tf: Timeframe;
   q?: string;
   qaDecision?: string;
+  leadSource?: string;
+  leadGenAgent?: string;
+  qaAgent?: string;
+  state?: string;
+  processor?: string;
+  qaOutcome?: string;
+  nameQ?: string;
+  assignedCloser?: string;
+  assignedBy?: string;
+  sqlStatus?: string;
+  closer?: string;
+  stage?: string;
+  closerLeadSource?: string;
+  opsStatus?: string;
 }): Promise<{ total: number; error?: string }> {
   try {
     await requireAuth();
@@ -1893,9 +2121,18 @@ export async function fetchRowsTotal(payload: {
     query = applyQaDecisionFilter(query, payload.tab, payload.qaDecision) as typeof query;
     query = applyOpsQueueFilter(query, payload.tab) as typeof query;
     query = applyLeadgenOriginFilter(query, payload.tab) as typeof query;
+    const listFiltered = await applyPipelineListFilters(
+      query,
+      payload.tab,
+      payload as FetchRowsPayload,
+      supabase
+    );
+    if (listFiltered.empty) return { total: 0 };
+    query = listFiltered.query;
     if (payload.q?.trim()) {
       query = applySearch(query, payload.tab, payload.q) as typeof query;
     }
+    query = applyNameSearch(query, payload.tab, payload.nameQ) as typeof query;
     const { count, error } = await query;
     if (error) return { total: 0, error: error.message };
     return { total: count || 0 };

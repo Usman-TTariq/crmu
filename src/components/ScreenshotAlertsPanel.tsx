@@ -10,6 +10,7 @@ import {
 } from "@/actions/screenshot-alerts";
 import { createClient } from "@/lib/supabase/client";
 import { ScreenshotGalleryModal } from "@/components/ScreenshotGallery";
+import { formatMonitorStamp } from "@/lib/monitor-tz";
 
 export default function ScreenshotAlertsPanel() {
   const [rows, setRows] = useState<ScreenshotAlertRow[]>([]);
@@ -124,7 +125,7 @@ export default function ScreenshotAlertsPanel() {
                       {r.page_path ? ` · ${r.page_path}` : ""}
                     </div>
                     <div className="ss-panel-time">
-                      {new Date(r.created_at).toLocaleString()}
+                      {formatMonitorStamp(r.created_at)}
                     </div>
                   </div>
                 </button>

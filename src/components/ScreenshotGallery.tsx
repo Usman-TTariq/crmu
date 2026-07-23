@@ -9,6 +9,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/app-context";
 import { CEO_ROLES } from "@/lib/constants";
+import { formatMonitorStamp } from "@/lib/monitor-tz";
 
 export function ScreenshotGalleryModal({
   open,
@@ -130,7 +131,7 @@ export function ScreenshotGalleryModal({
                         {r.page_path ? ` · ${r.page_path}` : ""}
                       </div>
                       <div className="ss-panel-time">
-                        {new Date(r.created_at).toLocaleString()}
+                        {formatMonitorStamp(r.created_at)}
                       </div>
                     </div>
                   </button>
@@ -169,7 +170,7 @@ export function ScreenshotGalleryModal({
               </div>
               <div>
                 <span className="ss-alert-label">Time</span>
-                <strong>{new Date(preview.created_at).toLocaleString()}</strong>
+                <strong>{formatMonitorStamp(preview.created_at)}</strong>
               </div>
               {preview.page_path ? (
                 <div>

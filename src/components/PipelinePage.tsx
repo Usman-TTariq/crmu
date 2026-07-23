@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { isBlank, today } from "@/lib/format";
@@ -11,6 +11,12 @@ import {
   ADDABLE,
   OWNER_FIELD,
   QA_DECISIONS,
+  LEAD_SOURCES,
+  PROCESSORS,
+  SQL_STATUS,
+  CLOSER_STAGES,
+  CLOSER_LEAD_SOURCES,
+  OPS_STATUS,
   isLiveTransferSource,
   type TabKey,
 } from "@/lib/constants";
@@ -45,6 +51,70 @@ import {
   setPipelineCache,
   touchPipelineCacheTotal,
 } from "@/lib/pipeline-cache";
+import { usStateCodes, usStateLabel } from "@/lib/us-locations";
+
+const LG_QA_OUTCOMES = ["Pending", "Qualified", "Disqualified", "Not in QA"] as const;
+const FILTER_TABS = new Set<TabKey>(["leadgen", "qa", "sqlassign", "closer"]);
+const CLOSER_OPS_FILTERS = [...OPS_STATUS, "None"] as const;
+
+type ListFilterState = {
+  nameInput: string;
+  nameQ: string;
+  leadSource: string;
+  leadGenAgent: string;
+  qaAgent: string;
+  state: string;
+  processor: string;
+  qaDecision: string;
+  qaOutcome: string;
+  assignedCloser: string;
+  assignedBy: string;
+  sqlStatus: string;
+  closer: string;
+  stage: string;
+  closerLeadSource: string;
+  opsStatus: string;
+};
+
+const EMPTY_LIST_FILTERS: ListFilterState = {
+  nameInput: "",
+  nameQ: "",
+  leadSource: "",
+  leadGenAgent: "",
+  qaAgent: "",
+  state: "",
+  processor: "",
+  qaDecision: "",
+  qaOutcome: "",
+  assignedCloser: "",
+  assignedBy: "",
+  sqlStatus: "",
+  closer: "",
+  stage: "",
+  closerLeadSource: "",
+  opsStatus: "",
+};
+
+function listFilterCacheKey(tab: TabKey, f: ListFilterState): string {
+  if (!FILTER_TABS.has(tab)) return "";
+  return [
+    f.nameQ,
+    f.leadSource,
+    f.leadGenAgent,
+    f.qaAgent,
+    f.state,
+    f.processor,
+    f.qaDecision,
+    f.qaOutcome,
+    f.assignedCloser,
+    f.assignedBy,
+    f.sqlStatus,
+    f.closer,
+    f.stage,
+    f.closerLeadSource,
+    f.opsStatus,
+  ].join("|");
+}
 
 /** Fixed page size — table grows with rows (page scrolls); no empty minHeight gap. */
 const PAGE_SIZE = 50;
@@ -164,10 +234,20 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   const [total, setTotal] = useState(0);
   const pageSize = PAGE_SIZE;
   const [searchQ, setSearchQ] = useState("");
-  /** QA tab: "" = all, else Pending | Qualified | Disqualified. */
-  const [qaDecisionFilter, setQaDecisionFilter] = useState("");
+  /** Lead Gen / QA / SQL / Closer toolbar filters. */
+  const [filters, setFilters] = useState<ListFilterState>(EMPTY_LIST_FILTERS);
   /** True only for intentional page/search/tf fetches — not silent live sync. */
   const [pageFetching, setPageFetching] = useState(false);
+
+  const setFilter = useCallback(<K extends keyof ListFilterState>(key: K, value: ListFilterState[K]) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setPage(1);
+  }, []);
+
+  const clearListFilters = useCallback(() => {
+    setFilters(EMPTY_LIST_FILTERS);
+    setPage(1);
+  }, []);
   const [opsBanner, setOpsBanner] = useState<{
     reviewed: number;
     passes: number;
@@ -193,6 +273,35 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   const viewTabs = app.viewTabs;
   const tf = app.tf;
 
+  const listExtraKey = useMemo(() => listFilterCacheKey(tab, filters), [tab, filters]);
+
+  const listFilterPayload = useMemo(() => {
+    if (!FILTER_TABS.has(tab)) return {};
+    const orUndef = (v: string) => v || undefined;
+    return {
+      nameQ: orUndef(filters.nameQ),
+      leadSource: orUndef(filters.leadSource),
+      leadGenAgent: orUndef(filters.leadGenAgent),
+      qaAgent: orUndef(filters.qaAgent),
+      state: orUndef(filters.state),
+      processor: orUndef(filters.processor),
+      qaDecision: tab === "qa" ? orUndef(filters.qaDecision) : undefined,
+      qaOutcome: tab === "leadgen" ? orUndef(filters.qaOutcome) : undefined,
+      assignedCloser: orUndef(filters.assignedCloser),
+      assignedBy: orUndef(filters.assignedBy),
+      sqlStatus: orUndef(filters.sqlStatus),
+      closer: orUndef(filters.closer),
+      stage: orUndef(filters.stage),
+      closerLeadSource: orUndef(filters.closerLeadSource),
+      opsStatus: orUndef(filters.opsStatus),
+    };
+  }, [tab, filters]);
+
+  const listFiltersActive = useMemo(
+    () => Object.entries(filters).some(([, v]) => !!v),
+    [filters]
+  );
+
   // Debounce header search → server `q`
   useEffect(() => {
     const t = setTimeout(() => {
@@ -205,11 +314,27 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     return () => clearTimeout(t);
   }, [app.query]);
 
-  // Reset page when tab / timeframe / QA filter changes — restore cache instantly if warm.
+  // Debounce name box → server `nameQ`
+  useEffect(() => {
+    if (!FILTER_TABS.has(tab)) return;
+    const t = setTimeout(() => {
+      const next = filters.nameInput.trim();
+      setFilters((prev) => {
+        if (prev.nameQ === next) return prev;
+        setPage(1);
+        return { ...prev, nameQ: next };
+      });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [filters.nameInput, tab]);
+
+  // Reset page when tab / timeframe / list filters change — restore cache instantly if warm.
   useEffect(() => {
     setPage(1);
-    if (tab !== "qa") setQaDecisionFilter("");
-    const key = pipelineCacheKey(tab, tf, 1, pageSize, searchQ, qaDecisionFilter);
+    if (!FILTER_TABS.has(tab)) {
+      setFilters(EMPTY_LIST_FILTERS);
+    }
+    const key = pipelineCacheKey(tab, tf, 1, pageSize, searchQ, listExtraKey);
     const hit = getPipelineCache(key);
     if (hit) {
       setRows(hit.rows);
@@ -218,7 +343,16 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       setRows(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pageSize/search handled in fetch effect
-  }, [tab, tf, qaDecisionFilter]);
+  }, [tab, tf, listExtraKey]);
+
+  // Clear filters when leaving a filterable tab (or switching between them).
+  const prevTabRef = useRef(tab);
+  useEffect(() => {
+    if (prevTabRef.current !== tab) {
+      setFilters(EMPTY_LIST_FILTERS);
+      prevTabRef.current = tab;
+    }
+  }, [tab]);
 
   const refresh = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -240,7 +374,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           page,
           pageSize,
           q: searchQ || undefined,
-          qaDecision: tab === "qa" ? qaDecisionFilter || undefined : undefined,
+          ...listFilterPayload,
           skipCount: silent,
         });
         if (gen !== fetchGen.current) return;
@@ -258,7 +392,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           return nextTotal;
         });
         setPipelineCache(
-          pipelineCacheKey(tab, tf, page, pageSize, searchQ, qaDecisionFilter),
+          pipelineCacheKey(tab, tf, page, pageSize, searchQ, listExtraKey),
           res.rows,
           nextTotal || res.rows.length
         );
@@ -289,14 +423,26 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
         }
       }
     },
-    [tab, tf, page, pageSize, pageSizeReady, searchQ, qaDecisionFilter, pushToasts, setCounts, viewTabs]
+    [
+      tab,
+      tf,
+      page,
+      pageSize,
+      pageSizeReady,
+      searchQ,
+      listExtraKey,
+      listFilterPayload,
+      pushToasts,
+      setCounts,
+      viewTabs,
+    ]
   );
 
   refreshRef.current = refresh;
 
   useEffect(() => {
     if (notAllowed || !pageSizeReady) return;
-    const key = pipelineCacheKey(tab, tf, page, pageSize, searchQ, qaDecisionFilter);
+    const key = pipelineCacheKey(tab, tf, page, pageSize, searchQ, listExtraKey);
     const hit = getPipelineCache(key);
     if (hit) {
       setRows(hit.rows);
@@ -315,7 +461,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       page,
       pageSize,
       q: searchQ || undefined,
-      qaDecision: tab === "qa" ? qaDecisionFilter || undefined : undefined,
+      ...listFilterPayload,
       skipCount: true,
     }).then((res) => {
       if (gen !== fetchGen.current) return;
@@ -329,7 +475,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
         tab,
         tf,
         q: searchQ || undefined,
-        qaDecision: tab === "qa" ? qaDecisionFilter || undefined : undefined,
+        ...listFilterPayload,
       }).then((c) => {
         if (gen !== fetchGen.current || c.error) return;
         setTotal(c.total);
@@ -343,7 +489,18 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     } else {
       setOpsBanner(null);
     }
-  }, [tab, tf, page, pageSize, pageSizeReady, searchQ, qaDecisionFilter, notAllowed, pushToasts]);
+  }, [
+    tab,
+    tf,
+    page,
+    pageSize,
+    pageSizeReady,
+    searchQ,
+    listExtraKey,
+    listFilterPayload,
+    notAllowed,
+    pushToasts,
+  ]);
 
   const changePage = useCallback((next: number) => {
     setPage(next);
@@ -687,7 +844,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
         <DisputePanel variant="ops" onChanged={() => void refresh()} />
       ) : null}
 
-      {tab === "qa" ? (
+      {FILTER_TABS.has(tab) ? (
         <div
           style={{
             display: "flex",
@@ -706,26 +863,261 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
               letterSpacing: "0.04em",
             }}
           >
-            QA Decision
+            Filters
           </label>
+          <input
+            className="app-control"
+            type="search"
+            value={filters.nameInput}
+            onChange={(e) => setFilter("nameInput", e.target.value)}
+            placeholder="Search by name…"
+            title="Search business or owner name"
+            aria-label="Search by business or owner name"
+            style={{ minWidth: 200, flex: "1 1 200px", maxWidth: 280 }}
+          />
+          {(tab === "leadgen" || tab === "qa") && (
+            <>
+              <select
+                className="app-control"
+                value={filters.leadSource}
+                onChange={(e) => setFilter("leadSource", e.target.value)}
+                title="Filter by data source"
+                aria-label="Filter by data source"
+                style={{ minWidth: 140 }}
+              >
+                <option value="">All sources</option>
+                {LEAD_SOURCES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="app-control"
+                value={filters.leadGenAgent}
+                onChange={(e) => setFilter("leadGenAgent", e.target.value)}
+                title="Filter by lead gen agent"
+                aria-label="Filter by lead gen agent"
+                style={{ minWidth: 160 }}
+              >
+                <option value="">All LG agents</option>
+                {(app.opts.leadgenAgents || []).map((a: string) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="app-control"
+                value={filters.processor}
+                onChange={(e) => setFilter("processor", e.target.value)}
+                title="Filter by current processor"
+                aria-label="Filter by current processor"
+                style={{ minWidth: 140 }}
+              >
+                <option value="">All processors</option>
+                {PROCESSORS.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {tab === "leadgen" && (
+            <select
+              className="app-control"
+              value={filters.qaOutcome}
+              onChange={(e) => setFilter("qaOutcome", e.target.value)}
+              title="Filter by QA outcome"
+              aria-label="Filter by QA outcome"
+              style={{ minWidth: 140 }}
+            >
+              <option value="">All QA outcomes</option>
+              {LG_QA_OUTCOMES.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          )}
+          {tab === "qa" && (
+            <>
+              <select
+                className="app-control"
+                value={filters.qaAgent}
+                onChange={(e) => setFilter("qaAgent", e.target.value)}
+                title="Filter by QA agent"
+                aria-label="Filter by QA agent"
+                style={{ minWidth: 150 }}
+              >
+                <option value="">All QA agents</option>
+                {(app.opts.qaAgents || []).map((a: string) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="app-control"
+                value={filters.qaDecision}
+                onChange={(e) => setFilter("qaDecision", e.target.value)}
+                title="Filter by QA decision"
+                aria-label="Filter by QA decision"
+                style={{ minWidth: 150 }}
+              >
+                <option value="">All decisions</option>
+                {QA_DECISIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {tab === "sqlassign" && (
+            <>
+              <select
+                className="app-control"
+                value={filters.assignedCloser}
+                onChange={(e) => setFilter("assignedCloser", e.target.value)}
+                title="Filter by assigned closer"
+                aria-label="Filter by assigned closer"
+                style={{ minWidth: 150 }}
+              >
+                <option value="">All closers</option>
+                {(app.opts.closers || []).map((c: string) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="app-control"
+                value={filters.assignedBy}
+                onChange={(e) => setFilter("assignedBy", e.target.value)}
+                title="Filter by assigned by"
+                aria-label="Filter by assigned by"
+                style={{ minWidth: 150 }}
+              >
+                <option value="">All assigners</option>
+                {(app.opts.assigners || []).map((a: string) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="app-control"
+                value={filters.sqlStatus}
+                onChange={(e) => setFilter("sqlStatus", e.target.value)}
+                title="Filter by SQL status"
+                aria-label="Filter by SQL status"
+                style={{ minWidth: 130 }}
+              >
+                <option value="">All statuses</option>
+                {SQL_STATUS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {tab === "closer" && (
+            <>
+              <select
+                className="app-control"
+                value={filters.closer}
+                onChange={(e) => setFilter("closer", e.target.value)}
+                title="Filter by closer"
+                aria-label="Filter by closer"
+                style={{ minWidth: 150 }}
+              >
+                <option value="">All closers</option>
+                {(app.opts.closers || []).map((c: string) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="app-control"
+                value={filters.stage}
+                onChange={(e) => setFilter("stage", e.target.value)}
+                title="Filter by stage"
+                aria-label="Filter by stage"
+                style={{ minWidth: 140 }}
+              >
+                <option value="">All stages</option>
+                {CLOSER_STAGES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="app-control"
+                value={filters.closerLeadSource}
+                onChange={(e) => setFilter("closerLeadSource", e.target.value)}
+                title="Filter by lead source"
+                aria-label="Filter by lead source"
+                style={{ minWidth: 140 }}
+              >
+                <option value="">All lead sources</option>
+                {CLOSER_LEAD_SOURCES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="app-control"
+                value={filters.opsStatus}
+                onChange={(e) => setFilter("opsStatus", e.target.value)}
+                title="Filter by OPS QA status"
+                aria-label="Filter by OPS QA status"
+                style={{ minWidth: 140 }}
+              >
+                <option value="">All OPS QA</option>
+                {CLOSER_OPS_FILTERS.map((s) => (
+                  <option key={s} value={s}>
+                    {s === "None" ? "Not in OPS" : s}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
           <select
             className="app-control"
-            value={qaDecisionFilter}
-            onChange={(e) => {
-              setQaDecisionFilter(e.target.value);
-              setPage(1);
-            }}
-            title="Filter by QA decision"
-            aria-label="Filter by QA decision"
-            style={{ minWidth: 160 }}
+            value={filters.state}
+            onChange={(e) => setFilter("state", e.target.value)}
+            title="Filter by state"
+            aria-label="Filter by state"
+            style={{ minWidth: 140 }}
           >
-            <option value="">All decisions</option>
-            {QA_DECISIONS.map((d) => (
-              <option key={d} value={d}>
-                {d}
+            <option value="">All states</option>
+            {usStateCodes().map((code) => (
+              <option key={code} value={code}>
+                {usStateLabel(code)}
               </option>
             ))}
           </select>
+          {listFiltersActive ? (
+            <button
+              type="button"
+              className="app-control"
+              onClick={clearListFilters}
+              style={{
+                cursor: "pointer",
+                fontWeight: 700,
+                color: C.inkSoft,
+                background: "#fff",
+              }}
+            >
+              Clear filters
+            </button>
+          ) : null}
         </div>
       ) : null}
 

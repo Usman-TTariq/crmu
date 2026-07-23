@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAuth, getSession } from "@/lib/session";
 import { MONITOR_ROLES } from "@/lib/constants";
+import { monitorDayUtcRange, todayMonitor } from "@/lib/monitor-tz";
 
 export type PresenceStatus = "working" | "idle" | "away" | "offline" | "break";
 export type BreakType = "general" | "meal";
@@ -192,15 +193,6 @@ export async function endBreak(): Promise<{ status?: string; error?: string }> {
   }
 }
 
-function todayKarachi(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Karachi",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-
 function weekBounds(day: string): { start: string; end: string } {
   const d = new Date(day + "T12:00:00Z");
   const dow = d.getUTCDay(); // 0 Sun
@@ -352,7 +344,7 @@ export async function fetchPresenceBoard(payload?: {
     await requireAuth();
     const session = await getSession();
     const role = session?.profile.role_key || "";
-    const day = payload?.day || todayKarachi();
+    const day = payload?.day || todayMonitor();
 
     // CEO / Super Admin: full roster including HR + leadership (app path; works before SQL 67).
     if (role === "ceo" || role === "super_admin") {
@@ -444,15 +436,14 @@ export async function fetchPresenceEvents(payload: {
     if (error) {
       if (role === "hr" || role === "hr_monitor" || MONITOR_ROLES.includes(role)) {
         const admin = createAdminClient();
-        const day = payload.day || todayKarachi();
-        const start = `${day}T00:00:00+05:00`;
-        const end = `${day}T23:59:59.999+05:00`;
+        const day = payload.day || todayMonitor();
+        const { start, end } = monitorDayUtcRange(day);
         const { data: ev, error: e2 } = await admin
           .from("presence_events")
           .select("id, status, prev_status, current_tab, created_at")
           .eq("user_id", payload.userId)
           .gte("created_at", start)
-          .lte("created_at", end)
+          .lt("created_at", end)
           .order("created_at", { ascending: true });
         if (e2) return { events: [], error: e2.message };
         return { events: (ev as PresenceEvent[]) || [] };
@@ -480,7 +471,7 @@ export async function fetchPresenceWeek(payload: {
     });
     if (error) {
       if (role === "hr" || role === "hr_monitor" || MONITOR_ROLES.includes(role)) {
-        const day = payload.day || todayKarachi();
+        const day = payload.day || todayMonitor();
         const { start, end } = weekBounds(day);
         const admin = createAdminClient();
         const { data: rows, error: e2 } = await admin

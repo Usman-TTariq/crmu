@@ -246,9 +246,9 @@ export const ROLES: RoleDef[] = [
     key: "ops_qa_onb",
     label: "OPS QA & Onboarding [OPS]",
     view: [...OPS_TABS, "leadgen", "closer", "documentation"],
-    edit: ["ops", "msp"],
+    edit: ["ops", "msp", "leasing"],
     home: "ops",
-    scope: "Edits OPS QA and Onboarding across all rows. Lead Gen, Closer, and Documentation are view-only from the journey. Fulfillment, Leasing, Customer Success, and OPS KPIs are view-only.",
+    scope: "Edits OPS QA, Onboarding, and Leasing across all rows. Lead Gen, Closer, and Documentation are view-only from the journey. Fulfillment, Customer Success, and OPS KPIs are view-only.",
   },
   {
     key: "ops_qa_agent",

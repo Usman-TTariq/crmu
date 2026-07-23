@@ -12,6 +12,7 @@ import {
   type CrmNotification,
 } from "@/actions/notifications";
 import { getScreenshotAlertSignedUrl } from "@/actions/screenshot-alerts";
+import { formatMonitorStamp } from "@/lib/monitor-tz";
 
 type ToastItem = CrmNotification & { toastId: string };
 
@@ -338,7 +339,7 @@ export default function LeadGenNotify() {
               </div>
               <div>
                 <span className="ss-alert-label">Time</span>
-                <strong>{new Date(ssAlert.created_at).toLocaleString()}</strong>
+                <strong>{formatMonitorStamp(ssAlert.created_at)}</strong>
               </div>
               {pagePath ? (
                 <div>

@@ -16,6 +16,7 @@ import {
 } from "@/actions/presence";
 import { deviceOf, ago } from "@/components/ActiveLogins";
 import { createClient } from "@/lib/supabase/client";
+import { MONITOR_TZ, todayMonitor } from "@/lib/monitor-tz";
 
 const DAY_TARGET_SEC = 8 * 3600;
 const WEEK_TARGET_SEC = 40 * 3600;
@@ -43,20 +44,11 @@ function weekdayLabel(day: string): string {
       weekday: "short",
       month: "short",
       day: "numeric",
-      timeZone: "UTC",
-    }).format(new Date(day + "T00:00:00Z"));
+      timeZone: MONITOR_TZ,
+    }).format(new Date(day + "T12:00:00"));
   } catch {
     return day;
   }
-}
-
-function todayKarachi(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Karachi",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 }
 
 /** CRM still open (heartbeat fresh) — includes Away / Break. */
@@ -314,7 +306,7 @@ function StatusChip({
 
 export default function MonitorPage() {
   const app = useApp();
-  const [day, setDay] = useState(todayKarachi);
+  const [day, setDay] = useState(todayMonitor);
   const [rows, setRows] = useState<PresenceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -327,7 +319,7 @@ export default function MonitorPage() {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
-  const liveDay = day === todayKarachi();
+  const liveDay = day === todayMonitor();
   const live: LiveOpts = { nowMs, live: liveDay };
 
   const load = useCallback(() => {
@@ -452,7 +444,7 @@ export default function MonitorPage() {
             Employee Monitor
           </div>
           <div className="app-page-lede">
-            Logged in · Breaks (general / meal) · Away after 2 min idle · Logged out · Asia/Karachi
+            Logged in · Breaks (general / meal) · Away after 2 min idle · Logged out · Pacific Time
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

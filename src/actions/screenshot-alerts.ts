@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSession } from "@/lib/session";
 import { CEO_ROLES } from "@/lib/constants";
+import { formatMonitorStamp } from "@/lib/monitor-tz";
 
 const RATE_LIMIT_MS = 15_000;
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -77,7 +78,7 @@ export async function reportScreenshotAlert(formData: FormData): Promise<{
       .in("role_key", CEO_ROLES)
       .eq("is_active", true);
 
-    const when = new Date(alertRow.created_at).toLocaleString();
+    const when = formatMonitorStamp(alertRow.created_at);
     const title = "Screenshot detected";
     const body = `${actorName} captured the CRM at ${when}.`;
     const meta = {
