@@ -1599,18 +1599,19 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       }
     }
 
+    // .select("id") so RLS-blocked updates (0 rows, no error) are detectable.
     const write = async (vals: Record<string, unknown>) =>
       payload.id
-        ? supabase.from(table).update(vals).eq("id", payload.id)
-        : supabase.from(table).insert(vals);
+        ? supabase.from(table).update(vals).eq("id", payload.id).select("id")
+        : supabase.from(table).insert(vals).select("id");
 
-    let { error } = await write(values);
+    let { data: written, error } = await write(values);
     // Older DBs may not have audit columns yet — retry without them
     if (error && /updated_by|created_by/i.test(error.message)) {
       const fallback = { ...values };
       delete fallback.updated_by;
       delete fallback.created_by;
-      ({ error } = await write(fallback));
+      ({ data: written, error } = await write(fallback));
     }
     // sql/52 intake columns missing — save core closer fields only
     if (
@@ -1644,7 +1645,7 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       ];
       const fallback = { ...values };
       for (const k of intakeKeys) delete fallback[k];
-      ({ error } = await write(fallback));
+      ({ data: written, error } = await write(fallback));
       if (error) {
         return {
           error:
@@ -1654,6 +1655,15 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       }
     } else if (error) {
       return { error: error.message };
+    }
+    if (!written?.length) {
+      return {
+        error:
+          "Save did not apply — no permission to edit this record (or it was removed). " +
+          (payload.tab === "leasing"
+            ? "For OPS QA & Onboarding leasing edit, run sql/80_ops_qa_onb_leasing_edit.sql on Supabase."
+            : "Ask an admin to confirm your role can edit this tab."),
+      };
     }
     if (!payload.id && payload.tab === "leadgen") messages.push("Lead created and sent to QA.");
 
