@@ -1,7 +1,7 @@
 -- ============================================================================
--- TGT Nexus CRM — 55_qa_volume_optional.sql
--- Monthly volume > $5k is no longer required to Qualify in QA.
--- Still need the 5 Yes/No checks. Safe to re-run.
+-- TGT Nexus CRM — 71_qa_volume_not_required.sql
+-- Confirm: monthly volume is NOT checked on Qualify / Disqualify.
+-- Only the 5 Yes/No fields must be Yes to Qualify. Safe to re-run.
 -- ============================================================================
 
 create or replace function private.on_qa_change()

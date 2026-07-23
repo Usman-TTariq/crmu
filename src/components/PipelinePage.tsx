@@ -483,10 +483,11 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   const onSave = async (draft: Rec, isNew: boolean) => {
     // Client-side guards, mirrored from the prototype (DB enforces them too)
     if (tab === "qa" && draft.qa_decision === "Qualified") {
+      // Monthly volume is informational only — any amount can Qualify / Disqualify.
       const checks = ["us_business", "owner_reached", "interested", "physical_loc", "not_restricted"];
       const fails = checks.filter((k) => draft[k] !== "Yes");
       if (fails.length) {
-        app.pushToasts(["Cannot qualify: all 6 checks must be Yes."]);
+        app.pushToasts(["Cannot qualify: the 5 Yes/No checks must all be Yes. Monthly volume does not matter."]);
         return;
       }
     }

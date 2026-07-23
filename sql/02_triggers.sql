@@ -39,7 +39,7 @@ after insert on public.leads
 for each row execute function private.on_lead_insert();
 
 -- ---------------------------------------------------------------------------
--- Rule 2: QA Qualified requires 6 checks Yes (volume is informational only).
+-- Rule 2: QA Qualified requires 5 Yes/No checks (volume is informational only).
 --         Qualified -> auto-create SQL assignment.
 -- ---------------------------------------------------------------------------
 create or replace function private.on_qa_change()
@@ -53,7 +53,7 @@ begin
     if new.us_business  <> 'Yes' or new.owner_reached  <> 'Yes'
     or new.interested   <> 'Yes' or new.physical_loc   <> 'Yes'
     or new.not_restricted <> 'Yes' then
-      raise exception 'Cannot qualify: all 6 checks must be Yes.';
+      raise exception 'Cannot qualify: the 5 Yes/No checks must all be Yes. Monthly volume does not matter.';
     end if;
 
     insert into public.sql_assignments
