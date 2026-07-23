@@ -8,6 +8,7 @@ import { money, num, dd, today } from "@/lib/format";
 import { useApp } from "@/components/app-context";
 import { Stat, Bar, Panel, Donut, FunnelChart, SegmentedDonut, LBRow, type FunnelStep, type Badge } from "@/components/dash";
 import Pill from "@/components/Pill";
+import ScreenshotAlertsPanel from "@/components/ScreenshotAlertsPanel";
 import { fetchCeoPage, type BoardCloserRow } from "@/actions/dashboard";
 
 type Ceo = Record<string, unknown>;
@@ -160,12 +161,14 @@ export default function CeoDashboardPage() {
         <Stat label="Closed Lost" value={n("lost")} tone={n("lost") ? TONES.bad.fg : C.ink} onClick={() => nav("closer")} />
       </div>
 
+      <ScreenshotAlertsPanel />
+
       <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14, marginBottom: 14, alignItems: "stretch" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
           <Panel title={"Conversion Funnel · lead to live · " + app.tf} color={C.blueDeep}>
             <FunnelChart steps={funnel} />
           </Panel>
-          <Panel title={"Lead Source Mix · " + app.tf} color={C.blue}>
+          <Panel title={"Data Source Mix · " + app.tf} color={C.blue}>
             <SegmentedDonut centerLabel="LEADS" items={sources.filter((x) => x.count > 0)} />
           </Panel>
           <Panel title="MSP Approval Rates" color="#6D28D9" style={{ flex: 1 }}>

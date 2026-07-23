@@ -4,12 +4,14 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Trash2, X, Zap } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
-import type { FieldDef, OptsCtx } from "@/lib/schemas";
+import { closerRequiredKeys, isCloserClosedStage, type FieldDef, type OptsCtx } from "@/lib/schemas";
 import type { Rec } from "@/lib/types";
 import type { TabDef, TabKey } from "@/lib/constants";
 import Field from "@/components/Field";
 import Journey from "@/components/Journey";
+import StagePeekDrawer from "@/components/StagePeekDrawer";
 import { defaultZipForCity, normalizeStateCode } from "@/lib/us-locations";
+import { JOURNEY_PEEK_TABS, prefetchStagePeeks } from "@/lib/stage-peek-cache";
 
 function isEmptyFieldValue(v: unknown): boolean {
   if (v === undefined || v === null) return true;
@@ -80,6 +82,7 @@ export default function Drawer({
   const [mounted, setMounted] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeBusy, setDisputeBusy] = useState(false);
+  const [peekTab, setPeekTab] = useState<TabKey | null>(null);
   const isOpsDispute = disputeKind === "ops";
   const disputeStatus = isOpsDispute ? record.ops_dispute_status : record.dispute_status;
   const disputeReasonShown = isOpsDispute ? record.ops_dispute_reason : record.dispute_reason;
@@ -98,6 +101,20 @@ export default function Drawer({
       document.body.style.overflow = prev;
     };
   }, []);
+
+  // Switching records closes any stage peek overlay
+  useEffect(() => {
+    setPeekTab(null);
+  }, [record.id, record.lead_id]);
+
+  // Prefetch Lead / Closer / Docs once when this lead opens (journey peeks use cache).
+  useEffect(() => {
+    const leadId = String(record.lead_id || "").trim();
+    if (!leadId || isNew) return;
+    const tabs = JOURNEY_PEEK_TABS.filter((t) => t !== tab.k && viewTabs.includes(t));
+    if (!tabs.length) return;
+    prefetchStagePeeks(leadId, tabs);
+  }, [record.lead_id, tab.k, viewTabs, isNew]);
 
   // Parent can push fresh data after open (list → full fetch) without remounting.
   // Draft is initialized once; sync enrichment / comments when record updates.
@@ -240,10 +257,16 @@ export default function Drawer({
 
   const title = String(draft.business_name || draft.full_name || "Record");
   const idtag = String(draft.lead_id || "");
+  const closerClosed = tab.k === "closer" && isCloserClosedStage(draft.stage);
   // Manual additions need the normally read-only carry-over fields editable
-  const effFields = fields.map((f) =>
-    isNew && f.readOnly && f.k !== "lead_id" ? { ...f, readOnly: false } : f
-  );
+  const effFields = fields.map((f) => {
+    let next = f;
+    if (isNew && f.readOnly && f.k !== "lead_id") next = { ...next, readOnly: false };
+    if (tab.k === "closer" && closerRequiredKeys.has(f.k)) {
+      next = { ...next, required: closerClosed };
+    }
+    return next;
+  });
   const visible = effFields.filter(
     (f) =>
       !(f.k === "lost_reason" && draft.stage !== "Closed Lost") &&
@@ -300,7 +323,9 @@ export default function Drawer({
 
   if (!mounted) return null;
 
-  return createPortal(
+  return (
+    <>
+    {createPortal(
     <div className="crm-overlay" style={{ position: "fixed", inset: 0, zIndex: 70 }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(20,2,6,0.55)" }} />
       <aside
@@ -364,7 +389,14 @@ export default function Drawer({
           </button>
         </div>
 
-        {!isNew && idtag ? <Journey leadId={idtag} currentKey={tab.k} viewTabs={viewTabs} /> : null}
+        {!isNew && idtag ? (
+          <Journey
+            leadId={idtag}
+            currentKey={tab.k}
+            viewTabs={viewTabs}
+            onPeekStage={(stageTab) => setPeekTab(stageTab)}
+          />
+        ) : null}
 
         {tab.note ? (
           <div
@@ -696,5 +728,14 @@ export default function Drawer({
       </aside>
     </div>,
     document.body
+    )}
+    {peekTab && idtag ? (
+      <StagePeekDrawer
+        leadId={idtag}
+        stageTab={peekTab}
+        onClose={() => setPeekTab(null)}
+      />
+    ) : null}
+    </>
   );
 }

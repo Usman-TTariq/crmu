@@ -81,16 +81,33 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  src text;
+  closer_src text;
 begin
   if new.sql_status = 'Assigned' and new.assigned_closer <> '' then
+    select coalesce(lead_source, '') into src
+    from public.leads
+    where lead_id = new.lead_id;
+
+    closer_src := case
+      when trim(src) = 'Live Transfer' then 'SQL - LT'
+      else 'SQL'
+    end;
+
     insert into public.closer_deals
       (lead_id, business_name, owner_name, phone, state, monthly_volume,
-       assigned_date, closer, stage)
+       assigned_date, closer, stage, closer_lead_source)
     values
       (new.lead_id, new.business_name, new.owner_name, new.phone, new.state,
        new.monthly_volume, coalesce(new.assignment_date, current_date),
-       new.assigned_closer, 'No Answer')
-    on conflict (lead_id) do nothing;
+       new.assigned_closer, 'No Answer', closer_src)
+    on conflict (lead_id) do update
+      set closer_lead_source = case
+        when coalesce(public.closer_deals.closer_lead_source, '') = ''
+          then excluded.closer_lead_source
+        else public.closer_deals.closer_lead_source
+      end;
   end if;
   return new;
 end;

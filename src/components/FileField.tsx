@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Download, Eye, FileText, Paperclip, X } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { IMG_EXT, MAX_FILE_BYTES, OK_EXT, extOf, fileSizeLabel } from "@/lib/format";
@@ -30,6 +30,23 @@ function AttachmentRow({
   onRemove: (a: Attachment) => void;
   compact?: boolean;
 }) {
+  const [url, setUrl] = useState(a.signed_url || "");
+  useEffect(() => {
+    setUrl(a.signed_url || "");
+    if (a.signed_url || !a.storage_path) return;
+    let alive = true;
+    const supabase = createClient();
+    void supabase.storage
+      .from("documents")
+      .createSignedUrl(a.storage_path, 3600)
+      .then(({ data }) => {
+        if (alive && data?.signedUrl) setUrl(data.signedUrl);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [a.signed_url, a.storage_path]);
+
   const isImg = IMG_EXT.includes(a.file_ext);
   const thumb = compact ? 28 : 42;
   return (
@@ -44,11 +61,11 @@ function AttachmentRow({
         padding: compact ? "5px 8px" : "8px 10px",
       }}
     >
-      <a href={a.signed_url} target="_blank" rel="noreferrer" style={{ flexShrink: 0, display: "block" }}>
-        {isImg && a.signed_url ? (
+      <a href={url || undefined} target="_blank" rel="noreferrer" style={{ flexShrink: 0, display: "block" }}>
+        {isImg && url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={a.signed_url}
+            src={url}
             alt={a.file_name}
             style={{
               width: thumb,
@@ -107,9 +124,9 @@ function AttachmentRow({
           </div>
         ) : null}
       </div>
-      {a.signed_url ? (
+      {url ? (
         <a
-          href={a.signed_url}
+          href={url}
           target="_blank"
           rel="noreferrer"
           title="View"
@@ -119,7 +136,7 @@ function AttachmentRow({
         </a>
       ) : null}
       <a
-        href={a.signed_url}
+        href={url || undefined}
         download={a.file_name}
         title="Download"
         style={{ color: C.inkSoft, flexShrink: 0, display: "flex", padding: 5 }}

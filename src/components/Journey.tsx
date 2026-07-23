@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { isBlank } from "@/lib/format";
@@ -8,33 +8,63 @@ import { PIPE, type TabKey } from "@/lib/constants";
 import { fetchJourney } from "@/actions/data";
 import { useApp } from "@/components/app-context";
 
+/** Client cache — reopening the same lead should not wait on the network. */
+const journeyCache = new Map<string, Record<string, string | null>>();
+
+function optimisticStages(currentKey: TabKey): Record<string, string | null> {
+  const idx = PIPE.findIndex(([tk]) => tk === currentKey);
+  const stages: Record<string, string | null> = {};
+  PIPE.forEach(([tk], i) => {
+    // Assume every stage up to the current one exists so pills show instantly.
+    stages[tk] = i <= idx ? "optimistic" : null;
+  });
+  return stages;
+}
+
 export default function Journey({
   leadId,
   currentKey,
   viewTabs,
+  onPeekStage,
 }: {
   leadId: string;
   currentKey: TabKey;
   viewTabs: TabKey[];
+  /** View-only stages open in-place (sidebar) instead of navigating away. */
+  onPeekStage?: (stageTab: TabKey) => void;
 }) {
   const router = useRouter();
   const app = useApp();
-  const [stages, setStages] = useState<Record<string, string | null> | null>(null);
+  const cached = !isBlank(leadId) ? journeyCache.get(leadId) : undefined;
+  const [stages, setStages] = useState<Record<string, string | null> | null>(
+    () => cached || (!isBlank(leadId) ? optimisticStages(currentKey) : null)
+  );
 
   useEffect(() => {
     if (isBlank(leadId)) return;
+    const hit = journeyCache.get(leadId);
+    if (hit) {
+      setStages(hit);
+      return;
+    }
+    setStages(optimisticStages(currentKey));
     let alive = true;
     fetchJourney({ leadId }).then((res) => {
-      if (alive) setStages(res.stages);
+      if (!alive) return;
+      journeyCache.set(leadId, res.stages);
+      setStages(res.stages);
     });
     return () => {
       alive = false;
     };
-  }, [leadId]);
+  }, [leadId, currentKey]);
 
-  if (isBlank(leadId) || !stages) return null;
-  const steps = PIPE.map(([tk, label]) => ({ tk, label, exists: !!stages[tk] }));
-  if (!steps.some((s) => s.exists)) return null;
+  const steps = useMemo(() => {
+    if (!stages) return [];
+    return PIPE.map(([tk, label]) => ({ tk, label, exists: !!stages[tk] }));
+  }, [stages]);
+
+  if (isBlank(leadId) || !stages || !steps.some((s) => s.exists)) return null;
 
   return (
     <div style={{ margin: "14px 22px 0" }}>
@@ -54,6 +84,7 @@ export default function Journey({
         {steps.map((s, i) => {
           const here = s.tk === currentKey;
           const clickable = s.exists && !here && viewTabs.includes(s.tk);
+          const viewOnly = clickable && !app.editTabs.includes(s.tk);
           return (
             <React.Fragment key={s.tk}>
               {i > 0 ? (
@@ -65,6 +96,10 @@ export default function Journey({
                 onClick={
                   clickable
                     ? () => {
+                        if (viewOnly && onPeekStage) {
+                          onPeekStage(s.tk);
+                          return;
+                        }
                         app.jumpTo(s.tk, leadId);
                         router.push(`/${s.tk}`);
                       }
@@ -78,7 +113,9 @@ export default function Journey({
                     : here
                     ? "You are here"
                     : clickable
-                    ? "Open this record at this stage"
+                    ? viewOnly
+                      ? "View this stage here (read-only)"
+                      : "Open this record at this stage"
                     : "Not visible to your role"
                 }
                 style={{

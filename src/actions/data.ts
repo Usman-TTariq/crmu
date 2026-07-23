@@ -7,11 +7,24 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSession, requireAuth, requireSession } from "@/lib/session";
-import { CLOSER_REQUIRED_FIELDS, EDITABLE_COLUMNS, TAB_TABLE, DATE_FIELD } from "@/lib/schemas";
+import {
+  CLOSER_REQUIRED_FIELDS,
+  EDITABLE_COLUMNS,
+  TAB_TABLE,
+  DATE_FIELD,
+  isCloserClosedStage,
+} from "@/lib/schemas";
 import { RECORD_DELETE_EMAILS, TABS, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
 import type { Rec, Attachment, LeadComment, RetentionComment } from "@/lib/types";
 import { isBlank, isDayTimeframe, phoneDigits, sortLeadComments, type Timeframe } from "@/lib/format";
 import { logActivity } from "@/lib/activity-log";
+
+/** Dev/server timing for Phase-1 speed work — check Vercel/Next logs for p95. */
+function logActionTiming(name: string, started: number, extra?: Record<string, unknown>) {
+  const ms = Math.round(performance.now() - started);
+  if (ms < 50 && process.env.NODE_ENV === "production") return;
+  console.info(`[crm-timing] ${name} ${ms}ms`, extra || "");
+}
 
 /** Roster profiles linked to these auth emails stay hidden from Team Setup. */
 const HIDDEN_ROSTER_LOGIN_EMAILS = new Set(["yasal.khan@tgtnexus.net"]);
@@ -226,6 +239,23 @@ async function markLeadDuplicates(
 const LIST_SELECT: Partial<Record<TabKey, string>> = {
   leadgen:
     "id, lead_id, date_created, created_at, updated_at, created_by, updated_by, lead_gen_agent, lead_source, business_name, owner_name, phone, email, business_address, city, zip_code, state, current_processor, current_device, current_rate, monthly_volume",
+  qa:
+    "id, lead_id, qa_date, lead_gen_agent, lead_source, business_name, owner_name, phone, email, business_address, city, zip_code, state, current_processor, current_device, current_rate, monthly_volume, returned_after_dispute, us_business, owner_reached, interested, physical_loc, not_restricted, qa_agent, qa_decision",
+  sqlassign:
+    "id, lead_id, qa_date, business_name, owner_name, phone, state, monthly_volume, assigned_closer, assignment_date, assigned_at, assigned_by, sql_status, updated_at",
+  closer:
+    "id, lead_id, created_at, updated_at, created_by, updated_by, assigned_date, closer, stage, connected_date, docs_pending_date, docs_recd_date, closed_date, business_name, first_name, last_name, owner_name, phone, monthly_volume, state",
+  documentation:
+    "id, lead_id, closed_date, lead_source, closer, business_name, first_name, last_name, owner_name, phone, monthly_volume, state, pm_name, decision, returned_after_ops_rework, review_date",
+  ops:
+    "id, lead_id, closed_date, business_name, owner_name, phone, closer, monthly_volume, brand, dl_recd, voided_check, bank_stmt, owner_name_verified, owner_phone_verified, business_verified, ops_status, returned_after_ops_dispute, reasoning, ops_agent, ops_date, accuracy_review",
+  msp:
+    "id, lead_id, business_name, owner_name, monthly_volume, ops_approved_date, onboarding_sp, a1_date, a1_provider, a1_result, a2_date, a2_provider, a2_result, a3_date, a3_provider, a3_result, approved_date, final_status, equip_order_date, device, tracking_number, delivery_date, shipping_cost",
+  fulfillment:
+    "id, lead_id, funded_date, business_name, owner_name, fulfillment_stage, hardware, serial, live_date",
+  leasing:
+    "id, lead_id, business_name, owner_name, leasing_company, order_activation, monthly_lease, approved_funding, shipping_cost, funding_status, funding_date, invoice_no",
+  retention: "id, lead_id, business_name, team, agent_name, status, substitute",
 };
 
 /** Text columns used by header search (server-side ILIKE). */
@@ -334,13 +364,13 @@ function applyLeadgenOriginFilter<T extends { eq: (col: string, val: string) => 
   return query.eq("lead_origin", "leadgen");
 }
 
-/** `list` skips drawer-only extras (comments / signed file URLs) for faster paging. */
+/** `list` skips drawer-only extras; `peek` is full data without per-file signed URLs. */
 async function enrichPipelineRows(
   tab: TabKey,
   rows: Rec[],
   supabase: Awaited<ReturnType<typeof createClient>>,
   admin: ReturnType<typeof createAdminClient>,
-  mode: "list" | "full" = "full"
+  mode: "list" | "full" | "peek" = "full"
 ): Promise<Rec[]> {
   if (!rows.length) return rows;
   let out = rows;
@@ -394,31 +424,43 @@ async function enrichPipelineRows(
       after_dispute: r.returned_after_dispute ? "After dispute" : "",
     }));
   } else if (tab === "closer") {
-    out = await enrichAuditNames(out, admin);
     if (leadIds.length) {
-      const [leadsRes, opsRes, dispRes, qaRes] = await Promise.all([
-        admin
-          .from("leads")
-          .select(
-            "lead_id, lead_source, email, business_address, city, zip_code, lead_origin, lead_gen_agent, current_processor, current_device, current_rate, notes"
-          )
-          .in("lead_id", leadIds),
-        admin
-          .from("ops_verifications")
-          .select("lead_id, ops_status, reasoning, returned_after_ops_dispute")
-          .in("lead_id", leadIds),
-        admin
-          .from("ops_disputes")
-          .select("lead_id, status, reason, review_note, created_at")
-          .in("lead_id", leadIds)
-          .order("created_at", { ascending: false }),
-        admin.from("qa_records").select("lead_id, qa_notes").in("lead_id", leadIds),
+      // List: grid chips only (audit names, OPS status, lead gen agent/team).
+      // Full/peek: lead details, notes, dispute text for the drawer.
+      const listMode = mode === "list";
+      const leadSelect = listMode
+        ? "lead_id, lead_gen_agent"
+        : "lead_id, lead_source, email, business_address, city, zip_code, lead_origin, lead_gen_agent, current_processor, current_device, current_rate, notes";
+      const opsSelect = listMode
+        ? "lead_id, ops_status, returned_after_ops_dispute"
+        : "lead_id, ops_status, reasoning, returned_after_ops_dispute";
+      const [audited, leadsRes, opsRes, dispRes, qaRes] = await Promise.all([
+        enrichAuditNames(out, admin),
+        admin.from("leads").select(leadSelect).in("lead_id", leadIds),
+        admin.from("ops_verifications").select(opsSelect).in("lead_id", leadIds),
+        listMode
+          ? Promise.resolve({ data: null as null, error: null })
+          : admin
+              .from("ops_disputes")
+              .select("lead_id, status, reason, review_note, created_at")
+              .in("lead_id", leadIds)
+              .order("created_at", { ascending: false }),
+        listMode
+          ? Promise.resolve({ data: null as null })
+          : admin.from("qa_records").select("lead_id, qa_notes").in("lead_id", leadIds),
       ]);
+      out = audited;
       const leadMap = new Map(
-        (leadsRes.data || []).map((l) => [String(l.lead_id), l as Record<string, unknown>])
+        ((leadsRes.data || []) as unknown as Record<string, unknown>[]).map((l) => [
+          String(l.lead_id),
+          l,
+        ])
       );
       const qaNotesByLead = new Map(
-        (qaRes.data || []).map((q) => [String(q.lead_id), String(q.qa_notes || "")])
+        ((qaRes.data || []) as { lead_id: string; qa_notes?: string }[]).map((q) => [
+          String(q.lead_id),
+          String(q.qa_notes || ""),
+        ])
       );
       const agentNames = [
         ...new Set(
@@ -438,13 +480,16 @@ async function enrichPipelineRows(
         }
       }
       const opsMap = new Map(
-        (opsRes.data || []).map((o) => [String(o.lead_id), o as Record<string, unknown>])
+        ((opsRes.data || []) as unknown as Record<string, unknown>[]).map((o) => [
+          String(o.lead_id),
+          o,
+        ])
       );
       const latestDisp = new Map<
         string,
         { status: string; reason: string; review_note: string }
       >();
-      if (!dispRes.error) {
+      if (!listMode && !dispRes.error) {
         for (const d of dispRes.data || []) {
           if (!latestDisp.has(d.lead_id)) {
             latestDisp.set(d.lead_id, {
@@ -464,6 +509,15 @@ async function enrichPipelineRows(
         // Prefer closer intake values; fall back to Lead Gen when blank.
         const pick = (local: unknown, fromLead: unknown) =>
           String(local ?? "").trim() || String(fromLead ?? "").trim() || "";
+        if (listMode) {
+          return {
+            ...r,
+            lead_gen_agent: agent,
+            lead_gen_team: teamByAgent.get(agent) || "",
+            ops_status: ops?.ops_status ?? "",
+            returned_after_ops_dispute: !!ops?.returned_after_ops_dispute,
+          };
+        }
         return {
           ...r,
           lead_source: extra?.lead_source ?? r.lead_source ?? "",
@@ -487,6 +541,8 @@ async function enrichPipelineRows(
           ops_dispute_review_note: disp?.review_note || "",
         };
       });
+    } else {
+      out = await enrichAuditNames(out, admin);
     }
   } else if (tab === "ops" && leadIds.length) {
     out = out.map((r) => ({
@@ -496,18 +552,29 @@ async function enrichPipelineRows(
   }
 
   if (tab === "sqlassign") {
-    const openPromise = admin
-      .from("closer_deals")
-      .select("closer")
-      .not("stage", "in", '("Closed","Closed Won","Closed Lost","Not Interested")');
+    const openPromise = admin.rpc("closer_open_loads");
     const leadsPromise = leadIds.length
       ? admin.from("leads").select("lead_id, lead_gen_agent, lead_source").in("lead_id", leadIds)
       : Promise.resolve({
           data: [] as { lead_id: string; lead_gen_agent: string; lead_source?: string }[],
         });
-    const [{ data: open }, { data: leadRows }] = await Promise.all([openPromise, leadsPromise]);
+    const [{ data: loadJson, error: loadErr }, { data: leadRows }] = await Promise.all([
+      openPromise,
+      leadsPromise,
+    ]);
     const loads = new Map<string, number>();
-    (open || []).forEach((d) => loads.set(d.closer, (loads.get(d.closer) || 0) + 1));
+    if (!loadErr && loadJson && typeof loadJson === "object") {
+      for (const [closer, cnt] of Object.entries(loadJson as Record<string, unknown>)) {
+        loads.set(closer, Number(cnt) || 0);
+      }
+    } else {
+      // Fallback if sql/79 not applied yet
+      const { data: open } = await admin
+        .from("closer_deals")
+        .select("closer")
+        .not("stage", "in", '("Closed","Closed Won","Closed Lost","Not Interested")');
+      (open || []).forEach((d) => loads.set(d.closer, (loads.get(d.closer) || 0) + 1));
+    }
     const leadMeta = new Map(
       (leadRows || []).map((l) => [
         String(l.lead_id),
@@ -545,20 +612,49 @@ async function enrichPipelineRows(
     });
   }
 
-  // Documentation list: lead_source. Full drawer: Closer intake + Lead Gen/QA details.
+  // Documentation list: lead_source + agent/team chips. Full/peek drawer: Closer intake.
   if (tab === "documentation" && leadIds.length) {
-    if (mode !== "full") {
+    if (mode === "list") {
       const { data: leadSrc } = await admin
         .from("leads")
-        .select("lead_id, lead_source")
+        .select("lead_id, lead_source, lead_gen_agent")
         .in("lead_id", leadIds);
-      const srcMap = new Map(
-        (leadSrc || []).map((l) => [String(l.lead_id), String(l.lead_source || "")])
+      const agentNames = [
+        ...new Set(
+          (leadSrc || [])
+            .map((l) => String(l.lead_gen_agent || "").trim())
+            .filter(Boolean)
+        ),
+      ];
+      const teamByAgent = new Map<string, string>();
+      if (agentNames.length) {
+        const { data: profiles } = await admin
+          .from("profiles")
+          .select("full_name, team")
+          .in("full_name", agentNames);
+        for (const p of profiles || []) {
+          teamByAgent.set(String(p.full_name), String(p.team || ""));
+        }
+      }
+      const meta = new Map(
+        (leadSrc || []).map((l) => [
+          String(l.lead_id),
+          {
+            lead_source: String(l.lead_source || ""),
+            agent: String(l.lead_gen_agent || ""),
+          },
+        ])
       );
-      out = out.map((r) => ({
-        ...r,
-        lead_source: srcMap.get(String(r.lead_id || "")) || r.lead_source || "",
-      }));
+      out = out.map((r) => {
+        const m = meta.get(String(r.lead_id || ""));
+        const agent = m?.agent || "";
+        return {
+          ...r,
+          lead_source: m?.lead_source || r.lead_source || "",
+          lead_gen_agent: agent,
+          lead_gen_team: teamByAgent.get(agent) || "",
+        };
+      });
     } else {
       const closerIntakeCols =
         "lead_id, notes, dba_name, business_type, business_category, first_name, last_name, mobile_phone, email, avg_ticket_size, highest_ticket_size, tin_ein, ssn, processing_type, processing_rate, provider, equipment, lease_amount, lease_term, business_address, city, zip_code, shipping_address, residential_address, business_name, owner_name, phone, state, monthly_volume, closer";
@@ -682,10 +778,10 @@ async function enrichPipelineRows(
     }
   }
 
-  // Shared notes: Closer ↔ Documentation ↔ OPS (full drawer fetch).
+  // Shared notes: Closer ↔ Documentation ↔ OPS (full / peek drawer fetch).
   // OPS / Onboarding also get Lead Gen + QA notes.
   if (
-    mode === "full" &&
+    (mode === "full" || mode === "peek") &&
     leadIds.length &&
     (tab === "closer" || tab === "documentation" || tab === "ops" || tab === "msp")
   ) {
@@ -805,7 +901,9 @@ async function enrichPipelineRows(
     });
   }
 
-  if (
+  // List pages refetch full/peek on drawer open — skip attachment fan-out + signing.
+  const wantAtts =
+    (mode === "full" || mode === "peek") &&
     (
       tab === "closer" ||
       tab === "ops" ||
@@ -814,9 +912,13 @@ async function enrichPipelineRows(
       tab === "fulfillment" ||
       tab === "leasing"
     ) &&
-    leadIds.length
-  ) {
-    // Shared pack through the OPS journey (Closer → … → Leasing).
+    leadIds.length > 0;
+  const wantComments =
+    (mode === "full" || mode === "peek") &&
+    PIPELINE_COMMENT_TABS.includes(tab) &&
+    leadIds.length > 0;
+
+  if (wantAtts || wantComments) {
     const stageFilter = [
       "closer",
       "documentation",
@@ -825,53 +927,69 @@ async function enrichPipelineRows(
       "fulfillment",
       "leasing",
     ];
-    // Admin: cross-role RLS often hides another stage's attachments.
-    const { data: atts } = await admin
-      .from("attachments")
-      .select("*")
-      .in("stage", stageFilter)
-      .in("lead_id", leadIds);
-    const byLead = new Map<string, Attachment[]>();
-    if (mode === "full") {
-      await Promise.all(
-        ((atts || []) as Attachment[]).map(async (a) => {
-          const { data: signed } = await admin.storage
-            .from("documents")
-            .createSignedUrl(a.storage_path, 3600);
-          const list = byLead.get(a.lead_id) || [];
-          list.push({ ...a, signed_url: signed?.signedUrl });
-          byLead.set(a.lead_id, list);
-        })
-      );
-    } else {
-      for (const a of (atts || []) as Attachment[]) {
-        const list = byLead.get(a.lead_id) || [];
-        list.push(a);
-        byLead.set(a.lead_id, list);
-      }
-    }
-    out = out.map((r) => ({ ...r, attachments: byLead.get(r.lead_id as string) || [] }));
-  }
+    const [attsRes, commentsRes] = await Promise.all([
+      wantAtts
+        ? admin
+            .from("attachments")
+            .select("*")
+            .in("stage", stageFilter)
+            .in("lead_id", leadIds)
+        : Promise.resolve({ data: null as Attachment[] | null }),
+      wantComments
+        ? admin
+            .from("lead_comments")
+            .select("*")
+            .in("lead_id", leadIds)
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+        : Promise.resolve({ data: null as LeadComment[] | null }),
+    ]);
 
-  // Comments are drawer-only (hideTable) — skip on list pages for faster paging.
-  if (mode === "full" && PIPELINE_COMMENT_TABS.includes(tab) && leadIds.length) {
-    // Admin: OPS/Docs agents can open the row but RLS sometimes hides the thread
-    const { data: comments } = await admin
-      .from("lead_comments")
-      .select("*")
-      .in("lead_id", leadIds)
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true });
-    const byLead = new Map<string, LeadComment[]>();
-    ((comments || []) as LeadComment[]).forEach((c) => {
-      const list = byLead.get(c.lead_id) || [];
-      list.push(c);
-      byLead.set(c.lead_id, list);
-    });
-    out = out.map((r) => ({
-      ...r,
-      lead_comments: sortLeadComments(byLead.get(r.lead_id as string) || []),
-    }));
+    if (wantAtts) {
+      const byLead = new Map<string, Attachment[]>();
+      const attList = (attsRes.data || []) as Attachment[];
+      // full: batch-sign. peek/list: metadata only (peek signs lazily on the client).
+      if (mode === "full" && attList.length) {
+        const paths = attList.map((a) => a.storage_path).filter(Boolean);
+        const urlByPath = new Map<string, string>();
+        if (paths.length) {
+          const { data: signedBatch } = await admin.storage
+            .from("documents")
+            .createSignedUrls(paths, 3600);
+          for (const s of signedBatch || []) {
+            if (s?.path && s.signedUrl) urlByPath.set(s.path, s.signedUrl);
+          }
+        }
+        for (const a of attList) {
+          const list = byLead.get(a.lead_id) || [];
+          list.push({
+            ...a,
+            signed_url: urlByPath.get(a.storage_path) || undefined,
+          });
+          byLead.set(a.lead_id, list);
+        }
+      } else {
+        for (const a of attList) {
+          const list = byLead.get(a.lead_id) || [];
+          list.push(a);
+          byLead.set(a.lead_id, list);
+        }
+      }
+      out = out.map((r) => ({ ...r, attachments: byLead.get(r.lead_id as string) || [] }));
+    }
+
+    if (wantComments) {
+      const byLead = new Map<string, LeadComment[]>();
+      ((commentsRes.data || []) as LeadComment[]).forEach((c) => {
+        const list = byLead.get(c.lead_id) || [];
+        list.push(c);
+        byLead.set(c.lead_id, list);
+      });
+      out = out.map((r) => ({
+        ...r,
+        lead_comments: sortLeadComments(byLead.get(r.lead_id as string) || []),
+      }));
+    }
   }
 
   if (mode === "full" && tab === "retention" && leadIds.length) {
@@ -901,6 +1019,7 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
   keepTotal?: boolean;
   error?: string;
 }> {
+  const t0 = performance.now();
   const page = Math.max(1, payload.page || 1);
   const pageSize = Math.min(200, Math.max(1, payload.pageSize || DEFAULT_PAGE_SIZE));
 
@@ -954,6 +1073,7 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
           login_email: r.user_id ? emailById.get(String(r.user_id)) || "" : "",
         }));
       }
+      logActionTiming("fetchRows", t0, { tab: payload.tab, n: rows.length });
       return { rows, total: rows.length, page: 1, pageSize: rows.length || pageSize };
     }
 
@@ -990,6 +1110,12 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
     let rows = (data || []) as unknown as Rec[];
     rows = await enrichPipelineRows(payload.tab, rows, supabase, admin, "list");
 
+    logActionTiming("fetchRows", t0, {
+      tab: payload.tab,
+      n: rows.length,
+      skipCount: !!payload.skipCount,
+    });
+
     if (payload.skipCount) {
       return { rows, total: 0, page, pageSize, keepTotal: true };
     }
@@ -1010,7 +1136,10 @@ export async function fetchRows(payload: FetchRowsPayload): Promise<{
 export async function fetchRowByLeadId(payload: {
   tab: TabKey;
   leadId: string;
+  /** Journey peek: use service-role read (caller already passed viewTabs). Faster under RLS. */
+  peek?: boolean;
 }): Promise<{ row: Rec | null; error?: string }> {
+  const t0 = performance.now();
   try {
     await requireAuth();
     if (payload.tab === "teamsetup") return { row: null, error: "Not a pipeline tab." };
@@ -1019,7 +1148,8 @@ export async function fetchRowByLeadId(payload: {
 
     const supabase = await createClient();
     const admin = createAdminClient();
-    const { data, error } = await supabase
+    const client = payload.peek ? admin : supabase;
+    const { data, error } = await client
       .from(table)
       .select("*")
       .eq("lead_id", payload.leadId)
@@ -1027,7 +1157,14 @@ export async function fetchRowByLeadId(payload: {
     if (error) return { row: null, error: error.message };
     if (!data) return { row: null };
 
-    const [enriched] = await enrichPipelineRows(payload.tab, [data as Rec], supabase, admin);
+    const [enriched] = await enrichPipelineRows(
+      payload.tab,
+      [data as Rec],
+      supabase,
+      admin,
+      payload.peek ? "peek" : "full"
+    );
+    logActionTiming("fetchRowByLeadId", t0, { tab: payload.tab, peek: !!payload.peek });
     return { row: enriched || null };
   } catch (e) {
     return { row: null, error: e instanceof Error ? e.message : "Failed to load." };
@@ -1043,23 +1180,48 @@ export async function fetchOpsAccuracyStats(payload: { tf: Timeframe }): Promise
   met: boolean;
   error?: string;
 }> {
+  const t0 = performance.now();
   try {
     await requireAuth();
     const supabase = await createClient();
+    const { data, error } = await supabase.rpc("ops_accuracy_stats", { p_tf: payload.tf });
+    if (!error && data && typeof data === "object") {
+      const row = data as {
+        reviewed?: number;
+        passes?: number;
+        fails?: number;
+        acc?: number | null;
+        met?: boolean;
+      };
+      const reviewed = Number(row.reviewed || 0);
+      const passes = Number(row.passes || 0);
+      const fails = Number(row.fails || 0);
+      const acc =
+        row.acc === null || row.acc === undefined
+          ? reviewed
+            ? Math.round((passes / reviewed) * 1000) / 10
+            : null
+          : Number(row.acc);
+      const met = row.met ?? (acc === null || acc >= 95);
+      logActionTiming("fetchOpsAccuracyStats", t0);
+      return { reviewed, passes, fails, acc, met };
+    }
+    // Fallback if sql/79 not applied
     let q = supabase
       .from("ops_verifications")
       .select("accuracy_review")
       .in("accuracy_review", ["Pass", "Fail"]);
     q = applyTf(q, DATE_FIELD.ops, payload.tf);
-    const { data, error } = await q;
-    if (error) {
-      return { reviewed: 0, passes: 0, fails: 0, acc: null, met: true, error: error.message };
+    const { data: rows, error: qErr } = await q;
+    if (qErr) {
+      return { reviewed: 0, passes: 0, fails: 0, acc: null, met: true, error: qErr.message };
     }
-    const reviewed = (data || []).length;
-    const passes = (data || []).filter((r) => r.accuracy_review === "Pass").length;
+    const reviewed = (rows || []).length;
+    const passes = (rows || []).filter((r) => r.accuracy_review === "Pass").length;
     const fails = reviewed - passes;
     const acc = reviewed ? Math.round((passes / reviewed) * 1000) / 10 : null;
     const met = acc === null || acc >= 95;
+    logActionTiming("fetchOpsAccuracyStats", t0);
     return { reviewed, passes, fails, acc, met };
   } catch (e) {
     return {
@@ -1081,12 +1243,45 @@ export async function fetchJourney(payload: { leadId: string }): Promise<{
 }> {
   await requireAuth();
   const admin = createAdminClient();
+  const keys = [
+    "leadgen",
+    "qa",
+    "sqlassign",
+    "closer",
+    "documentation",
+    "ops",
+    "msp",
+    "fulfillment",
+    "leasing",
+    "retention",
+  ] as const;
+
+  // Fast path: one DB round-trip (sql/78_lead_journey_stages.sql)
+  const { data: rpcData, error: rpcErr } = await admin.rpc("lead_journey_stages", {
+    p_lead_id: payload.leadId,
+  });
+  if (!rpcErr && rpcData && typeof rpcData === "object") {
+    const stages: Record<string, string | null> = {};
+    for (const k of keys) {
+      const v = (rpcData as Record<string, unknown>)[k];
+      stages[k] = v == null || v === "" ? null : String(v);
+    }
+    return { stages };
+  }
+
+  // Fallback if RPC not applied yet
   const stages: Record<string, string | null> = {};
   const checks: [string, string][] = [
-    ["leadgen", "leads"], ["qa", "qa_records"], ["sqlassign", "sql_assignments"],
-    ["closer", "closer_deals"], ["documentation", "documentation_reviews"],
-    ["ops", "ops_verifications"], ["msp", "msp_onboarding"],
-    ["fulfillment", "fulfillment"], ["leasing", "leasing"], ["retention", "retention"],
+    ["leadgen", "leads"],
+    ["qa", "qa_records"],
+    ["sqlassign", "sql_assignments"],
+    ["closer", "closer_deals"],
+    ["documentation", "documentation_reviews"],
+    ["ops", "ops_verifications"],
+    ["msp", "msp_onboarding"],
+    ["fulfillment", "fulfillment"],
+    ["leasing", "leasing"],
+    ["retention", "retention"],
   ];
   await Promise.all(
     checks.map(async ([tab, table]) => {
@@ -1153,22 +1348,24 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       else values.created_by = session.userId;
     }
 
-    // Closer: all intake fields required; DL + Voided Cheque before Docs Received / Closed
+    // Closer: intake * fields required only on Closed; DL + Void before Docs Received / Closed
     if (payload.tab === "closer") {
       const check: Record<string, unknown> = { ...payload.values, ...values };
-      const missing = CLOSER_REQUIRED_FIELDS.filter((f) => isBlank(check[f.k])).map((f) => f.label);
-      if (missing.length) {
-        return {
-          error: `Fill all required fields (*): ${missing.slice(0, 8).join(", ")}${
-            missing.length > 8 ? ` +${missing.length - 8} more` : ""
-          }.`,
-        };
+      const stage = String(values.stage ?? payload.values.stage ?? "");
+      if (isCloserClosedStage(stage)) {
+        const missing = CLOSER_REQUIRED_FIELDS.filter((f) => isBlank(check[f.k])).map((f) => f.label);
+        if (missing.length) {
+          return {
+            error: `Closed requires all fields (*): ${missing.slice(0, 8).join(", ")}${
+              missing.length > 8 ? ` +${missing.length - 8} more` : ""
+            }.`,
+          };
+        }
       }
       const first = String(values.first_name ?? payload.values.first_name ?? "").trim();
       const last = String(values.last_name ?? payload.values.last_name ?? "").trim();
       const joined = [first, last].filter(Boolean).join(" ");
       if (joined) values.owner_name = joined;
-      const stage = String(values.stage ?? payload.values.stage ?? "");
       if (stage === "Docs Received" || stage === "Closed" || stage === "Closed Won") {
         const leadId = String(payload.values.lead_id || "");
         if (!leadId) return { error: "Lead ID required." };
@@ -1418,15 +1615,17 @@ export async function createManualCloserRecord(payload: {
     }
 
     const requiredCheck: Record<string, unknown> = { ...v, closer: closerName };
-    const missingRequired = CLOSER_REQUIRED_FIELDS.filter((f) => isBlank(requiredCheck[f.k])).map(
-      (f) => f.label
-    );
-    if (missingRequired.length) {
-      return {
-        error: `Fill all required fields (*): ${missingRequired.slice(0, 8).join(", ")}${
-          missingRequired.length > 8 ? ` +${missingRequired.length - 8} more` : ""
-        }.`,
-      };
+    if (isCloserClosedStage(v.stage)) {
+      const missingRequired = CLOSER_REQUIRED_FIELDS.filter((f) => isBlank(requiredCheck[f.k])).map(
+        (f) => f.label
+      );
+      if (missingRequired.length) {
+        return {
+          error: `Closed requires all fields (*): ${missingRequired.slice(0, 8).join(", ")}${
+            missingRequired.length > 8 ? ` +${missingRequired.length - 8} more` : ""
+          }.`,
+        };
+      }
     }
 
     const businessName = String(v.business_name || "").trim();
@@ -1453,7 +1652,7 @@ export async function createManualCloserRecord(payload: {
       .insert({
         date_created: v.date_created || undefined,
         lead_gen_agent: "",
-        lead_source: String(v.lead_source || "Referral"),
+        lead_source: String(v.lead_source || "Cold Calling"),
         lead_origin: "closer_direct",
         business_name: businessName,
         owner_name: ownerName,
@@ -1475,6 +1674,7 @@ export async function createManualCloserRecord(payload: {
     if (leadErr) return { error: leadErr.message };
 
     const assignedDate = String(v.assigned_date || "").trim() || null;
+    const closerLeadSource = String(v.closer_lead_source || "Referral").trim() || "Referral";
     const coreCloser: Record<string, unknown> = {
       lead_id: lead.lead_id,
       business_name: businessName,
@@ -1489,6 +1689,7 @@ export async function createManualCloserRecord(payload: {
       created_by: session.userId,
     };
     const intakeCloser: Record<string, unknown> = {
+      closer_lead_source: closerLeadSource,
       dba_name: String(v.dba_name || ""),
       business_type: String(v.business_type || ""),
       business_category: String(v.business_category || ""),
@@ -1533,9 +1734,11 @@ export async function createManualCloserRecord(payload: {
       return {
         error:
           closerErr.message +
-          (/column|schema cache/i.test(closerErr.message)
-            ? " Run sql/52_closer_intake_fields.sql on Supabase."
-            : ""),
+          (/closer_lead_source/i.test(closerErr.message)
+            ? " Run sql/75_closer_lead_source.sql on Supabase."
+            : /column|schema cache/i.test(closerErr.message)
+              ? " Run sql/52_closer_intake_fields.sql on Supabase."
+              : ""),
       };
     }
 
@@ -1712,25 +1915,40 @@ export async function fetchTabCounts(payload: {
   /** Only count these tabs (defaults to all non-dashboard tabs). */
   tabs?: TabKey[];
 }): Promise<Record<string, number>> {
+  const t0 = performance.now();
   await requireAuth();
   const supabase = await createClient();
   const counts: Record<string, number> = {};
-  const wanted = payload.tabs?.length
-    ? new Set(payload.tabs)
-    : null;
+  const wanted = payload.tabs?.length ? new Set(payload.tabs) : null;
+  const tabKeys = TABS.filter((t) => !t.kind && (!wanted || wanted.has(t.k))).map((t) => t.k);
+
+  // Prefer single-roundtrip RPC (sql/79); fall back to parallel head counts.
+  if (!wanted || tabKeys.length > 1) {
+    const { data, error } = await supabase.rpc("dash_tab_counts", { p_tf: payload.tf });
+    if (!error && data && typeof data === "object") {
+      const all = data as Record<string, number>;
+      for (const k of tabKeys) {
+        counts[k] = Number(all[k] || 0);
+      }
+      logActionTiming("fetchTabCounts", t0, { tabs: tabKeys.length, via: "rpc" });
+      return counts;
+    }
+  }
 
   await Promise.all(
-    TABS.filter((t) => !t.kind && (!wanted || wanted.has(t.k))).map(async (t) => {
-      const table = TAB_TABLE[t.k];
+    tabKeys.map(async (k) => {
+      const table = TAB_TABLE[k];
       if (!table) return;
+      const meta = TABS.find((t) => t.k === k);
       let q = supabase.from(table).select("id", { count: "exact", head: true });
-      q = applyTf(q, t.dated ? DATE_FIELD[t.k] : undefined, payload.tf) as typeof q;
-      q = applyOpsQueueFilter(q, t.k) as typeof q;
-      q = applyLeadgenOriginFilter(q, t.k) as typeof q;
+      q = applyTf(q, meta?.dated ? DATE_FIELD[k] : undefined, payload.tf) as typeof q;
+      q = applyOpsQueueFilter(q, k) as typeof q;
+      q = applyLeadgenOriginFilter(q, k) as typeof q;
       const { count } = await q;
-      counts[t.k] = count || 0;
+      counts[k] = count || 0;
     })
   );
 
+  logActionTiming("fetchTabCounts", t0, { tabs: tabKeys.length, via: "head" });
   return counts;
 }

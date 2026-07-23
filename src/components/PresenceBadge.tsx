@@ -1,14 +1,14 @@
 "use client";
 
 // Admin header badge: Away count (or logged-in if none away).
-// Refreshes on Supabase Realtime user_presence changes (+ slow poll fallback).
+// Uses tiny presence_badge_summary RPC (not full board + week rollup).
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Activity } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { useApp } from "@/components/app-context";
-import { fetchPresenceBoard } from "@/actions/presence";
+import { fetchPresenceBadgeSummary } from "@/actions/presence";
 
 export default function PresenceBadge() {
   const app = useApp();
@@ -18,12 +18,10 @@ export default function PresenceBadge() {
 
   const load = useCallback(() => {
     if (!app.canSeeMonitor) return;
-    fetchPresenceBoard().then((res) => {
-      const rows = res.rows || [];
-      const onBreak = rows.filter((r) => r.status === "break").length;
-      const awayN = rows.filter((r) => r.status === "away" || r.status === "idle").length;
-      setAway(onBreak + awayN);
-      setOnline(rows.filter((r) => r.status === "working").length);
+    fetchPresenceBadgeSummary().then((res) => {
+      if (res.error) return;
+      setAway((res.away || 0) + (res.break || 0));
+      setOnline(res.online || 0);
     });
   }, [app.canSeeMonitor]);
 

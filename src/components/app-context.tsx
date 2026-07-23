@@ -54,7 +54,7 @@ interface AppCtx {
   requestAdd: () => void;
   onAdd: (fn: () => void) => () => void;
   counts: Record<string, number>;
-  setCounts: (c: Record<string, number>) => void;
+  setCounts: (c: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => void;
   pendingOpen: PendingOpen | null;
   jumpTo: (tab: TabKey, leadId: string) => void;
   clearPendingOpen: () => void;
@@ -88,9 +88,12 @@ export function AppProvider({
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null);
   const addListeners = useRef(new Set<() => void>());
 
-  const setCounts = useCallback((c: Record<string, number>) => {
-    setCountsState(c);
-  }, []);
+  const setCounts = useCallback(
+    (c: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => {
+      setCountsState(c);
+    },
+    []
+  );
 
   const jumpTo = useCallback((tab: TabKey, leadId: string) => {
     setPendingOpen({ tab, leadId });

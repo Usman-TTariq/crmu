@@ -150,6 +150,7 @@ export async function fetchCeoPage(payload: { tf: Timeframe }): Promise<{
   closers: BoardCloserRow[];
   error?: string;
 }> {
+  const t0 = performance.now();
   try {
     await requireAuth();
     const supabase = await createClient();
@@ -157,6 +158,10 @@ export async function fetchCeoPage(payload: { tf: Timeframe }): Promise<{
       supabase.rpc("dash_ceo", { tf: payload.tf }),
       supabase.rpc("board_closers", { tf: payload.tf }),
     ]);
+    const ms = Math.round(performance.now() - t0);
+    if (ms >= 50 || process.env.NODE_ENV !== "production") {
+      console.info(`[crm-timing] fetchCeoPage ${ms}ms`, { tf: payload.tf });
+    }
     return {
       data: (d.data as Record<string, unknown>) || undefined,
       closers: (c.data as BoardCloserRow[]) || [],

@@ -2,12 +2,15 @@
 
 // Silent activity tracker for every signed-in user.
 // Reports heartbeats: logged in, away (2+ min idle), or logged out.
+// Calls Supabase RPC with the browser JWT (skips Next server-action hop).
 
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
-import { markPresenceOffline, sendPresenceHeartbeat } from "@/actions/presence";
+import { createClient } from "@/lib/supabase/client";
 
-const HEARTBEAT_MS = 30_000;
+const HEARTBEAT_ACTIVE_MS = 45_000;
+const HEARTBEAT_IDLE_MS = 60_000;
+const IDLE_STABLE_S = 120;
 const MOVE_THROTTLE_MS = 1_000;
 
 function tabOf(pathname: string): string {
@@ -25,18 +28,21 @@ export default function PresenceTracker() {
   const tabRef = useRef(tabOf(pathname));
   const sending = useRef(false);
   const pulseRef = useRef<() => Promise<void>>(async () => {});
+  const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
     tabRef.current = tabOf(pathname);
   }, [pathname]);
 
   useEffect(() => {
+    const supabase = createClient();
+
     const bump = () => {
       // If they were past the Away threshold, flush a heartbeat immediately
-      // so Monitor flips back to Logged in without waiting up to 30s.
+      // so Monitor flips back to Logged in without waiting for the next tick.
       const idleBefore = Math.floor((Date.now() - lastInput.current) / 1000);
       lastInput.current = Date.now();
-      if (idleBefore >= 120) {
+      if (idleBefore >= IDLE_STABLE_S) {
         void pulseRef.current();
       }
     };
@@ -59,29 +65,36 @@ export default function PresenceTracker() {
       scrolls.current += 1;
     };
 
+    const scheduleNext = (idleSeconds: number) => {
+      if (timerRef.current != null) window.clearTimeout(timerRef.current);
+      const delay = idleSeconds >= IDLE_STABLE_S ? HEARTBEAT_IDLE_MS : HEARTBEAT_ACTIVE_MS;
+      timerRef.current = window.setTimeout(() => void pulseRef.current(), delay);
+    };
+
     const pulse = async () => {
       if (sending.current) return;
       sending.current = true;
       const idleSeconds = Math.floor((Date.now() - lastInput.current) / 1000);
       const focused = typeof document !== "undefined" ? !document.hidden : true;
       const payload = {
-        tab: tabRef.current,
-        idleSeconds: Math.min(idleSeconds, 86_400),
-        focused,
-        clicks: clicks.current,
-        keys: keys.current,
-        scrolls: scrolls.current,
-        userAgent: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 240) : "",
+        p_tab: tabRef.current,
+        p_idle_seconds: Math.min(idleSeconds, 86_400),
+        p_focused: focused,
+        p_clicks: clicks.current,
+        p_keys: keys.current,
+        p_scrolls: scrolls.current,
+        p_user_agent: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 240) : "",
       };
       clicks.current = 0;
       keys.current = 0;
       scrolls.current = 0;
       try {
-        await sendPresenceHeartbeat(payload);
+        await supabase.rpc("presence_heartbeat", payload);
       } catch {
         // best-effort; never block the UI
       } finally {
         sending.current = false;
+        scheduleNext(idleSeconds);
       }
     };
     pulseRef.current = pulse;
@@ -102,18 +115,17 @@ export default function PresenceTracker() {
 
     // Let the first screen fetch finish before competing for the connection.
     const boot = window.setTimeout(() => void pulse(), 2000);
-    const timer = window.setInterval(() => void pulse(), HEARTBEAT_MS);
 
     // Only mark offline on real tab/window close — NOT on React remount
     // (Strict Mode / soft nav), which was wiping declared breaks instantly.
     const onHide = () => {
-      void markPresenceOffline();
+      void supabase.rpc("presence_offline");
     };
     window.addEventListener("pagehide", onHide);
 
     return () => {
       window.clearTimeout(boot);
-      window.clearInterval(timer);
+      if (timerRef.current != null) window.clearTimeout(timerRef.current);
       window.removeEventListener("mousemove", bumpMove);
       window.removeEventListener("mousedown", onClick);
       window.removeEventListener("keydown", onKey);

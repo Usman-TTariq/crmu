@@ -12,6 +12,8 @@ import PresenceBadge from "@/components/PresenceBadge";
 import PresenceTracker from "@/components/PresenceTracker";
 import BreakControl from "@/components/BreakControl";
 import LeadGenNotify from "@/components/LeadGenNotify";
+import ScreenshotsButton from "@/components/ScreenshotGallery";
+import ScreenshotGuard from "@/components/ScreenshotGuard";
 import { fetchTabCounts } from "@/actions/data";
 import { logSignIn, signOut } from "@/actions/auth";
 import { stopViewAs } from "@/actions/impersonate";
@@ -35,14 +37,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const tab = TABS.find((t) => t.k === activeKey) || TABS[0];
   const navigating = pendingKey !== null && pendingKey !== pathKey;
 
-  const visibleTabs = TABS.filter(
-    (t) =>
-      app.viewTabs.includes(t.k) &&
-      (t.k !== "ceo" || app.canSeeCeo) &&
-      (t.k !== "monitor" || app.canSeeMonitor) &&
-      (t.k !== "counselling" || app.canSeeCounselling) &&
-      (t.k !== "logs" || USER_ADMIN_ROLES.includes(app.role.key))
-  );
+  const JOURNEY_PEEK_NAV_HIDE = new Set<TabKey>(["leadgen", "closer", "documentation"]);
+  const visibleTabs = TABS.filter((t) => {
+    if (!app.viewTabs.includes(t.k)) return false;
+    if (t.k === "ceo" && !app.canSeeCeo) return false;
+    if (t.k === "monitor" && !app.canSeeMonitor) return false;
+    if (t.k === "counselling" && !app.canSeeCounselling) return false;
+    if (t.k === "logs" && !USER_ADMIN_ROLES.includes(app.role.key)) return false;
+    // OPS roles: Lead / Closer / Docs are journey peek-only (not left-nav pipeline pages)
+    if (
+      app.role.home === "ops" &&
+      JOURNEY_PEEK_NAV_HIDE.has(t.k) &&
+      !app.editTabs.includes(t.k)
+    ) {
+      return false;
+    }
+    return true;
+  });
 
   const canEditTab = app.editTabs.includes(activeKey);
   const canAdd =
@@ -324,6 +335,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="app-header-actions">
+            <ScreenshotsButton />
             <LeadGenNotify />
             <BreakControl />
             <PresenceBadge />
@@ -425,6 +437,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         ))}
       </div>
+
+      <ScreenshotGuard />
     </div>
   );
 }

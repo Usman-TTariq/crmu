@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { isBlank, today } from "@/lib/format";
-import { CLOSER_REQUIRED_FIELDS } from "@/lib/schemas";
+import { CLOSER_REQUIRED_FIELDS, isCloserClosedStage } from "@/lib/schemas";
 import { SCHEMAS, TAB_TABLE, mspIsFatal } from "@/lib/schemas";
 import {
   TABS,
@@ -115,7 +115,8 @@ function buildDefault(tab: TabKey): Rec {
   if (tab === "closer") {
     return {
       ...base,
-      lead_source: "Referral",
+      lead_source: "Cold Calling",
+      closer_lead_source: "Referral",
       business_name: "",
       dba_name: "",
       business_type: "",
@@ -272,6 +273,11 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           } else {
             setOpsBanner(null);
           }
+        } else {
+          // After save / live sync: refresh only the dirty tab badge
+          fetchTabCounts({ tf, tabs: [tab] }).then((c) =>
+            setCounts((prev) => ({ ...prev, ...c }))
+          );
         }
       } finally {
         if (silent) {
@@ -491,11 +497,11 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
         return;
       }
     }
-    if (tab === "closer") {
+    if (tab === "closer" && isCloserClosedStage(draft.stage)) {
       const missing = CLOSER_REQUIRED_FIELDS.filter((f) => isBlank(draft[f.k])).map((f) => f.label);
       if (missing.length) {
         app.pushToasts([
-          `Fill all required fields (*): ${missing.slice(0, 6).join(", ")}${
+          `Closed requires all fields (*): ${missing.slice(0, 6).join(", ")}${
             missing.length > 6 ? ` +${missing.length - 6} more` : ""
           }.`,
         ]);
@@ -806,8 +812,14 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
                               : r.returned_after_dispute
                                 ? TONES.info.bg
                                 : null
-                        : tab === "sqlassign" || tab === "closer"
+                        : tab === "sqlassign"
                           ? (r) => (isLiveTransferSource(r.lead_source) ? "#F8C8CB" : null)
+                          : tab === "closer"
+                            ? (r) =>
+                                isLiveTransferSource(r.closer_lead_source) ||
+                                isLiveTransferSource(r.lead_source)
+                                  ? "#F8C8CB"
+                                  : null
                           : tab === "documentation"
                             ? (r) => (r.returned_after_ops_rework ? "#F8C8CB" : null)
                             : undefined

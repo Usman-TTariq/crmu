@@ -56,9 +56,9 @@ export interface FieldDef {
   required?: boolean;
 }
 
-/** Closer Pipeline fields that must be filled on create/save. */
+/** Closer Pipeline fields required only when Stage is Closed (or Closed Won). */
 export const CLOSER_REQUIRED_FIELDS: { k: string; label: string }[] = [
-  { k: "lead_source", label: "Lead Source" },
+  { k: "closer_lead_source", label: "Lead Source" },
   { k: "assigned_date", label: "Assigned Date" },
   { k: "closer", label: "Closer (owner)" },
   { k: "stage", label: "Stage" },
@@ -91,10 +91,14 @@ export const CLOSER_REQUIRED_FIELDS: { k: string; label: string }[] = [
   { k: "notes", label: "Notes" },
 ];
 
-const closerReq = new Set(CLOSER_REQUIRED_FIELDS.map((f) => f.k));
-/** Keeps FieldDef contextual typing on the array literal (unlike bare `.map`). */
-const markCloserRequired = (fields: FieldDef[]): FieldDef[] =>
-  fields.map((f) => (closerReq.has(f.k) ? { ...f, required: true } : f));
+export const isCloserClosedStage = (stage: unknown): boolean => {
+  const s = String(stage || "").trim();
+  return s === "Closed" || s === "Closed Won";
+};
+
+export const closerRequiredKeys = new Set(CLOSER_REQUIRED_FIELDS.map((f) => f.k));
+/** Schema helper — asterisks are applied in Drawer when stage is Closed. */
+const markCloserRequired = (fields: FieldDef[]): FieldDef[] => fields;
 
 // SLA fatal check, ported from onbFatal (real dates)
 export const mspIsFatal = (r: Rec): boolean => {
@@ -140,7 +144,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "updated_by_name", label: "Edited By", type: "computed", isPill: true, compute: (r) => r.updated_by_name || "-" },
     { k: "created_by_name", label: "Created By", type: "computed", isPill: true, compute: (r) => r.created_by_name || "-" },
     { k: "lead_gen_agent", label: "Lead Gen Agent", type: "select", opts: (c) => c.leadgenAgents },
-    { k: "lead_source", label: "Lead Source", type: "select", opts: LEAD_SOURCES },
+    { k: "lead_source", label: "Data Source", type: "select", opts: LEAD_SOURCES },
     { k: "business_name", label: "Business Name", type: "text" },
     { k: "owner_name", label: "Owner Name", type: "text" },
     { k: "phone", label: "Phone", type: "phone", mono: true },
@@ -200,7 +204,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
     { k: "qa_date", label: "Date", type: "date" },
     { k: "lead_gen_agent", label: "Lead Gen Agent", type: "text", readOnly: true },
-    { k: "lead_source", label: "Lead Source", type: "select", opts: LEAD_SOURCES, readOnly: true },
+    { k: "lead_source", label: "Data Source", type: "select", opts: LEAD_SOURCES, readOnly: true },
     { k: "business_name", label: "Business Name", type: "text", readOnly: true },
     { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },
     { k: "phone", label: "Phone", type: "phone", mono: true, readOnly: true },
@@ -284,10 +288,17 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "created_by_name", label: "Created By", type: "computed", isPill: true, compute: (r) => r.created_by_name || "-" },
     {
       k: "lead_source",
+      label: "Data Source",
+      type: "select",
+      opts: LEAD_SOURCES,
+      readOnly: true,
+      hideTable: true,
+    },
+    {
+      k: "closer_lead_source",
       label: "Lead Source",
       type: "select",
       opts: CLOSER_LEAD_SOURCES,
-      readOnly: true,
       hideTable: true,
     },
     { k: "assigned_date", label: "Assigned Date", type: "date" },
@@ -485,7 +496,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
   documentation: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
     { k: "closed_date", label: "Closed Date", type: "date", readOnly: true },
-    { k: "lead_source", label: "Lead Source", type: "text", readOnly: true },
+    { k: "lead_source", label: "Data Source", type: "text", readOnly: true },
     { k: "closer", label: "Closer", type: "text", readOnly: true },
     {
       k: "lead_gen_agent",
@@ -909,6 +920,7 @@ export const EDITABLE_COLUMNS: Record<string, string[]> = {
   ],
   sqlassign: ["assigned_closer", "assignment_date", "assigned_by", "sql_status", "notes"],
   closer: [
+    "closer_lead_source",
     "assigned_date", "stage", "lost_reason", "connected_date", "docs_pending_date",
     "docs_recd_date", "closed_date", "notes",
     "business_name", "dba_name", "business_type", "business_category",

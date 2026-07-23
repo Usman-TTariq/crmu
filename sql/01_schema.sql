@@ -149,6 +149,7 @@ create table if not exists public.closer_deals (
   assigned_date      date,
   closer             text not null default '',
   stage              text not null default 'No Answer' check (stage in ('No Answer','Follow Up','Docs Pending','Docs Received','Closed','Closed Lost','Not Interested')),
+  closer_lead_source text not null default '',
   lost_reason        text not null default '',
   connected_date     date,
   docs_pending_date  date,

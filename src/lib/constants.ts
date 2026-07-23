@@ -1,24 +1,26 @@
 // Domain constants ported from the prototype.
 // Person-specific demo roles are generalized into role templates (role_key on profiles).
 
-/** Lead Gen create / edit — original sources only. */
+/** Lead Gen create / edit — data sources. */
 export const LEAD_SOURCES = [
   "Cold Calling",
+  "Data Scrapping",
+  "SEO",
   "PPC",
-  "Referral",
-  "Data Scrap",
-  "Organic",
-  "Live Transfer",
-  "Other",
+  "SMM",
 ];
 
-export const isLiveTransferSource = (source: unknown) =>
-  String(source || "").trim() === "Live Transfer";
+export const isLiveTransferSource = (source: unknown) => {
+  const s = String(source || "").trim();
+  return s === "Live Transfer" || s === "SQL - LT";
+};
 
-/** Closer Add Lead — direct / self-sourced deals. */
+/** Closer Pipeline — how the deal entered Closer. */
 export const CLOSER_LEAD_SOURCES = [
-  "Referral",
+  "SQL",
+  "SQL - LT",
   "Self Generated",
+  "Referral",
   "Upsell",
 ];
 
@@ -109,7 +111,7 @@ export const TABS: TabDef[] = [
   { k: "leadgen", label: "Lead Gen", emoji: "\u{1F4DD}", div: "SALES", dated: true, singular: "Lead", note: "Saving a lead instantly creates its QA record. After create, fields stay locked — you can still add Notes (visible to QA) and comments, and dispute a Disqualified lead." },
   { k: "qa", label: "QA", emoji: "\u2705", div: "SALES", dated: true, note: "Qualify when the 5 Yes/No checks are Yes. Monthly volume is informational only — under or over $5k does not block Qualify or Disqualify. Qualifying creates the SQL. Disqualifying returns the lead to Lead Gen for a possible dispute." },
   { k: "sqlassign", label: "SQL Assignment", emoji: "\u{1F3AF}", div: "SALES", dated: true, note: "Pick a closer (load shown) and set Status to Assigned to push it to the Closer Pipeline." },
-  { k: "closer", label: "Closer Pipeline", emoji: "\u{1F91D}", div: "SALES", dated: true, singular: "Lead", note: "Add Lead creates a closer-direct deal (skips Lead Gen / QA / SQL). Closed sends it to Documentation. Closed Lost needs a reason and stays in history. Not Interested closes the deal without Documentation/OPS." },
+  { k: "closer", label: "Closer Pipeline", emoji: "\u{1F91D}", div: "SALES", dated: true, singular: "Lead", note: "Add Lead creates a closer-direct deal (skips Lead Gen / QA / SQL). Intake fields (*) are required only when Stage is Closed. Closed sends it to Documentation. Closed Lost needs a reason and stays in history. Not Interested closes the deal without Documentation/OPS. Docs Received / Closed still need Driving License + Voided Cheque." },
   { k: "saleskpi", label: "Sales KPIs", emoji: "\u{1F4C8}", kind: "kpi", div: "SALES" },
   { k: "documentation", label: "Documentation", emoji: "\u{1F4C1}", div: "DOCUMENTATION", dated: true, singular: "Review", note: "Project Manager reviews closer docs. Pass sends the deal to OPS QA. Fail returns it to Closer as Docs Pending. Rows highlighted after OPS Rework show OPS reasoning — Fail sends those back to Closer." },
   { k: "ops", label: "OPS QA", emoji: "\u{1F50E}", div: "OPS", dated: true, singular: "Lead", note: "OPS QA verifies documents and records a reasoning for every decision. Only DL Recd and Voided Cheque must be Yes to approve — Bank Stmt, owner, and business checks are optional. Approved sends it to Onboarding. Rework returns the deal to Documentation with your reasoning." },
@@ -192,18 +194,18 @@ export const ROLES: RoleDef[] = [
   {
     key: "ops_manager",
     label: "Manager [OPS]",
-    view: [...OPS_TABS, "documentation", "monitor"],
+    view: [...OPS_TABS, "leadgen", "closer", "documentation", "monitor"],
     edit: "ops",
     home: "ops",
-    scope: "Manager. Edits and assigns every lead and OPS QA record across OPS, runs QA accuracy audit, and monitors OPS employee presence. Can view Documentation.",
+    scope: "Manager. Edits and assigns every lead and OPS QA record across OPS, runs QA accuracy audit, and monitors OPS employee presence. Lead Gen, Closer, and Documentation are view-only from the journey.",
   },
   {
     key: "ops_am",
     label: "Assistant Manager [OPS]",
-    view: [...OPS_TABS, "documentation"],
+    view: [...OPS_TABS, "leadgen", "closer", "documentation"],
     edit: "ops",
     home: "ops",
-    scope: "Assistant Manager. Edits and assigns every lead and OPS QA record across OPS, and can run the QA accuracy audit. Can view Documentation.",
+    scope: "Assistant Manager. Edits and assigns every lead and OPS QA record across OPS, and can run the QA accuracy audit. Lead Gen, Closer, and Documentation are view-only from the journey.",
   },
   {
     key: "lg_agent",
@@ -232,16 +234,31 @@ export const ROLES: RoleDef[] = [
     scope: "Only the leads assigned to you for QA. Closer Pipeline is read-only so you can monitor SQLs that are not yet converted.",
   },
   { key: "closer", label: "Closer [SALES]", view: ["closer"], edit: ["closer"], home: "closer", row: { closer: "ownCloser" }, scope: "Only the deals assigned to you. You can also create direct leads that skip Lead Gen / QA and enter your pipeline. OPS-disapproved deals can be disputed to AVP Sales." },
-  { key: "ops_verifier", label: "QA & Funding Lead [OPS]", view: ["ops", "documentation"], edit: ["ops"], home: "ops", scope: "Leads OPS QA. Sees, edits, assigns and revokes all OPS verification. Can view Documentation." },
+  {
+    key: "ops_verifier",
+    label: "QA & Funding Lead [OPS]",
+    view: ["ops", "leadgen", "closer", "documentation"],
+    edit: ["ops"],
+    home: "ops",
+    scope: "Leads OPS QA. Sees, edits, assigns and revokes all OPS verification. Lead Gen, Closer, and Documentation are view-only from the journey.",
+  },
   {
     key: "ops_qa_onb",
     label: "OPS QA & Onboarding [OPS]",
-    view: [...OPS_TABS, "documentation"],
+    view: [...OPS_TABS, "leadgen", "closer", "documentation"],
     edit: ["ops", "msp"],
     home: "ops",
-    scope: "Edits OPS QA and Onboarding across all rows. Fulfillment, Leasing, Customer Success, and OPS KPIs are view-only.",
+    scope: "Edits OPS QA and Onboarding across all rows. Lead Gen, Closer, and Documentation are view-only from the journey. Fulfillment, Leasing, Customer Success, and OPS KPIs are view-only.",
   },
-  { key: "ops_qa_agent", label: "Quality Assurance [OPS]", view: ["ops"], edit: ["ops"], home: "ops", row: { ops: "ownOps" }, scope: "Only the OPS leads assigned to you for verification." },
+  {
+    key: "ops_qa_agent",
+    label: "Quality Assurance [OPS]",
+    view: ["ops", "leadgen", "closer", "documentation"],
+    edit: ["ops"],
+    home: "ops",
+    row: { ops: "ownOps" },
+    scope: "Only the OPS leads assigned to you for verification. Lead Gen, Closer, and Documentation are view-only from the journey for those leads.",
+  },
   { key: "onboarding_lead", label: "Onboarding Lead [OPS]", view: ["msp", "fulfillment", "leasing"], edit: ["msp", "fulfillment", "leasing"], home: "msp", scope: "Leads onboarding. Edits and assigns the whole team's submissions, plus Fulfillment and Leasing." },
   { key: "onb_agent", label: "Onboarding Agent [OPS]", view: ["msp"], edit: ["msp"], home: "msp", row: { msp: "ownOnb" }, scope: "End-to-end ownership: only the submissions assigned to you, and only you chase them." },
   { key: "cs_head", label: "Customer Success Head [OPS]", view: ["retention"], edit: ["retention"], home: "retention", scope: "Heads Customer Success. Edits the whole team." },

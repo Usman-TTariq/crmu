@@ -79,6 +79,7 @@ export async function sendPresenceHeartbeat(payload: {
   scrolls: number;
   userAgent: string;
 }): Promise<{ status?: string; error?: string }> {
+  const t0 = performance.now();
   try {
     await requireAuth();
     const supabase = await createClient();
@@ -93,6 +94,10 @@ export async function sendPresenceHeartbeat(payload: {
     });
     if (error) return { error: error.message };
     const row = data as { status?: string } | null;
+    const ms = Math.round(performance.now() - t0);
+    if (ms >= 50 || process.env.NODE_ENV !== "production") {
+      console.info(`[crm-timing] sendPresenceHeartbeat ${ms}ms`);
+    }
     return { status: row?.status };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Heartbeat failed." };
@@ -377,6 +382,49 @@ export async function fetchPresenceBoard(payload?: {
     return { rows: (data as PresenceRow[]) || [] };
   } catch (e) {
     return { rows: [], error: e instanceof Error ? e.message : "Failed to load." };
+  }
+}
+
+/** Tiny online/away/break counts for the header badge (sql/79). */
+export async function fetchPresenceBadgeSummary(): Promise<{
+  online: number;
+  away: number;
+  break: number;
+  error?: string;
+}> {
+  const t0 = performance.now();
+  try {
+    await requireAuth();
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("presence_badge_summary");
+    if (error) {
+      // Fallback: derive from board if RPC not applied yet
+      const board = await fetchPresenceBoard();
+      if (board.error) return { online: 0, away: 0, break: 0, error: error.message };
+      const rows = board.rows || [];
+      return {
+        online: rows.filter((r) => r.status === "working").length,
+        away: rows.filter((r) => r.status === "away" || r.status === "idle").length,
+        break: rows.filter((r) => r.status === "break").length,
+      };
+    }
+    const row = (data || {}) as { online?: number; away?: number; break?: number };
+    const ms = Math.round(performance.now() - t0);
+    if (ms >= 50 || process.env.NODE_ENV !== "production") {
+      console.info(`[crm-timing] fetchPresenceBadgeSummary ${ms}ms`);
+    }
+    return {
+      online: Number(row.online || 0),
+      away: Number(row.away || 0),
+      break: Number(row.break || 0),
+    };
+  } catch (e) {
+    return {
+      online: 0,
+      away: 0,
+      break: 0,
+      error: e instanceof Error ? e.message : "Failed to load presence summary.",
+    };
   }
 }
 
