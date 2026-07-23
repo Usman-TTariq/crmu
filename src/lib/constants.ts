@@ -222,7 +222,15 @@ export const ROLES: RoleDef[] = [
     home: "leadgen",
     scope: "View team leads. Approve or disapprove Lead Gen disputes on disqualified leads.",
   },
-  { key: "qa_agent", label: "QA Agent [SALES]", view: ["qa"], edit: ["qa"], home: "qa", row: { qa: "ownQA" }, scope: "Only the leads assigned to you for QA." },
+  {
+    key: "qa_agent",
+    label: "QA Agent [SALES]",
+    view: ["qa", "closer"],
+    edit: ["qa"],
+    home: "qa",
+    row: { qa: "ownQA" },
+    scope: "Only the leads assigned to you for QA. Closer Pipeline is read-only so you can monitor SQLs that are not yet converted.",
+  },
   { key: "closer", label: "Closer [SALES]", view: ["closer"], edit: ["closer"], home: "closer", row: { closer: "ownCloser" }, scope: "Only the deals assigned to you. You can also create direct leads that skip Lead Gen / QA and enter your pipeline. OPS-disapproved deals can be disputed to AVP Sales." },
   { key: "ops_verifier", label: "QA & Funding Lead [OPS]", view: ["ops", "documentation"], edit: ["ops"], home: "ops", scope: "Leads OPS QA. Sees, edits, assigns and revokes all OPS verification. Can view Documentation." },
   {
