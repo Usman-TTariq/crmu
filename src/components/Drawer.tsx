@@ -148,6 +148,7 @@ export default function Drawer({
           ? new Set(["pm_name", "decision", "fail_reason", "review_date", "notes", "__newComment"])
           : tab.k === "ops"
             ? new Set([
+                "sale_type",
                 "brand",
                 "dl_recd",
                 "voided_check",
@@ -166,7 +167,6 @@ export default function Drawer({
             : tab.k === "qa"
               ? new Set([
                   "qa_date",
-                  "sale_type",
                   "us_business",
                   "owner_reached",
                   "interested",

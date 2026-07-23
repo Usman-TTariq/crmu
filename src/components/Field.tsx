@@ -202,6 +202,21 @@ function CommentThread({
   );
 }
 
+/** 25000 → "25,000" (keeps any decimal part as typed). */
+function formatNumDisplay(raw: string): string {
+  if (!raw) return "";
+  const [int, ...rest] = raw.split(".");
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return rest.length ? `${grouped}.${rest.join("")}` : grouped;
+}
+
+/** Strip grouping/junk; keep digits and a single decimal point. */
+function cleanNumInput(text: string): string {
+  const cleaned = text.replace(/[^0-9.]/g, "");
+  const parts = cleaned.split(".");
+  return parts.length > 1 ? `${parts[0]}.${parts.slice(1).join("")}` : cleaned;
+}
+
 const base: React.CSSProperties = {
   width: "100%",
   border: `1px solid ${C.line}`,
@@ -461,7 +476,12 @@ export default function Field({
     if (blankVal(raw)) {
       return f.emptyHint ? emptyBox(f.emptyHint) : null;
     }
-    const text = String(raw);
+    const text =
+      f.type === "num"
+        ? f.fmt === "money"
+          ? money(raw)
+          : numfmt(raw)
+        : String(raw);
     const isNotesLike =
       !!f.long ||
       /(_notes|_comments|_reasoning|notes|reasoning|fail_reason)$/i.test(f.k);
@@ -692,13 +712,32 @@ export default function Field({
     );
   }
 
-  const type = f.type === "num" ? "number" : "text";
+  if (f.type === "num") {
+    // Text input (not type=number): wheel-scrolling a focused number input
+    // silently changes the value, which corrupted entered volumes. Commas
+    // make the entered amount verifiable at a glance.
+    return (
+      <div>
+        {lbl}
+        <input
+          autoFocus={autoFocus}
+          type="text"
+          inputMode="decimal"
+          value={formatNumDisplay(String(value[f.k] ?? ""))}
+          onChange={(e) => onChange(f, cleanNumInput(e.target.value))}
+          className="mono"
+          style={base}
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
       {lbl}
       <input
         autoFocus={autoFocus}
-        type={type}
+        type="text"
         value={String(value[f.k] ?? "")}
         onChange={(e) => onChange(f, e.target.value)}
         className={f.mono ? "mono" : ""}

@@ -8,7 +8,40 @@ export const LEAD_SOURCES = [
   "SEO",
   "PPC",
   "SMM",
-];
+] as const;
+
+export type LeadSource = (typeof LEAD_SOURCES)[number];
+
+const LEAD_SOURCE_SET = new Set<string>(LEAD_SOURCES);
+
+/** Legacy / typo labels → canonical Lead Gen data source. */
+const LEAD_SOURCE_ALIASES: Record<string, LeadSource> = {
+  "cold calling": "Cold Calling",
+  "data scrapping": "Data Scrapping",
+  "data scraping": "Data Scrapping",
+  "data scrap": "Data Scrapping",
+  seo: "SEO",
+  ppc: "PPC",
+  smm: "SMM",
+};
+
+/** Map raw DB value to an official Lead Gen source, or null if not a data source. */
+export const normalizeLeadSource = (source: unknown): LeadSource | null => {
+  const raw = String(source || "").trim();
+  if (!raw) return null;
+  if (LEAD_SOURCE_SET.has(raw)) return raw as LeadSource;
+  return LEAD_SOURCE_ALIASES[raw.toLowerCase()] || null;
+};
+
+/** Values to match in DB when filtering by a canonical source (includes aliases). */
+export const leadSourceFilterValues = (canonical: string): string[] => {
+  const canon = normalizeLeadSource(canonical);
+  if (!canon) return [];
+  if (canon === "Data Scrapping") {
+    return ["Data Scrapping", "Data Scrap", "Data Scraping"];
+  }
+  return [canon];
+};
 
 export const isLiveTransferSource = (source: unknown) => {
   const s = String(source || "").trim();

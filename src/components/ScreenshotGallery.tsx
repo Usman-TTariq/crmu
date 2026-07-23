@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Camera, RefreshCw, ShieldAlert, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Camera, Download, RefreshCw, ShieldAlert, X } from "lucide-react";
 import {
   listScreenshotAlerts,
   type ScreenshotAlertRow,
@@ -22,6 +23,11 @@ export function ScreenshotGalleryModal({
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<ScreenshotAlertRow | null>(null);
+  // Portal target only exists client-side.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -32,6 +38,37 @@ export function ScreenshotGalleryModal({
       setRows(res.rows);
     }
     setLoading(false);
+  }, []);
+
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const downloadShot = useCallback(async (row: ScreenshotAlertRow) => {
+    if (!row.preview_url) return;
+    setDownloadingId(row.id);
+    try {
+      // Fetch as blob: the `download` attribute is ignored on cross-origin
+      // signed URLs, so a plain <a download> would just open the image.
+      const res = await fetch(row.preview_url);
+      if (!res.ok) throw new Error("fetch failed");
+      const blob = await res.blob();
+      const ext = (row.storage_path.split(".").pop() || "jpg").toLowerCase();
+      const who = (row.actor_name || "employee").trim().replace(/\s+/g, "_");
+      const stamp = new Date(row.created_at)
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[:T]/g, "-");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `screenshot-${who}-${stamp}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(row.preview_url, "_blank", "noopener");
+    } finally {
+      setDownloadingId(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -69,9 +106,12 @@ export function ScreenshotGalleryModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, preview, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
+  // Portal to <body>: transformed ancestors (.crm-card:hover, .fade-up) would
+  // otherwise become the containing block for position:fixed and pin the
+  // modal to the top of the page instead of the viewport.
+  return createPortal(
     <>
       <div className="ss-gallery-modal" role="dialog" aria-modal="true" aria-label="All screenshots">
         <div className="ss-gallery-backdrop" onClick={onClose} />
@@ -134,6 +174,34 @@ export function ScreenshotGalleryModal({
                         {formatMonitorStamp(r.created_at)}
                       </div>
                     </div>
+                    {r.preview_url ? (
+                      // span (not button): the card itself is a button and
+                      // nested buttons are invalid HTML.
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="ss-dl-btn"
+                        title="Download screenshot"
+                        aria-label="Download screenshot"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void downloadShot(r);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            void downloadShot(r);
+                          }
+                        }}
+                      >
+                        {downloadingId === r.id ? (
+                          <RefreshCw size={13} className="spin" />
+                        ) : (
+                          <Download size={13} />
+                        )}
+                      </span>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -151,14 +219,31 @@ export function ScreenshotGalleryModal({
                 <ShieldAlert size={18} />
                 <span>Screenshot</span>
               </div>
-              <button
-                type="button"
-                className="ss-alert-x"
-                aria-label="Close"
-                onClick={() => setPreview(null)}
-              >
-                <X size={16} />
-              </button>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {preview.preview_url ? (
+                  <button
+                    type="button"
+                    className="ss-panel-refresh"
+                    onClick={() => void downloadShot(preview)}
+                    disabled={downloadingId === preview.id}
+                  >
+                    {downloadingId === preview.id ? (
+                      <RefreshCw size={14} className="spin" />
+                    ) : (
+                      <Download size={14} />
+                    )}
+                    Download
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="ss-alert-x"
+                  aria-label="Close"
+                  onClick={() => setPreview(null)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
             <div className="ss-alert-meta">
               <div>
@@ -190,7 +275,8 @@ export function ScreenshotGalleryModal({
           </div>
         </div>
       ) : null}
-    </>
+    </>,
+    document.body
   );
 }
 

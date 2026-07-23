@@ -167,26 +167,33 @@ export async function listScreenshotAlerts(limit = 24): Promise<{
 
     if (error) return { rows: [], error: error.message };
 
-    const rows: ScreenshotAlertRow[] = [];
-    for (const r of data || []) {
-      const path = String(r.storage_path || "");
-      let preview_url: string | null = null;
-      if (path) {
-        const signed = await admin.storage
-          .from("screenshot_alerts")
-          .createSignedUrl(path, 3600);
-        preview_url = signed.data?.signedUrl || null;
+    // One bulk call for all signed URLs; per-row createSignedUrl was 100
+    // sequential round-trips and made the gallery take seconds to open.
+    const paths = (data || [])
+      .map((r) => String(r.storage_path || ""))
+      .filter(Boolean);
+    const urlByPath = new Map<string, string>();
+    if (paths.length) {
+      const { data: signed } = await admin.storage
+        .from("screenshot_alerts")
+        .createSignedUrls(paths, 3600);
+      for (const s of signed || []) {
+        if (s.path && s.signedUrl && !s.error) urlByPath.set(s.path, s.signedUrl);
       }
-      rows.push({
+    }
+
+    const rows: ScreenshotAlertRow[] = (data || []).map((r) => {
+      const path = String(r.storage_path || "");
+      return {
         id: r.id,
         actor_name: r.actor_name,
         actor_role: r.actor_role || "",
         page_path: r.page_path || "",
         storage_path: path,
         created_at: r.created_at,
-        preview_url,
-      });
-    }
+        preview_url: urlByPath.get(path) || null,
+      };
+    });
     return { rows };
   } catch (e) {
     return { rows: [], error: e instanceof Error ? e.message : "Failed to load alerts." };

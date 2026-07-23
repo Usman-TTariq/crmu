@@ -18,6 +18,8 @@ import {
   CLOSER_LEAD_SOURCES,
   CLOSER_STAGES,
   LEAD_SOURCES,
+  leadSourceFilterValues,
+  normalizeLeadSource,
   OPS_STATUS,
   PROCESSORS,
   RECORD_DELETE_EMAILS,
@@ -252,7 +254,7 @@ const LIST_SELECT: Partial<Record<TabKey, string>> = {
   leadgen:
     "id, lead_id, date_created, created_at, updated_at, created_by, updated_by, lead_gen_agent, lead_source, business_name, owner_name, phone, email, business_address, city, zip_code, state, current_processor, current_device, current_rate, monthly_volume",
   qa:
-    "id, lead_id, qa_date, lead_gen_agent, lead_source, business_name, owner_name, phone, email, business_address, city, zip_code, state, current_processor, current_device, sale_type, current_rate, monthly_volume, returned_after_dispute, us_business, owner_reached, interested, physical_loc, not_restricted, qa_agent, qa_decision, qa_notes",
+    "id, lead_id, qa_date, lead_gen_agent, lead_source, business_name, owner_name, phone, email, business_address, city, zip_code, state, current_processor, current_device, current_rate, monthly_volume, returned_after_dispute, us_business, owner_reached, interested, physical_loc, not_restricted, qa_agent, qa_decision, qa_notes",
   sqlassign:
     "id, lead_id, qa_date, business_name, owner_name, phone, state, monthly_volume, assigned_closer, assignment_date, assigned_at, assigned_by, sql_status, updated_at",
   closer:
@@ -260,7 +262,7 @@ const LIST_SELECT: Partial<Record<TabKey, string>> = {
   documentation:
     "id, lead_id, closed_date, closer, business_name, owner_name, phone, monthly_volume, state, pm_name, decision, returned_after_ops_rework, review_date",
   ops:
-    "id, lead_id, closed_date, business_name, owner_name, phone, closer, monthly_volume, brand, dl_recd, voided_check, bank_stmt, owner_name_verified, owner_phone_verified, business_verified, ops_status, returned_after_ops_dispute, reasoning, ops_agent, ops_date, accuracy_review",
+    "id, lead_id, closed_date, business_name, owner_name, phone, closer, monthly_volume, sale_type, brand, dl_recd, voided_check, bank_stmt, owner_name_verified, owner_phone_verified, business_verified, ops_status, returned_after_ops_dispute, reasoning, ops_agent, ops_date, accuracy_review",
   msp:
     "id, lead_id, business_name, owner_name, monthly_volume, ops_approved_date, onboarding_sp, a1_date, a1_provider, a1_result, a2_date, a2_provider, a2_result, a3_date, a3_provider, a3_result, approved_date, final_status, equip_order_date, device, tracking_number, delivery_date, shipping_cost",
   fulfillment:
@@ -449,7 +451,8 @@ async function applyPipelineListFilters(
   if (tab === "leadgen" || tab === "qa") {
     const source = (payload.leadSource || "").trim();
     if (source && LEAD_SOURCE_FILTERS.has(source)) {
-      q = q.eq("lead_source", source);
+      const variants = leadSourceFilterValues(source);
+      q = variants.length === 1 ? q.eq("lead_source", variants[0]) : q.in("lead_source", variants);
     }
     const agent = (payload.leadGenAgent || "").trim();
     if (agent) {
@@ -1574,6 +1577,11 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
       }
     }
 
+    if ("lead_source" in values && (payload.tab === "leadgen" || payload.tab === "qa")) {
+      const canon = normalizeLeadSource(values.lead_source);
+      if (canon) values.lead_source = canon;
+    }
+
     const messages: string[] = [];
 
     if (payload.tab === "leadgen" || payload.tab === "closer") {
@@ -1862,6 +1870,7 @@ export async function createManualOpsRecord(payload: {
       monthly_volume: monthlyVolume,
       closer: String(v.closer || "").trim() || "OPS Manual",
       closed_date: String(v.closed_date || "").trim() || null,
+      sale_type: String(v.sale_type || ""),
       brand: String(v.brand || ""),
       dl_recd: String(v.dl_recd || ""),
       voided_check: String(v.voided_check || ""),

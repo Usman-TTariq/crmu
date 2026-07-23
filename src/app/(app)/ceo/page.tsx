@@ -10,6 +10,7 @@ import { Stat, Bar, Panel, Donut, FunnelChart, SegmentedDonut, LBRow, type Funne
 import Pill from "@/components/Pill";
 import ScreenshotAlertsPanel from "@/components/ScreenshotAlertsPanel";
 import { fetchCeoPage, type BoardCloserRow } from "@/actions/dashboard";
+import { LEAD_SOURCES, normalizeLeadSource } from "@/lib/constants";
 
 type Ceo = Record<string, unknown>;
 
@@ -78,7 +79,20 @@ export default function CeoDashboardPage() {
       ? `${leadsLeadgen} Lead Gen · ${leadsOutsideLeadgen} closer/OPS direct`
       : `${leadsLeadgen || n("leads")} Lead Gen · ${app.tf.toLowerCase()}`;
   const funnel = (d.funnel || []) as FunnelStep[];
-  const sources = (d.leadSources || []) as { label: string; count: number }[];
+  // All official Lead Gen data sources (0 counts included); merge aliases
+  // (e.g. Data Scrap → Data Scrapping). Sorted by count desc, then list order.
+  const sources = (() => {
+    const raw = (d.leadSources || []) as { label: string; count: number }[];
+    const merged = new Map<string, number>(LEAD_SOURCES.map((s) => [s, 0]));
+    for (const x of raw) {
+      const label = normalizeLeadSource(x.label);
+      if (!label || !(x.count > 0)) continue;
+      merged.set(label, (merged.get(label) || 0) + x.count);
+    }
+    return LEAD_SOURCES.map((label) => ({ label, count: merged.get(label) || 0 })).sort(
+      (a, b) => b.count - a.count
+    );
+  })();
   const mspRates = (d.mspRates || []) as { name: string; rate: number }[];
   const leaseRates = (d.leaseRates || []) as { name: string; rate: number }[];
   const drops = (d.dropOffs || []) as { label: string; n: number }[];
@@ -182,7 +196,7 @@ export default function CeoDashboardPage() {
             <FunnelChart steps={funnel} />
           </Panel>
           <Panel title={"Data Source Mix · " + app.tf} color={C.blue}>
-            <SegmentedDonut centerLabel="LEADS" items={sources.filter((x) => x.count > 0)} />
+            <SegmentedDonut centerLabel="LEADS" items={sources} />
           </Panel>
           <Panel title="MSP Approval Rates" color="#6D28D9" style={{ flex: 1 }}>
             {mspRates.length ? (

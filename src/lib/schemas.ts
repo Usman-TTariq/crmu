@@ -215,7 +215,6 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "state", label: "State", type: "text", readOnly: true },
     { k: "current_processor", label: "Current Processor", type: "select", opts: PROCESSORS, readOnly: true },
     { k: "current_device", label: "Current Device", type: "text", readOnly: true },
-    { k: "sale_type", label: "Sale Type", type: "select", opts: SALE_TYPES },
     { k: "current_rate", label: "Current Rate %", type: "text", readOnly: true },
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
     { k: "notes", label: "Lead Notes", type: "text", long: true, hideTable: true, readOnly: true },
@@ -666,6 +665,7 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
     { k: "phone", label: "Phone", type: "phone", mono: true, readOnly: true },
     { k: "closer", label: "Closer", type: "text", readOnly: true },
     { k: "monthly_volume", label: "Monthly Volume ($)", type: "num", fmt: "money", readOnly: true },
+    { k: "sale_type", label: "Sale Type", type: "select", opts: SALE_TYPES },
     { k: "brand", label: "Brand", type: "select", opts: ONB_BRANDS },
     { k: "dl_recd", label: "DL Recd?", type: "select", opts: YN },
     { k: "voided_check", label: "Voided Cheque?", type: "select", opts: YN },
@@ -970,7 +970,6 @@ export const EDITABLE_COLUMNS: Record<string, string[]> = {
   ],
   qa: [
     "qa_date",
-    "sale_type",
     "us_business", "owner_reached", "interested", "physical_loc", "not_restricted",
     "qa_agent", "qa_decision", "qa_notes",
   ],
@@ -989,7 +988,7 @@ export const EDITABLE_COLUMNS: Record<string, string[]> = {
   ],
   documentation: ["pm_name", "decision", "fail_reason", "review_date", "notes"],
   ops: [
-    "brand", "dl_recd", "voided_check", "bank_stmt", "owner_name_verified",
+    "sale_type", "brand", "dl_recd", "voided_check", "bank_stmt", "owner_name_verified",
     "owner_phone_verified", "business_verified", "ops_status", "reasoning",
     "ops_agent", "ops_date", "accuracy_review", "notes",
   ],

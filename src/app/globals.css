@@ -1809,6 +1809,7 @@ html { scrollbar-color: #ffe3e7 rgba(0, 0, 0, 0.25); }
   }
 }
 .ss-panel-card {
+  position: relative;
   border: 1px solid rgba(18, 21, 26, 0.1);
   background: #fff;
   border-radius: 12px;
@@ -1818,6 +1819,34 @@ html { scrollbar-color: #ffe3e7 rgba(0, 0, 0, 0.25); }
   cursor: pointer;
   display: flex;
   flex-direction: column;
+}
+.ss-dl-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(18, 21, 26, 0.14);
+  color: #1a1d24;
+  box-shadow: 0 2px 8px rgba(18, 21, 26, 0.18);
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+.ss-panel-card:hover .ss-dl-btn,
+.ss-dl-btn:focus-visible {
+  opacity: 1;
+}
+.ss-dl-btn:hover {
+  background: #ffedd5;
+}
+@media (hover: none) {
+  .ss-dl-btn {
+    opacity: 1;
+  }
 }
 .ss-panel-card:hover {
   border-color: rgba(124, 45, 18, 0.35);
