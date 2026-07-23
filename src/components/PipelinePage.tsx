@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { C, TONES } from "@/lib/theme";
 import { isBlank, today } from "@/lib/format";
@@ -28,15 +29,12 @@ import TablePager from "@/components/TablePager";
 import DisputePanel from "@/components/DisputePanel";
 import { createClient } from "@/lib/supabase/client";
 import {
-  fetchRows,
-  fetchRowsTotal,
   fetchRowByLeadId,
   fetchOpsAccuracyStats,
   saveRecord,
   deleteRecord,
   createManualOpsRecord,
   createManualCloserRecord,
-  fetchTabCounts,
   addLeadComment,
   fetchLeadComments,
 } from "@/actions/data";
@@ -45,12 +43,11 @@ import { openOpsDispute } from "@/actions/ops-disputes";
 import { saveLeadNotes } from "@/actions/lead-notes";
 import type { LeadComment } from "@/lib/types";
 import {
-  getPipelineCache,
-  invalidatePipelineCache,
-  pipelineCacheKey,
-  setPipelineCache,
-  touchPipelineCacheTotal,
-} from "@/lib/pipeline-cache";
+  PIPELINE_PAGE_SIZE,
+  pipelineRowsKey,
+  pipelineTotalKey,
+} from "@/lib/query-keys";
+import { queryPipelineRows, queryPipelineTotal } from "@/lib/pipeline-queries";
 import { usStateCodes, usStateLabel } from "@/lib/us-locations";
 
 const LG_QA_OUTCOMES = ["Pending", "Qualified", "Disqualified", "Not in QA"] as const;
@@ -117,7 +114,7 @@ function listFilterCacheKey(tab: TabKey, f: ListFilterState): string {
 }
 
 /** Fixed page size — table grows with rows (page scrolls); no empty minHeight gap. */
-const PAGE_SIZE = 50;
+const PAGE_SIZE = PIPELINE_PAGE_SIZE;
 /** Don't hard-refresh on every window focus — only if data is this stale. */
 const FOCUS_REFRESH_MIN_MS = 30_000;
 /** Background (realtime) refetch debounce — leads table is busy team-wide. */
@@ -228,16 +225,13 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   const app = useApp();
   const tabDef = TABS.find((t) => t.k === tab)!;
   const fields = SCHEMAS[tab] || [];
+  const queryClient = useQueryClient();
 
-  const [rows, setRows] = useState<Rec[] | null>(null);
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
   const pageSize = PAGE_SIZE;
   const [searchQ, setSearchQ] = useState("");
   /** Lead Gen / QA / SQL / Closer toolbar filters. */
   const [filters, setFilters] = useState<ListFilterState>(EMPTY_LIST_FILTERS);
-  /** True only for intentional page/search/tf fetches — not silent live sync. */
-  const [pageFetching, setPageFetching] = useState(false);
 
   const setFilter = useCallback(<K extends keyof ListFilterState>(key: K, value: ListFilterState[K]) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -257,20 +251,13 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
   } | null>(null);
   const [drawer, setDrawer] = useState<{ record: Rec; isNew: boolean } | null>(null);
   const tableShellRef = useRef<HTMLDivElement>(null);
-  const fetchGen = useRef(0);
   const lastFetchAt = useRef(0);
   const refreshRef = useRef<(opts?: { silent?: boolean }) => Promise<void>>(async () => {});
-  const silentInFlight = useRef(false);
-  const silentQueued = useRef(false);
 
   const canEdit = app.editTabs.includes(tab);
   const notAllowed = !app.viewTabs.includes(tab);
-  const pageSizeReady = true;
-  const initialLoading = rows === null;
 
   const pushToasts = app.pushToasts;
-  const setCounts = app.setCounts;
-  const viewTabs = app.viewTabs;
   const tf = app.tf;
 
   const listExtraKey = useMemo(() => listFilterCacheKey(tab, filters), [tab, filters]);
@@ -302,6 +289,103 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     [filters]
   );
 
+  const rowsQueryKey = useMemo(
+    () =>
+      pipelineRowsKey({
+        tab,
+        tf,
+        page,
+        pageSize,
+        q: searchQ,
+        filtersKey: listExtraKey,
+      }),
+    [tab, tf, page, pageSize, searchQ, listExtraKey]
+  );
+
+  const totalQueryKey = useMemo(
+    () =>
+      pipelineTotalKey({
+        tab,
+        tf,
+        q: searchQ,
+        filtersKey: listExtraKey,
+      }),
+    [tab, tf, searchQ, listExtraKey]
+  );
+
+  const rowsQuery = useQuery({
+    queryKey: rowsQueryKey,
+    queryFn: () =>
+      queryPipelineRows({
+        tab,
+        tf,
+        page,
+        pageSize,
+        q: searchQ || undefined,
+        ...listFilterPayload,
+      }),
+    enabled: !notAllowed,
+  });
+
+  const totalQuery = useQuery({
+    queryKey: totalQueryKey,
+    queryFn: () =>
+      queryPipelineTotal({
+        tab,
+        tf,
+        q: searchQ || undefined,
+        ...listFilterPayload,
+      }),
+    enabled: !notAllowed && !!rowsQuery.data,
+  });
+
+  const rows = rowsQuery.data?.rows ?? null;
+  const total = totalQuery.data?.total ?? rowsQuery.data?.rows.length ?? 0;
+  // Cached revisits: data is present immediately; only cold loads show the blocker.
+  const pageFetching = rowsQuery.isFetching && !rowsQuery.data;
+  const initialLoading = !rowsQuery.data && (rowsQuery.isPending || rowsQuery.isFetching);
+
+  useEffect(() => {
+    if (rowsQuery.dataUpdatedAt) lastFetchAt.current = rowsQuery.dataUpdatedAt;
+  }, [rowsQuery.dataUpdatedAt]);
+
+  useEffect(() => {
+    if (rowsQuery.error) {
+      pushToasts([rowsQuery.error.message || "Failed to load records."]);
+    }
+  }, [rowsQuery.error, pushToasts]);
+
+  const patchCachedRows = useCallback(
+    (updater: (prev: Rec[]) => Rec[]) => {
+      queryClient.setQueryData(rowsQueryKey, (old: { rows: Rec[] } | undefined) => {
+        if (!old?.rows) return old;
+        return { ...old, rows: updater(old.rows) };
+      });
+    },
+    [queryClient, rowsQueryKey]
+  );
+
+  const refresh = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["pipeline", "rows", tab] }),
+        queryClient.invalidateQueries({ queryKey: ["pipeline", "total", tab] }),
+      ]);
+      if (!opts?.silent) {
+        await queryClient.invalidateQueries({ queryKey: ["tabCounts"] });
+        if (tab === "ops") {
+          const s = await fetchOpsAccuracyStats({ tf });
+          if (!s.error) setOpsBanner(s);
+        }
+      } else {
+        await queryClient.invalidateQueries({ queryKey: ["tabCounts"] });
+      }
+    },
+    [queryClient, tab, tf]
+  );
+
+  refreshRef.current = refresh;
+
   // Debounce header search → server `q`
   useEffect(() => {
     const t = setTimeout(() => {
@@ -328,21 +412,12 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     return () => clearTimeout(t);
   }, [filters.nameInput, tab]);
 
-  // Reset page when tab / timeframe / list filters change — restore cache instantly if warm.
+  // Reset page when tab / timeframe / list filters change.
   useEffect(() => {
     setPage(1);
     if (!FILTER_TABS.has(tab)) {
       setFilters(EMPTY_LIST_FILTERS);
     }
-    const key = pipelineCacheKey(tab, tf, 1, pageSize, searchQ, listExtraKey);
-    const hit = getPipelineCache(key);
-    if (hit) {
-      setRows(hit.rows);
-      setTotal(hit.total);
-    } else {
-      setRows(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- pageSize/search handled in fetch effect
   }, [tab, tf, listExtraKey]);
 
   // Clear filters when leaving a filterable tab (or switching between them).
@@ -354,153 +429,26 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     }
   }, [tab]);
 
-  const refresh = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      if (!pageSizeReady) return;
-      const silent = !!opts?.silent;
-      if (silent) {
-        if (silentInFlight.current) {
-          silentQueued.current = true;
-          return;
-        }
-        silentInFlight.current = true;
-      }
-      const gen = ++fetchGen.current;
-      if (!silent) setPageFetching(true);
-      try {
-        const res = await fetchRows({
-          tab,
-          tf,
-          page,
-          pageSize,
-          q: searchQ || undefined,
-          ...listFilterPayload,
-          skipCount: silent,
-        });
-        if (gen !== fetchGen.current) return;
-        if (res.error) {
-          if (!silent) pushToasts([res.error]);
-          setPageFetching(false);
-          return;
-        }
-        setRows(res.rows);
-        let nextTotal = 0;
-        setTotal((prev) => {
-          nextTotal = res.keepTotal ? prev : res.total;
-          const maxPage = Math.max(1, Math.ceil(nextTotal / pageSize) || 1);
-          if (page > maxPage) setPage(maxPage);
-          return nextTotal;
-        });
-        setPipelineCache(
-          pipelineCacheKey(tab, tf, page, pageSize, searchQ, listExtraKey),
-          res.rows,
-          nextTotal || res.rows.length
-        );
-        lastFetchAt.current = Date.now();
-        setPageFetching(false);
-        if (!silent) {
-          fetchTabCounts({ tf, tabs: viewTabs }).then((c) => setCounts(c));
-          if (tab === "ops") {
-            fetchOpsAccuracyStats({ tf }).then((s) => {
-              if (!s.error) setOpsBanner(s);
-            });
-          } else {
-            setOpsBanner(null);
-          }
-        } else {
-          // After save / live sync: refresh only the dirty tab badge
-          fetchTabCounts({ tf, tabs: [tab] }).then((c) =>
-            setCounts((prev) => ({ ...prev, ...c }))
-          );
-        }
-      } finally {
-        if (silent) {
-          silentInFlight.current = false;
-          if (silentQueued.current) {
-            silentQueued.current = false;
-            void refreshRef.current({ silent: true });
-          }
-        }
-      }
-    },
-    [
-      tab,
-      tf,
-      page,
-      pageSize,
-      pageSizeReady,
-      searchQ,
-      listExtraKey,
-      listFilterPayload,
-      pushToasts,
-      setCounts,
-      viewTabs,
-    ]
-  );
-
-  refreshRef.current = refresh;
-
   useEffect(() => {
-    if (notAllowed || !pageSizeReady) return;
-    const key = pipelineCacheKey(tab, tf, page, pageSize, searchQ, listExtraKey);
-    const hit = getPipelineCache(key);
-    if (hit) {
-      setRows(hit.rows);
-      setTotal(hit.total);
-      lastFetchAt.current = hit.at;
-    }
-
-    const gen = ++fetchGen.current;
-    // Only flash the loader when we have nothing cached to show.
-    if (!hit) setPageFetching(true);
-
-    // Skip COUNT(*) on first paint — pager total fills in right after.
-    fetchRows({
-      tab,
-      tf,
-      page,
-      pageSize,
-      q: searchQ || undefined,
-      ...listFilterPayload,
-      skipCount: true,
-    }).then((res) => {
-      if (gen !== fetchGen.current) return;
-      if (res.error) pushToasts([res.error]);
-      setRows(res.rows);
-      setPipelineCache(key, res.rows, hit?.total ?? res.rows.length);
-      lastFetchAt.current = Date.now();
-      setPageFetching(false);
-
-      void fetchRowsTotal({
-        tab,
-        tf,
-        q: searchQ || undefined,
-        ...listFilterPayload,
-      }).then((c) => {
-        if (gen !== fetchGen.current || c.error) return;
-        setTotal(c.total);
-        touchPipelineCacheTotal(key, c.total);
-      });
-    });
-    if (tab === "ops") {
-      fetchOpsAccuracyStats({ tf }).then((s) => {
-        if (gen === fetchGen.current && !s.error) setOpsBanner(s);
-      });
-    } else {
+    if (tab !== "ops" || notAllowed) {
       setOpsBanner(null);
+      return;
     }
-  }, [
-    tab,
-    tf,
-    page,
-    pageSize,
-    pageSizeReady,
-    searchQ,
-    listExtraKey,
-    listFilterPayload,
-    notAllowed,
-    pushToasts,
-  ]);
+    let alive = true;
+    fetchOpsAccuracyStats({ tf }).then((s) => {
+      if (alive && !s.error) setOpsBanner(s);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [tab, tf, notAllowed]);
+
+  // Clamp page when total shrinks after refetch.
+  useEffect(() => {
+    if (!totalQuery.data) return;
+    const maxPage = Math.max(1, Math.ceil(total / pageSize) || 1);
+    if (page > maxPage) setPage(maxPage);
+  }, [total, page, pageSize, totalQuery.data]);
 
   const changePage = useCallback((next: number) => {
     setPage(next);
@@ -530,14 +478,12 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
           );
           // Cross-page duplicate mark (list only checks the current page).
           if (tab === "leadgen" && res.row.duplicate_of) {
-            setRows((prev) =>
-              prev
-                ? prev.map((row) =>
-                    String(row.lead_id) === leadId
-                      ? { ...row, duplicate_of: res.row!.duplicate_of }
-                      : row
-                  )
-                : prev
+            patchCachedRows((prev) =>
+              prev.map((row) =>
+                String(row.lead_id) === leadId
+                  ? { ...row, duplicate_of: res.row!.duplicate_of }
+                  : row
+              )
             );
           }
         });
@@ -554,7 +500,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
         );
       });
     },
-    [tab]
+    [tab, patchCachedRows]
   );
 
   // Live list: silent refetch — no full-screen preloader flash.
@@ -737,8 +683,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     if (res.messages?.length) app.pushToasts(res.messages);
 
     setDrawer(null);
-    invalidatePipelineCache(tab);
-    refresh();
+    await refresh();
   };
 
   const onDelete = async (rec: Rec) => {
@@ -748,8 +693,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
       return;
     }
     setDrawer(null);
-    invalidatePipelineCache(tab);
-    refresh();
+    await refresh();
   };
 
   if (notAllowed) {
@@ -1349,12 +1293,10 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
                     record: { ...drawer.record, notes },
                     isNew: false,
                   });
-                  setRows((prev) =>
-                    prev
-                      ? prev.map((r) =>
-                          String(r.lead_id) === leadId ? { ...r, notes } : r
-                        )
-                      : prev
+                  patchCachedRows((prev) =>
+                    prev.map((r) =>
+                      String(r.lead_id) === leadId ? { ...r, notes } : r
+                    )
                   );
                 }
               : undefined

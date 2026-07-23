@@ -69,6 +69,14 @@ export default function CeoDashboardPage() {
   const leasePct = Math.min(100, Math.round((revenue / leaseTarget) * 100));
   const opsRate = n("opsAll") ? Math.round((n("opsApproved") / n("opsAll")) * 100) : 0;
   const onbRateAll = n("onbAll") ? (n("onbApproved") / n("onbAll")) * 100 : null;
+  const leadsLeadgen = n("leadsLeadgen");
+  const leadsCloserDirect = n("leadsCloserDirect");
+  const leadsOpsManual = n("leadsOpsManual");
+  const leadsOutsideLeadgen = leadsCloserDirect + leadsOpsManual;
+  const leadsSub =
+    leadsOutsideLeadgen > 0
+      ? `${leadsLeadgen} Lead Gen · ${leadsOutsideLeadgen} closer/OPS direct`
+      : `${leadsLeadgen || n("leads")} Lead Gen · ${app.tf.toLowerCase()}`;
   const funnel = (d.funnel || []) as FunnelStep[];
   const sources = (d.leadSources || []) as { label: string; count: number }[];
   const mspRates = (d.mspRates || []) as { name: string; rate: number }[];
@@ -153,7 +161,12 @@ export default function CeoDashboardPage() {
       </div>
 
       <div className="ceo-stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 14, marginBottom: 14 }}>
-        <Stat label="Leads" value={n("leads")} sub={app.tf.toLowerCase()} onClick={() => nav("leadgen")} />
+        <Stat
+          label="Leads"
+          value={n("leads")}
+          sub={leadsSub}
+          onClick={() => nav("leadgen")}
+        />
         <Stat label="QA Passed" value={n("qaQualified")} tone={TONES.good.fg} sub={qualRate + "% qual rate"} onClick={() => nav("qa")} />
         <Stat label="Rejected by QA" value={n("qaRejected")} tone={n("qaRejected") ? TONES.bad.fg : C.ink} sub="kept in history" onClick={() => nav("qa")} />
         <Stat label="SQLs Assigned" value={n("sqlsAssigned")} onClick={() => nav("sqlassign")} />

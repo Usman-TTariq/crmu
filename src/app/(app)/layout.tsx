@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getViewAsName } from "@/actions/impersonate";
 import { AppProvider } from "@/components/app-context";
 import AppShell from "@/components/AppShell";
+import QueryProvider from "@/components/query-provider";
 import type { Profile } from "@/lib/types";
 
 export default async function AppLayout({
@@ -32,13 +33,17 @@ export default async function AppLayout({
     getViewAsName(),
   ]);
 
+  const cacheKey = `${session.userId}:${viewAsName || ""}`;
+
   return (
-    <AppProvider
-      session={session}
-      profiles={(profiles || []) as Profile[]}
-      viewAsName={viewAsName}
-    >
-      <AppShell>{children}</AppShell>
-    </AppProvider>
+    <QueryProvider cacheKey={cacheKey}>
+      <AppProvider
+        session={session}
+        profiles={(profiles || []) as Profile[]}
+        viewAsName={viewAsName}
+      >
+        <AppShell>{children}</AppShell>
+      </AppProvider>
+    </QueryProvider>
   );
 }

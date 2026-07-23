@@ -2,6 +2,7 @@
 
 import React, { startTransition, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Lock, LogOut, Menu, Plus, Search, X } from "lucide-react";
 import { C } from "@/lib/theme";
 import { TIMEFRAMES, isDayTimeframe, type Timeframe } from "@/lib/format";
@@ -14,9 +15,14 @@ import BreakControl from "@/components/BreakControl";
 import LeadGenNotify from "@/components/LeadGenNotify";
 import ScreenshotsButton from "@/components/ScreenshotGallery";
 import ScreenshotGuard from "@/components/ScreenshotGuard";
-import { fetchTabCounts } from "@/actions/data";
 import { logSignIn, signOut } from "@/actions/auth";
 import { stopViewAs } from "@/actions/impersonate";
+import { PIPELINE_PAGE_SIZE, pipelineRowsKey, tabCountsKey } from "@/lib/query-keys";
+import {
+  defaultPipelinePrefetchPayload,
+  queryPipelineRows,
+  queryTabCounts,
+} from "@/lib/pipeline-queries";
 
 const SIGN_IN_LOG_KEY = "crm_signed_in_logged";
 
@@ -28,6 +34,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const app = useApp();
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [navOpen, setNavOpen] = useState(false);
   /** Instant highlight / header before Next finishes the route fetch. */
   const [pendingKey, setPendingKey] = useState<TabKey | null>(null);
@@ -55,6 +62,36 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return true;
   });
 
+  const pipelineNavTabs = visibleTabs.filter((t) => !t.kind).map((t) => t.k);
+
+  const countsQuery = useQuery({
+    queryKey: tabCountsKey(app.tf, app.viewTabs),
+    queryFn: () => queryTabCounts(app.tf, app.viewTabs),
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
+  });
+
+  useEffect(() => {
+    if (countsQuery.data) app.setCounts(countsQuery.data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync query → context badges
+  }, [countsQuery.data]);
+
+  const prefetchTabData = (key: TabKey) => {
+    if (!pipelineNavTabs.includes(key)) return;
+    const payload = defaultPipelinePrefetchPayload(key, app.tf);
+    void queryClient.prefetchQuery({
+      queryKey: pipelineRowsKey({
+        tab: key,
+        tf: app.tf,
+        page: 1,
+        pageSize: PIPELINE_PAGE_SIZE,
+        q: "",
+        filtersKey: "",
+      }),
+      queryFn: () => queryPipelineRows(payload),
+    });
+  };
+
   const canEditTab = app.editTabs.includes(activeKey);
   const canAdd =
     !tab.kind &&
@@ -76,6 +113,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     setNavOpen(false);
     setPendingKey(key);
     router.prefetch(`/${key}`);
+    prefetchTabData(key);
     startTransition(() => {
       router.push(`/${key}`);
     });
@@ -139,23 +177,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewTabsKey]);
 
-  useEffect(() => {
-    let alive = true;
-    // Defer sidebar counts so home-page data wins the network burst after login.
-    // After first paint of the active tab — don't compete with fetchRows.
-    const t = window.setTimeout(() => {
-      fetchTabCounts({ tf: app.tf, tabs: app.viewTabs }).then((c) => {
-        if (alive) app.setCounts(c);
-      });
-    }, 1200);
-    return () => {
-      alive = false;
-      window.clearTimeout(t);
-    };
-    // Stable string key — array identity must not retrigger when context rebuilds.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [app.tf, viewTabsKey]);
-
   return (
     <div className={`app-shell min-w-0 w-full${navOpen ? " nav-open" : ""}${navigating ? " is-navigating" : ""}`}>
       {navigating ? <div className="app-nav-progress" aria-hidden /> : null}
@@ -212,7 +233,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       type="button"
                       onClick={() => goTab(t.k)}
                       onMouseEnter={() => {
-                        if (!locked) router.prefetch(`/${t.k}`);
+                        if (locked) return;
+                        router.prefetch(`/${t.k}`);
+                        prefetchTabData(t.k);
                       }}
                       title={locked ? "Locked for everyone" : undefined}
                       className={`crm-nav app-nav-btn${at ? " is-active" : ""}${locked ? " is-locked" : ""}`}
