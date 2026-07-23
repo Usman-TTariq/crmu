@@ -18,6 +18,7 @@ import {
   CLOSER_STAGES,
   CLOSER_LEAD_SOURCES,
   OPS_STATUS,
+  CEO_ROLES,
   isLiveTransferSource,
   type TabKey,
 } from "@/lib/constants";
@@ -596,11 +597,15 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
     setDrawer({ record: rec, isNew: true });
   }, [tab, ownerField, ownerValue, app.role.key, app.session.profile.full_name]);
 
-  // Header "Add" button
+  // Header "Add" button — OPS QA manual leads are CEO / Super Admin only.
+  const canAddHere =
+    canEdit &&
+    ADDABLE.includes(tab) &&
+    (tab !== "ops" || CEO_ROLES.includes(app.role.key));
   useEffect(() => {
-    if (!(canEdit && ADDABLE.includes(tab))) return;
+    if (!canAddHere) return;
     return app.onAdd(openAdd);
-  }, [app, canEdit, tab, openAdd]);
+  }, [app, canAddHere, openAdd]);
 
   const onSave = async (draft: Rec, isNew: boolean) => {
     // Client-side guards, mirrored from the prototype (DB enforces them too)
@@ -1193,7 +1198,7 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
                             ? (r) => (r.returned_after_ops_rework ? "#F8C8CB" : null)
                             : undefined
                 }
-                onAdd={canEdit && ADDABLE.includes(tab) ? openAdd : undefined}
+                onAdd={canAddHere ? openAdd : undefined}
                 addLabel={"Add " + (tabDef.singular || "Row")}
               />
             </div>

@@ -1790,23 +1790,8 @@ export async function saveRecord(payload: SaveRecordPayload): Promise<{
   }
 }
 
-const OPS_CREATE_ROLES = new Set([
-  "ops_qa_agent",
-  "ops_verifier",
-  "ops_qa_onb",
-  "ops_manager",
-  "ops_am",
-  "ceo",
-  "super_admin",
-]);
-const OPS_CREATE_MANAGER_ROLES = new Set([
-  "ops_verifier",
-  "ops_qa_onb",
-  "ops_manager",
-  "ops_am",
-  "ceo",
-  "super_admin",
-]);
+// Manual OPS QA lead creation is restricted to CEO / Super Admin only.
+const OPS_CREATE_ROLES = new Set(["ceo", "super_admin"]);
 
 // ---------------------------------------------------------------------------
 // Manual OPS addition: parent leads row (ops_manual) + ops_verifications
@@ -1826,12 +1811,8 @@ export async function createManualOpsRecord(payload: {
     const admin = createAdminClient();
     const v = payload.values;
     const identity = String(session.profile.full_name || "").trim();
-    // Agents always own their creates. Managers must pick an OPS QA agent.
-    const opsAgent =
-      role === "ops_qa_agent"
-        ? identity
-        : String(v.ops_agent || "").trim() ||
-          (OPS_CREATE_MANAGER_ROLES.has(role) ? identity : "");
+    // CEO / Super Admin pick the owning OPS QA agent (falls back to self).
+    const opsAgent = String(v.ops_agent || "").trim() || identity;
     if (!opsAgent) {
       return { error: "OPS QA Agent is required. Select who owns this lead." };
     }

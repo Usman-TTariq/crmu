@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Lock, LogOut, Menu, Plus, Search, X } from "lucide-react";
 import { C } from "@/lib/theme";
 import { TIMEFRAMES, isDayTimeframe, type Timeframe } from "@/lib/format";
-import { TABS, NAV_GROUPS, groupOf, ADDABLE, USER_ADMIN_ROLES, type TabKey } from "@/lib/constants";
+import { TABS, NAV_GROUPS, groupOf, ADDABLE, USER_ADMIN_ROLES, CEO_ROLES, type TabKey } from "@/lib/constants";
 import { useApp } from "@/components/app-context";
 import ActiveLogins from "@/components/ActiveLogins";
 import PresenceBadge from "@/components/PresenceBadge";
@@ -97,7 +97,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     !tab.kind &&
     canEditTab &&
     ADDABLE.includes(activeKey) &&
-    (activeKey !== "teamsetup" || USER_ADMIN_ROLES.includes(app.role.key));
+    (activeKey !== "teamsetup" || USER_ADMIN_ROLES.includes(app.role.key)) &&
+    (activeKey !== "ops" || CEO_ROLES.includes(app.role.key));
 
   const goTab = (key: TabKey) => {
     if (key === "counselling" && app.counsellingLocked) {
