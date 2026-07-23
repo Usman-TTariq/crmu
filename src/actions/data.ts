@@ -393,7 +393,7 @@ export interface FetchRowsPayload {
 }
 
 const QA_DECISION_FILTERS = new Set(["Pending", "Qualified", "Disqualified"]);
-const LEAD_SOURCE_FILTERS = new Set(LEAD_SOURCES);
+const LEAD_SOURCE_FILTERS = new Set<string>(LEAD_SOURCES);
 const PROCESSOR_FILTERS = new Set(PROCESSORS);
 const STATE_FILTERS = new Set(usStateCodes());
 const QA_OUTCOME_FILTERS = new Set([...QA_DECISION_FILTERS, "Not in QA"]);

@@ -8,14 +8,12 @@ export const LEAD_SOURCES = [
   "SEO",
   "PPC",
   "SMM",
-] as const;
-
-export type LeadSource = (typeof LEAD_SOURCES)[number];
+];
 
 const LEAD_SOURCE_SET = new Set<string>(LEAD_SOURCES);
 
 /** Legacy / typo labels → canonical Lead Gen data source. */
-const LEAD_SOURCE_ALIASES: Record<string, LeadSource> = {
+const LEAD_SOURCE_ALIASES: Record<string, string> = {
   "cold calling": "Cold Calling",
   "data scrapping": "Data Scrapping",
   "data scraping": "Data Scrapping",
@@ -26,10 +24,10 @@ const LEAD_SOURCE_ALIASES: Record<string, LeadSource> = {
 };
 
 /** Map raw DB value to an official Lead Gen source, or null if not a data source. */
-export const normalizeLeadSource = (source: unknown): LeadSource | null => {
+export const normalizeLeadSource = (source: unknown): string | null => {
   const raw = String(source || "").trim();
   if (!raw) return null;
-  if (LEAD_SOURCE_SET.has(raw)) return raw as LeadSource;
+  if (LEAD_SOURCE_SET.has(raw)) return raw;
   return LEAD_SOURCE_ALIASES[raw.toLowerCase()] || null;
 };
 
