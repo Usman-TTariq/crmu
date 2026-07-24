@@ -259,11 +259,11 @@ export const ROLES: RoleDef[] = [
   {
     key: "qa_agent",
     label: "QA Agent [SALES]",
-    view: ["qa", "closer"],
+    view: ["qa"],
     edit: ["qa"],
     home: "qa",
     row: { qa: "ownQA" },
-    scope: "Only the leads assigned to you for QA. Closer Pipeline is read-only so you can monitor SQLs that are not yet converted.",
+    scope: "Only the leads assigned to you for QA.",
   },
   { key: "closer", label: "Closer [SALES]", view: ["closer"], edit: ["closer"], home: "closer", row: { closer: "ownCloser" }, scope: "Only the deals assigned to you. You can also create direct leads that skip Lead Gen / QA and enter your pipeline. OPS-disapproved deals can be disputed to AVP Sales." },
   {
