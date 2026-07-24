@@ -93,6 +93,15 @@ export default function CeoDashboardPage() {
       (a, b) => b.count - a.count
     );
   })();
+  // Leads added directly by OPS QA (lead_origin = 'ops_manual') — own funnel.
+  const opsDirect = (d.opsDirect || {}) as Record<string, number | null>;
+  const opsDirectSteps: FunnelStep[] = [
+    { label: "Added by OPS QA", count: num(opsDirect.added) },
+    { label: "OPS Approved", count: num(opsDirect.opsApproved) },
+    { label: "MSP Approved", count: num(opsDirect.mspApproved) },
+    { label: "Funded", count: num(opsDirect.funded) },
+    { label: "Live", count: num(opsDirect.live) },
+  ];
   const mspRates = (d.mspRates || []) as { name: string; rate: number }[];
   const leaseRates = (d.leaseRates || []) as { name: string; rate: number }[];
   const drops = (d.dropOffs || []) as { label: string; n: number }[];
@@ -197,6 +206,15 @@ export default function CeoDashboardPage() {
           </Panel>
           <Panel title={"Data Source Mix · " + app.tf} color={C.blue}>
             <SegmentedDonut centerLabel="LEADS" items={sources} />
+          </Panel>
+          <Panel title={"OPS Direct Leads · added by OPS QA · " + app.tf} color="#1E7A47">
+            {num(opsDirect.added) > 0 ? (
+              <FunnelChart steps={opsDirectSteps} />
+            ) : (
+              <div style={{ fontSize: 13, color: C.inkFaint }}>
+                No leads added directly from OPS QA in this period.
+              </div>
+            )}
           </Panel>
           <Panel title="MSP Approval Rates" color="#6D28D9" style={{ flex: 1 }}>
             {mspRates.length ? (

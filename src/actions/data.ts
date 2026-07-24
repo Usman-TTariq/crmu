@@ -752,8 +752,17 @@ async function enrichPipelineRows(
       out = await enrichAuditNames(out, admin);
     }
   } else if (tab === "ops" && leadIds.length) {
+    // lead_origin drives the green "added directly by OPS QA" row highlight.
+    const { data: originRows } = await admin
+      .from("leads")
+      .select("lead_id, lead_origin")
+      .in("lead_id", leadIds);
+    const originByLead = new Map(
+      (originRows || []).map((l) => [String(l.lead_id), String(l.lead_origin || "")])
+    );
     out = out.map((r) => ({
       ...r,
+      lead_origin: originByLead.get(String(r.lead_id || "")) || r.lead_origin || "",
       after_ops_dispute: r.returned_after_ops_dispute ? "After OPS dispute" : "",
     }));
   }

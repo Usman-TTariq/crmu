@@ -659,6 +659,14 @@ export const SCHEMAS: Record<string, FieldDef[]> = {
   ],
   ops: [
     { k: "lead_id", label: "Lead ID", type: "text", readOnly: true, mono: true },
+    {
+      k: "ops_direct_mark",
+      label: "Origin",
+      type: "computed",
+      isPill: true,
+      hideTable: true,
+      compute: (r) => (r.lead_origin === "ops_manual" ? "Direct · added by OPS QA" : ""),
+    },
     { k: "closed_date", label: "Closed Date", type: "date", readOnly: true },
     { k: "business_name", label: "Business Name", type: "text", readOnly: true },
     { k: "owner_name", label: "Owner Name", type: "text", readOnly: true },

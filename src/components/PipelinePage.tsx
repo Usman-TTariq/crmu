@@ -1196,6 +1196,8 @@ export default function PipelinePage({ tab }: { tab: TabKey }) {
                                   : null
                           : tab === "documentation"
                             ? (r) => (r.returned_after_ops_rework ? "#F8C8CB" : null)
+                          : tab === "ops"
+                            ? (r) => (r.lead_origin === "ops_manual" ? "#CDEFD6" : null)
                             : undefined
                 }
                 onAdd={canAddHere ? openAdd : undefined}
