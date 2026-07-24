@@ -265,6 +265,14 @@ export const ROLES: RoleDef[] = [
     row: { qa: "ownQA" },
     scope: "Only the leads assigned to you for QA.",
   },
+  {
+    key: "qa_verifier",
+    label: "QA Agent Verifier [SALES]",
+    view: ["closer"],
+    edit: [],
+    home: "closer",
+    scope: "All leads assigned to closers. Closer Pipeline is read-only.",
+  },
   { key: "closer", label: "Closer [SALES]", view: ["closer"], edit: ["closer"], home: "closer", row: { closer: "ownCloser" }, scope: "Only the deals assigned to you. You can also create direct leads that skip Lead Gen / QA and enter your pipeline. OPS-disapproved deals can be disputed to AVP Sales." },
   {
     key: "ops_verifier",
@@ -359,6 +367,7 @@ export const TITLE_ROLE_MAP: Record<string, string> = {
   Closer: "closer",
   "Tier 3": "closer",
   "QA Agent": "qa_agent",
+  "QA Agent Verifier": "qa_verifier",
   Manager: "ops_manager",
   "Assistant Manager": "ops_am",
   "Onboarding Lead": "onboarding_lead",
